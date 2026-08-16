@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { CalendarDays, Check, ChevronLeft, ChevronRight, Clock3 } from "lucide-react";
+import { CustomSelect } from "./CustomSelect.js";
 
 type PickerMode = "date" | "datetime";
 
@@ -29,6 +30,8 @@ const MONTHS = [
   "Декабрь",
 ] as const;
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"] as const;
+const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => ({ value: String(hour), label: pad(hour) }));
+const MINUTE_OPTIONS = Array.from({ length: 60 }, (_, minute) => ({ value: String(minute), label: pad(minute) }));
 
 function pad(value: number): string {
   return String(value).padStart(2, "0");
@@ -110,9 +113,11 @@ export function DateTimePicker({
     if (!open) return undefined;
     const closeOnOutsideClick = (event: PointerEvent) => {
       const target = event.target as Node;
-      if (!triggerRef.current?.contains(target) && !popoverRef.current?.contains(target)) setOpen(false);
+      const insideDropdown = target instanceof Element && target.closest("[data-dropdown-layer=\"true\"]") !== null;
+      if (!insideDropdown && !triggerRef.current?.contains(target) && !popoverRef.current?.contains(target)) setOpen(false);
     };
     const closeOnEscape = (event: KeyboardEvent) => {
+      if (document.activeElement?.closest("[data-dropdown-layer=\"true\"]") !== null) return;
       if (event.key === "Escape") {
         setOpen(false);
         triggerRef.current?.focus();
@@ -231,19 +236,15 @@ export function DateTimePicker({
         <div className="date-picker-time">
           <span><Clock3 size={16} /> Время запуска</span>
           <div>
-            <label>
+            <div className="time-field">
               <small>Часы</small>
-              <select aria-label="Часы" value={selected?.getHours() ?? today.getHours()} onChange={(event) => chooseTime("hours", Number(event.target.value))}>
-                {Array.from({ length: 24 }, (_, hour) => <option key={hour} value={hour}>{pad(hour)}</option>)}
-              </select>
-            </label>
+              <CustomSelect compact ariaLabel="Часы" value={String(selected?.getHours() ?? today.getHours())} options={HOUR_OPTIONS} onChange={(hours) => chooseTime("hours", Number(hours))} />
+            </div>
             <b>:</b>
-            <label>
+            <div className="time-field">
               <small>Минуты</small>
-              <select aria-label="Минуты" value={selected?.getMinutes() ?? today.getMinutes()} onChange={(event) => chooseTime("minutes", Number(event.target.value))}>
-                {Array.from({ length: 60 }, (_, minute) => <option key={minute} value={minute}>{pad(minute)}</option>)}
-              </select>
-            </label>
+              <CustomSelect compact align="right" ariaLabel="Минуты" value={String(selected?.getMinutes() ?? today.getMinutes())} options={MINUTE_OPTIONS} onChange={(minutes) => chooseTime("minutes", Number(minutes))} />
+            </div>
           </div>
         </div>
       ) : null}

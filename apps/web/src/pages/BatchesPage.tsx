@@ -13,6 +13,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { apiFetch, apiMutation } from "../api.js";
+import { CustomSelect } from "../components/CustomSelect.js";
 import { DateTimePicker } from "../components/DateTimePicker.js";
 import { useApi } from "../hooks/use-api.js";
 import type { Batch, MetaData, Recipe } from "../types.js";
@@ -175,10 +176,10 @@ function CreateBatchModal({
       <form className="form-grid" onSubmit={(event) => void submit(event)}>
         <label><span>Номер замеса</span><input required value={form.number} onChange={(event) => setForm({ ...form, number: event.target.value })} /></label>
         <div className="form-field"><span>Дата и время</span><DateTimePicker ariaLabel="Дата и время замеса" value={form.scheduledAt} onChange={(scheduledAt) => setForm({ ...form, scheduledAt })} /></div>
-        <label className="span-2"><span>Рецептура</span><select required value={form.recipeVersionId} onChange={(event) => setForm({ ...form, recipeVersionId: event.target.value })}>{activeRecipes.map((recipe) => <option key={recipe.id} value={recipe.versions[0]?.id}>{recipe.name} · v{recipe.versions[0]?.version} · {recipe.versions[0]?.concreteGrade}</option>)}</select></label>
+        <div className="form-field span-2"><span>Рецептура</span><CustomSelect ariaLabel="Рецептура" value={form.recipeVersionId} onChange={(recipeVersionId) => setForm({ ...form, recipeVersionId })} options={activeRecipes.map((recipe) => ({ value: recipe.versions[0]?.id ?? "", label: recipe.name, description: `v${recipe.versions[0]?.version} · ${recipe.versions[0]?.concreteGrade}` })).filter((option) => option.value !== "")} /></div>
         <label><span>Плановый объём, м³</span><input required min="0.001" step="0.001" type="number" value={form.plannedVolume} onChange={(event) => setForm({ ...form, plannedVolume: event.target.value })} /></label>
-        <label><span>Производственная линия</span><select required value={form.productionLineId} onChange={(event) => setForm({ ...form, productionLineId: event.target.value })}>{meta?.productionLines.map((line) => <option key={line.id} value={line.id}>{line.name} · {formatNumber(line.capacity)} {unitLabel[line.capacityUnit]}/ч</option>)}</select></label>
-        <label className="span-2"><span>Оператор</span><select required value={form.operatorId} onChange={(event) => setForm({ ...form, operatorId: event.target.value })}>{meta?.users.filter((user) => ["OPERATOR", "ADMIN"].includes(user.role)).map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></label>
+        <div className="form-field"><span>Производственная линия</span><CustomSelect ariaLabel="Производственная линия" value={form.productionLineId} onChange={(productionLineId) => setForm({ ...form, productionLineId })} options={(meta?.productionLines ?? []).map((line) => ({ value: line.id, label: line.name, description: `${formatNumber(line.capacity)} ${unitLabel[line.capacityUnit]}/ч` }))} /></div>
+        <div className="form-field span-2"><span>Оператор</span><CustomSelect ariaLabel="Оператор" value={form.operatorId} onChange={(operatorId) => setForm({ ...form, operatorId })} options={(meta?.users ?? []).filter((user) => ["OPERATOR", "ADMIN"].includes(user.role)).map((user) => ({ value: user.id, label: user.name, description: user.role === "ADMIN" ? "Администратор" : "Оператор" }))} /></div>
         <label className="span-2"><span>Комментарий</span><textarea rows={3} value={form.comments} onChange={(event) => setForm({ ...form, comments: event.target.value })} placeholder="Задание смены, особенности выпуска…" /></label>
         {error === null ? null : <div className="form-error span-2">{error}</div>}
         <div className="modal-actions span-2"><button type="button" className="button ghost" onClick={onClose}>Отмена</button><button className="button primary" disabled={saving}>{saving ? "Сохраняем…" : "Создать замес"}<ArrowRight size={16} /></button></div>

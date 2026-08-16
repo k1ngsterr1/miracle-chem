@@ -26,7 +26,8 @@ describe("DateTimePicker", () => {
     fireEvent.click(screen.getByRole("button", { name: "17 августа 2026" }));
     expect(trigger).toHaveTextContent("17.08.2026, 13:20");
 
-    fireEvent.change(screen.getByRole("combobox", { name: "Часы" }), { target: { value: "14" } });
+    fireEvent.click(screen.getByRole("combobox", { name: "Часы" }));
+    fireEvent.click(screen.getByRole("option", { name: "14" }));
     expect(trigger).toHaveTextContent("17.08.2026, 14:20");
   });
 
@@ -50,5 +51,16 @@ describe("DateTimePicker", () => {
 
     expect(screen.queryByRole("dialog", { name: "Дата и время замеса" })).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
+  });
+
+  it("keeps the calendar open when Escape only closes a time dropdown", () => {
+    render(<DateTimeHarness />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Дата и время замеса" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Часы" }));
+    fireEvent.keyDown(screen.getByRole("listbox", { name: "Часы: варианты" }), { key: "Escape" });
+
+    expect(screen.queryByRole("listbox", { name: "Часы: варианты" })).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Дата и время замеса" })).toBeInTheDocument();
   });
 });
