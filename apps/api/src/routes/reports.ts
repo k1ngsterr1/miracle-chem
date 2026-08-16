@@ -92,11 +92,11 @@ export async function registerReportRoutes(app: FastifyInstance): Promise<void> 
             : type === "lrt"
               ? await getLrtTransferReport(workspaceId, period)
         : await getProductionReport(workspaceId, period);
-    const basename = `betonflow-${type}-${period.from.toISOString().slice(0, 10)}-${period.to
+    const basename = `miracle-chem-${type}-${period.from.toISOString().slice(0, 10)}-${period.to
       .toISOString()
       .slice(0, 10)}`;
     if (query.format === "xlsx") {
-      const output = createXlsx(rows, "BetonFlow report");
+      const output = createXlsx(rows, "Miracle Chem report");
       return reply
         .header("content-type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         .header("content-disposition", `attachment; filename="${basename}.xlsx"`)

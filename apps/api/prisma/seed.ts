@@ -36,18 +36,18 @@ async function main(): Promise<void> {
     where: { id: DEFAULT_WORKSPACE_ID },
     create: {
       id: DEFAULT_WORKSPACE_ID,
-      name: "BetonFlow Demo Plant",
+      name: "Miracle Chem Plant",
       timezone: "Asia/Almaty",
       currency: "KZT",
     },
-    update: {},
+    update: { name: "Miracle Chem Plant" },
   });
 
   await Promise.all([
-    upsertUser(DEFAULT_ACTOR_ID, "Алишер Махмутов", "admin@betonflow.local", UserRole.ADMIN),
-    upsertUser(ids.operator, "Руслан Ермеков", "operator@betonflow.local", UserRole.OPERATOR),
-    upsertUser(ids.technologist, "Алия Садыкова", "technologist@betonflow.local", UserRole.TECHNOLOGIST),
-    upsertUser(ids.lrt, "Данияр Омаров", "lrt@betonflow.local", UserRole.LRT_RECEIVER),
+    upsertUser(DEFAULT_ACTOR_ID, "Алишер Махмутов", "admin@miracle-chem.local", UserRole.ADMIN),
+    upsertUser(ids.operator, "Руслан Ермеков", "operator@miracle-chem.local", UserRole.OPERATOR),
+    upsertUser(ids.technologist, "Алия Садыкова", "technologist@miracle-chem.local", UserRole.TECHNOLOGIST),
+    upsertUser(ids.lrt, "Данияр Омаров", "lrt@miracle-chem.local", UserRole.LRT_RECEIVER),
   ]);
 
   await prisma.productionLine.upsert({

@@ -38,12 +38,12 @@ beforeAll(async () => {
   await prisma.workspace.create({
     data: {
       id: testIds.workspace,
-      name: "BetonFlow Integration Test",
+      name: "Miracle Chem Integration Test",
       users: {
         create: {
           id: testIds.actor,
           name: "Integration Admin",
-          email: "integration@betonflow.test",
+          email: "integration@miracle-chem.test",
           role: UserRole.ADMIN,
         },
       },
@@ -133,11 +133,11 @@ afterAll(async () => {
   await app.close();
 }, 30_000);
 
-describe("BetonFlow API integration", () => {
+describe("Miracle Chem API integration", () => {
   it("responds to health and evaluates formulas on the backend", async () => {
     const health = await app.inject({ method: "GET", url: "/health" });
     expect(health.statusCode).toBe(200);
-    expect(health.json()).toMatchObject({ status: "ok", service: "betonflow-api" });
+    expect(health.json()).toMatchObject({ status: "ok", service: "miracle-chem-api" });
 
     const calculation = await app.inject({
       method: "POST",

@@ -74,7 +74,7 @@ export function App() {
       <aside className="sidebar">
         <button className="brand" onClick={() => navigate("dashboard")}>
           <span className="brand-mark"><Blocks size={22} /></span>
-          <span><strong>BETONFLOW</strong><small>production control</small></span>
+          <span><strong>MIRACLE CHEM</strong><small>production control</small></span>
         </button>
 
         <div className="plant-select">

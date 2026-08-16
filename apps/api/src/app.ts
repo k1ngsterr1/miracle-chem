@@ -31,7 +31,7 @@ export async function buildApp() {
 
   app.get("/health", async () => {
     await prisma.$queryRaw`SELECT 1`;
-    return { status: "ok", service: "betonflow-api", timestamp: new Date().toISOString() };
+    return { status: "ok", service: "miracle-chem-api", timestamp: new Date().toISOString() };
   });
 
   await app.register(async (api) => {

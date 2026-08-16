@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App.js";
 
 const meta = {
-  workspace: { id: "w", name: "BetonFlow Demo Plant", timezone: "Asia/Almaty", currency: "KZT" },
+  workspace: { id: "w", name: "Miracle Chem Plant", timezone: "Asia/Almaty", currency: "KZT" },
   actor: { id: "u", name: "Алишер Махмутов", role: "ADMIN" },
   users: [],
   productionLines: [],
@@ -28,7 +28,7 @@ const dashboard = {
   productionTrend: [],
 };
 
-describe("BetonFlow app shell", () => {
+describe("Miracle Chem app shell", () => {
   beforeEach(() => {
     window.location.hash = "dashboard";
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -44,11 +44,10 @@ describe("BetonFlow app shell", () => {
 
   it("loads the dashboard and keeps production modules visible", async () => {
     render(<App />);
-    expect(screen.getByText("BETONFLOW")).toBeInTheDocument();
+    expect(screen.getByText("MIRACLE CHEM")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("Произведено сегодня")).toBeInTheDocument());
     expect(screen.getByRole("button", { name: /Производство/u })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Материалы/u })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Передачи ЛРТ/u })).toBeInTheDocument();
   });
 });
-
