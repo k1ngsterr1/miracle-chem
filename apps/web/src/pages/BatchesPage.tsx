@@ -13,6 +13,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { apiFetch, apiMutation } from "../api.js";
+import { DateTimePicker } from "../components/DateTimePicker.js";
 import { useApi } from "../hooks/use-api.js";
 import type { Batch, MetaData, Recipe } from "../types.js";
 import { formatDate, formatMoney, formatNumber, unitLabel } from "../lib/format.js";
@@ -173,7 +174,7 @@ function CreateBatchModal({
     <Modal title="Новый производственный замес" onClose={onClose} wide>
       <form className="form-grid" onSubmit={(event) => void submit(event)}>
         <label><span>Номер замеса</span><input required value={form.number} onChange={(event) => setForm({ ...form, number: event.target.value })} /></label>
-        <label><span>Дата и время</span><input required type="datetime-local" value={form.scheduledAt} onChange={(event) => setForm({ ...form, scheduledAt: event.target.value })} /></label>
+        <div className="form-field"><span>Дата и время</span><DateTimePicker ariaLabel="Дата и время замеса" value={form.scheduledAt} onChange={(scheduledAt) => setForm({ ...form, scheduledAt })} /></div>
         <label className="span-2"><span>Рецептура</span><select required value={form.recipeVersionId} onChange={(event) => setForm({ ...form, recipeVersionId: event.target.value })}>{activeRecipes.map((recipe) => <option key={recipe.id} value={recipe.versions[0]?.id}>{recipe.name} · v{recipe.versions[0]?.version} · {recipe.versions[0]?.concreteGrade}</option>)}</select></label>
         <label><span>Плановый объём, м³</span><input required min="0.001" step="0.001" type="number" value={form.plannedVolume} onChange={(event) => setForm({ ...form, plannedVolume: event.target.value })} /></label>
         <label><span>Производственная линия</span><select required value={form.productionLineId} onChange={(event) => setForm({ ...form, productionLineId: event.target.value })}>{meta?.productionLines.map((line) => <option key={line.id} value={line.id}>{line.name} · {formatNumber(line.capacity)} {unitLabel[line.capacityUnit]}/ч</option>)}</select></label>
@@ -245,4 +246,3 @@ function BatchDetailModal({ id, onClose, onChanged }: { id: string; onClose: () 
     </Modal>
   );
 }
-

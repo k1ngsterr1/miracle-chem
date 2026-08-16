@@ -11,6 +11,7 @@ import {
   Truck,
 } from "lucide-react";
 import { reportExportUrl } from "../api.js";
+import { DateTimePicker } from "../components/DateTimePicker.js";
 import { useApi } from "../hooks/use-api.js";
 import { formatNumber } from "../lib/format.js";
 import { ErrorState, LoadingState, PageHeader, Panel, PanelHeader } from "../components/ui.js";
@@ -72,7 +73,7 @@ export function ReportsPage() {
       <div className="report-cards">{(Object.entries(REPORTS) as Array<[ReportType, (typeof REPORTS)[ReportType]]>).map(([id, item]) => <button key={id} className={type === id ? "active" : ""} onClick={() => setType(id)}><span><item.icon size={20} /></span><div><strong>{item.title}</strong><p>{item.description}</p></div></button>)}</div>
 
       <Panel className="report-workspace">
-        <div className="report-controls"><div><span className="eyebrow">Параметры отчёта</span><h2>{REPORTS[type].title}</h2></div><div className="period-control"><CalendarDays size={17} /><label><small>С</small><input type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></label><i /><label><small>По</small><input type="date" value={to} onChange={(event) => setTo(event.target.value)} /></label><button className="icon-button" onClick={() => void report.reload()}><RefreshCw size={16} /></button></div></div>
+        <div className="report-controls"><div><span className="eyebrow">Параметры отчёта</span><h2>{REPORTS[type].title}</h2></div><div className="period-control"><CalendarDays size={17} /><div className="period-date"><small>С</small><DateTimePicker mode="date" compact ariaLabel="Начало периода" value={from} onChange={setFrom} align="right" /></div><i /><div className="period-date"><small>По</small><DateTimePicker mode="date" compact ariaLabel="Конец периода" value={to} onChange={setTo} align="right" /></div><button className="icon-button" aria-label="Обновить отчёт" onClick={() => void report.reload()}><RefreshCw size={16} /></button></div></div>
         {report.loading ? <LoadingState /> : report.error !== null ? <ErrorState message={report.error} retry={report.reload} /> : (
           <>
             <div className="report-result-summary"><span>Строк: <strong>{report.data?.items.length ?? 0}</strong></span><span>Период: <strong>{from} — {to}</strong></span><span>Расчёт: <strong>backend Decimal</strong></span></div>
