@@ -1,0 +1,759 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  TECHNOLOGIST
+  OPERATOR
+  STOREKEEPER
+  QUALITY_MANAGER
+  LRT_RECEIVER
+  VIEWER
+}
+
+enum MaterialType {
+  CEMENT
+  WATER
+  SAND
+  AGGREGATE
+  CHEMICAL_ADDITIVE
+  REAGENT
+  OTHER
+}
+
+enum Unit {
+  G
+  KG
+  T
+  ML
+  L
+  M3
+}
+
+enum RecipeStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum FormulaRoundingMode {
+  HALF_UP
+  UP
+  DOWN
+}
+
+enum ProductionBatchStatus {
+  PLANNED
+  PREPARATION
+  IN_PROGRESS
+  COMPLETED
+  PARTIALLY_TRANSFERRED
+  FULLY_TRANSFERRED
+  CANCELLED
+  REJECTED
+}
+
+enum MaterialMovementType {
+  RECEIPT
+  RESERVATION
+  RESERVATION_RELEASE
+  CONSUMPTION
+  RETURN
+  LOSS
+  ADJUSTMENT
+}
+
+enum ProductLotStatus {
+  AVAILABLE
+  PARTIALLY_DISPATCHED
+  DEPLETED
+  BLOCKED
+  REJECTED
+}
+
+enum ProductMovementType {
+  PRODUCTION
+  LRT_DISPATCH
+  LRT_RETURN
+  WRITEOFF
+  REJECT
+  OTHER_SHIPMENT
+  ADJUSTMENT
+}
+
+enum LrtTransferStatus {
+  DRAFT
+  PREPARED
+  SENT
+  ACCEPTED
+  PARTIALLY_ACCEPTED
+  REJECTED
+  CANCELLED
+}
+
+enum QualityCheckStatus {
+  PENDING
+  PASSED
+  FAILED
+  CONDITIONAL
+}
+
+enum AdjustmentStatus {
+  DRAFT
+  APPROVED
+  APPLIED
+  CANCELLED
+}
+
+enum AdjustmentTargetType {
+  MATERIAL_LOT
+  PRODUCTION_BATCH
+  PRODUCT_LOT
+  LRT_TRANSFER
+}
+
+enum AuditEntityType {
+  WORKSPACE
+  USER
+  PRODUCTION_LINE
+  MATERIAL
+  MATERIAL_LOT
+  RECIPE
+  RECIPE_VERSION
+  FORMULA
+  PRODUCTION_BATCH
+  PRODUCT_LOT
+  LRT_TRANSFER
+  QUALITY_CHECK
+  ADJUSTMENT
+}
+
+model Workspace {
+  id              String               @id @default(uuid()) @db.Uuid
+  name            String
+  timezone        String               @default("Asia/Almaty")
+  currency        String               @default("KZT") @db.VarChar(3)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  users           User[]
+  productionLines ProductionLine[]
+  suppliers       Supplier[]
+  materials       Material[]
+  materialLots    MaterialLot[]
+  recipes         Recipe[]
+  recipeVersions  RecipeVersion[]
+  formulas        Formula[]
+  formulaVersions FormulaVersion[]
+  batches         ProductionBatch[]
+  productLots     ProductLot[]
+  lrtTransfers    LrtTransfer[]
+  adjustments     AdjustmentDocument[]
+  auditLogs       AuditLog[]
+  idempotency     IdempotencyRecord[]
+
+  @@map("workspaces")
+}
+
+model User {
+  id                  String               @id @default(uuid()) @db.Uuid
+  workspaceId         String               @db.Uuid
+  workspace           Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name                String
+  email               String
+  role                UserRole
+  active              Boolean              @default(true)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  operatedBatches     ProductionBatch[]    @relation("BatchOperator")
+  sentTransfers       LrtTransfer[]        @relation("TransferSender")
+  receivedTransfers   LrtTransfer[]        @relation("TransferReceiver")
+  performedChecks     QualityCheck[]
+  approvedAdjustments AdjustmentDocument[] @relation("AdjustmentApprover")
+  createdAdjustments  AdjustmentDocument[] @relation("AdjustmentCreator")
+  auditLogs           AuditLog[]
+
+  @@unique([workspaceId, email])
+  @@index([workspaceId, role, active])
+  @@map("users")
+}
+
+model ProductionLine {
+  id           String            @id @default(uuid()) @db.Uuid
+  workspaceId  String            @db.Uuid
+  workspace    Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  code         String
+  name         String
+  capacity     Decimal           @db.Decimal(20, 6)
+  capacityUnit Unit              @default(M3)
+  active       Boolean           @default(true)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  batches      ProductionBatch[]
+
+  @@unique([workspaceId, code])
+  @@index([workspaceId, active])
+  @@map("production_lines")
+}
+
+model Supplier {
+  id           String        @id @default(uuid()) @db.Uuid
+  workspaceId  String        @db.Uuid
+  workspace    Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name         String
+  taxId        String?
+  contact      String?
+  active       Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  materialLots MaterialLot[]
+
+  @@unique([workspaceId, name])
+  @@map("suppliers")
+}
+
+model Material {
+  id               String            @id @default(uuid()) @db.Uuid
+  workspaceId      String            @db.Uuid
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  code             String
+  name             String
+  type             MaterialType
+  baseUnit         Unit
+  densityKgPerM3   Decimal?          @db.Decimal(20, 6)
+  costPerBaseUnit  Decimal           @db.Decimal(20, 4)
+  currency         String            @default("KZT") @db.VarChar(3)
+  currentStock     Decimal           @default(0) @db.Decimal(20, 6)
+  reservedStock    Decimal           @default(0) @db.Decimal(20, 6)
+  minimumStock     Decimal           @default(0) @db.Decimal(20, 6)
+  active           Boolean           @default(true)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  lots             MaterialLot[]
+  recipeComponents RecipeComponent[]
+  batchComponents  BatchComponent[]
+
+  @@unique([workspaceId, code])
+  @@index([workspaceId, type, active])
+  @@index([workspaceId, currentStock, minimumStock])
+  @@map("materials")
+}
+
+model MaterialLot {
+  id                String                    @id @default(uuid()) @db.Uuid
+  workspaceId       String                    @db.Uuid
+  workspace         Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  materialId        String                    @db.Uuid
+  material          Material                  @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  supplierId        String?                   @db.Uuid
+  supplier          Supplier?                 @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  lotNumber         String
+  receivedAt        DateTime
+  expiresAt         DateTime?
+  certificateNumber String?
+  certificateUrl    String?
+  initialQuantity   Decimal                   @db.Decimal(20, 6)
+  availableQuantity Decimal                   @db.Decimal(20, 6)
+  reservedQuantity  Decimal                   @default(0) @db.Decimal(20, 6)
+  unit              Unit
+  unitCost          Decimal                   @db.Decimal(20, 4)
+  currency          String                    @default("KZT") @db.VarChar(3)
+  densityKgPerM3    Decimal?                  @db.Decimal(20, 6)
+  qualitySnapshot   Json?
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  movements         MaterialMovement[]
+  allocations       BatchMaterialAllocation[]
+  attachments       Attachment[]
+
+  @@unique([workspaceId, materialId, lotNumber])
+  @@index([workspaceId, materialId, expiresAt])
+  @@index([workspaceId, availableQuantity])
+  @@map("material_lots")
+}
+
+model Recipe {
+  id          String          @id @default(uuid()) @db.Uuid
+  workspaceId String          @db.Uuid
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  code        String
+  name        String
+  status      RecipeStatus    @default(DRAFT)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  versions    RecipeVersion[]
+
+  @@unique([workspaceId, code])
+  @@index([workspaceId, status])
+  @@map("recipes")
+}
+
+model RecipeVersion {
+  id                     String            @id @default(uuid()) @db.Uuid
+  workspaceId            String            @db.Uuid
+  workspace              Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  recipeId               String            @db.Uuid
+  recipe                 Recipe            @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  version                Int
+  concreteGrade          String
+  baseBatchVolume        Decimal           @db.Decimal(20, 6)
+  volumeUnit             Unit              @default(M3)
+  waterCementRatio       Decimal?          @db.Decimal(12, 6)
+  plannedYield           Decimal           @db.Decimal(20, 6)
+  yieldUnit              Unit              @default(M3)
+  technologyInstructions String            @db.Text
+  snapshotHash           String            @db.VarChar(64)
+  publishedAt            DateTime?
+  createdAt              DateTime          @default(now())
+  components             RecipeComponent[]
+  batches                ProductionBatch[]
+
+  @@unique([recipeId, version])
+  @@index([workspaceId, concreteGrade])
+  @@map("recipe_versions")
+}
+
+model RecipeComponent {
+  id                      String        @id @default(uuid()) @db.Uuid
+  recipeVersionId         String        @db.Uuid
+  recipeVersion           RecipeVersion @relation(fields: [recipeVersionId], references: [id], onDelete: Cascade)
+  materialId              String        @db.Uuid
+  material                Material      @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  normPerM3               Decimal       @db.Decimal(20, 6)
+  unit                    Unit
+  allowedDeviationPercent Decimal       @default(0) @db.Decimal(12, 6)
+  moisturePercent         Decimal       @default(0) @db.Decimal(12, 6)
+  absorptionPercent       Decimal       @default(0) @db.Decimal(12, 6)
+  position                Int           @default(0)
+  createdAt               DateTime      @default(now())
+
+  @@unique([recipeVersionId, materialId])
+  @@index([recipeVersionId, position])
+  @@map("recipe_components")
+}
+
+model Formula {
+  id          String           @id @default(uuid()) @db.Uuid
+  workspaceId String           @db.Uuid
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  code        String
+  name        String
+  description String
+  active      Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  versions    FormulaVersion[]
+
+  @@unique([workspaceId, code])
+  @@index([workspaceId, active])
+  @@map("formulas")
+}
+
+model FormulaVersion {
+  id           String                  @id @default(uuid()) @db.Uuid
+  workspaceId  String                  @db.Uuid
+  workspace    Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  formulaId    String                  @db.Uuid
+  formula      Formula                 @relation(fields: [formulaId], references: [id], onDelete: Cascade)
+  version      Int
+  expression   String                  @db.Text
+  variables    Json
+  precision    Int                     @default(3)
+  roundingMode FormulaRoundingMode     @default(HALF_UP)
+  publishedAt  DateTime?
+  createdAt    DateTime                @default(now())
+  calculations FormulaCalculationLog[]
+
+  @@unique([formulaId, version])
+  @@map("formula_versions")
+}
+
+model FormulaCalculationLog {
+  id               String           @id @default(uuid()) @db.Uuid
+  formulaVersionId String           @db.Uuid
+  formulaVersion   FormulaVersion   @relation(fields: [formulaVersionId], references: [id], onDelete: Restrict)
+  batchId          String?          @db.Uuid
+  batch            ProductionBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  input            Json
+  resultValue      Decimal          @db.Decimal(30, 12)
+  resultUnit       Unit?
+  trace            Json
+  calculatedAt     DateTime         @default(now())
+
+  @@index([batchId, calculatedAt])
+  @@map("formula_calculation_logs")
+}
+
+model ProductionBatch {
+  id                    String                  @id @default(uuid()) @db.Uuid
+  workspaceId           String                  @db.Uuid
+  workspace             Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  number                String
+  status                ProductionBatchStatus   @default(PLANNED)
+  scheduledAt           DateTime
+  startedAt             DateTime?
+  completedAt           DateTime?
+  recipeVersionId       String                  @db.Uuid
+  recipeVersion         RecipeVersion           @relation(fields: [recipeVersionId], references: [id], onDelete: Restrict)
+  recipeSnapshot        Json
+  formulaSnapshot       Json
+  concreteGrade         String
+  plannedVolume         Decimal                 @db.Decimal(20, 6)
+  plannedVolumeUnit     Unit                    @default(M3)
+  actualVolume          Decimal?                @db.Decimal(20, 6)
+  actualVolumeUnit      Unit                    @default(M3)
+  plannedOutput         Decimal                 @db.Decimal(20, 6)
+  plannedOutputUnit     Unit                    @default(M3)
+  actualOutput          Decimal?                @db.Decimal(20, 6)
+  actualOutputUnit      Unit                    @default(M3)
+  goodOutput            Decimal?                @db.Decimal(20, 6)
+  rejectedOutput        Decimal                 @default(0) @db.Decimal(20, 6)
+  technologicalLoss     Decimal                 @default(0) @db.Decimal(20, 6)
+  sentToLrt             Decimal                 @default(0) @db.Decimal(20, 6)
+  availableOutput       Decimal                 @default(0) @db.Decimal(20, 6)
+  outputAccountingUnit  Unit                    @default(M3)
+  totalCost             Decimal                 @default(0) @db.Decimal(20, 4)
+  costPerOutputUnit     Decimal                 @default(0) @db.Decimal(20, 4)
+  currency              String                  @default("KZT") @db.VarChar(3)
+  operatorId            String                  @db.Uuid
+  operator              User                    @relation("BatchOperator", fields: [operatorId], references: [id], onDelete: Restrict)
+  productionLineId      String                  @db.Uuid
+  productionLine        ProductionLine          @relation(fields: [productionLineId], references: [id], onDelete: Restrict)
+  qualitySummary        Json?
+  comments              String?                 @db.Text
+  negativeStockOverride Boolean                 @default(false)
+  lockedAt              DateTime?
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+  components            BatchComponent[]
+  materialMovements     MaterialMovement[]
+  productLots           ProductLot[]
+  formulaCalculations   FormulaCalculationLog[]
+  qualityChecks         QualityCheck[]
+  lrtTransferItems      LrtTransferItem[]
+
+  @@unique([workspaceId, number])
+  @@index([workspaceId, status, scheduledAt])
+  @@index([workspaceId, productionLineId, scheduledAt])
+  @@index([workspaceId, operatorId, scheduledAt])
+  @@map("production_batches")
+}
+
+model BatchComponent {
+  id                      String                    @id @default(uuid()) @db.Uuid
+  batchId                 String                    @db.Uuid
+  batch                   ProductionBatch           @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  materialId              String                    @db.Uuid
+  material                Material                  @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  materialNameSnapshot    String
+  materialTypeSnapshot    MaterialType
+  plannedQuantity         Decimal                   @db.Decimal(20, 6)
+  plannedUnit             Unit
+  reservedQuantity        Decimal                   @default(0) @db.Decimal(20, 6)
+  reservedUnit            Unit
+  actualQuantity          Decimal                   @default(0) @db.Decimal(20, 6)
+  actualUnit              Unit
+  returnedQuantity        Decimal                   @default(0) @db.Decimal(20, 6)
+  returnedUnit            Unit
+  lossQuantity            Decimal                   @default(0) @db.Decimal(20, 6)
+  lossUnit                Unit
+  deviationQuantity       Decimal                   @default(0) @db.Decimal(20, 6)
+  deviationUnit           Unit
+  deviationPercent        Decimal                   @default(0) @db.Decimal(12, 6)
+  allowedDeviationPercent Decimal                   @default(0) @db.Decimal(12, 6)
+  withinTolerance         Boolean                   @default(true)
+  unitCostSnapshot        Decimal                   @db.Decimal(20, 4)
+  currency                String                    @default("KZT") @db.VarChar(3)
+  componentCost           Decimal                   @default(0) @db.Decimal(20, 4)
+  moisturePercent         Decimal                   @default(0) @db.Decimal(12, 6)
+  absorptionPercent       Decimal                   @default(0) @db.Decimal(12, 6)
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+  allocations             BatchMaterialAllocation[]
+
+  @@unique([batchId, materialId])
+  @@index([batchId, withinTolerance])
+  @@map("batch_components")
+}
+
+model BatchMaterialAllocation {
+  id               String                    @id @default(uuid()) @db.Uuid
+  batchComponentId String                    @db.Uuid
+  batchComponent   BatchComponent            @relation(fields: [batchComponentId], references: [id], onDelete: Cascade)
+  materialLotId    String                    @db.Uuid
+  materialLot      MaterialLot               @relation(fields: [materialLotId], references: [id], onDelete: Restrict)
+  reservedQuantity Decimal                   @default(0) @db.Decimal(20, 6)
+  consumedQuantity Decimal                   @default(0) @db.Decimal(20, 6)
+  returnedQuantity Decimal                   @default(0) @db.Decimal(20, 6)
+  lossQuantity     Decimal                   @default(0) @db.Decimal(20, 6)
+  unit             Unit
+  unitCostSnapshot Decimal                   @db.Decimal(20, 4)
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+  productTrace     ProductLotMaterialTrace[]
+
+  @@unique([batchComponentId, materialLotId])
+  @@index([materialLotId])
+  @@map("batch_material_allocations")
+}
+
+model MaterialMovement {
+  id             String               @id @default(uuid()) @db.Uuid
+  workspaceId    String               @db.Uuid
+  materialLotId  String               @db.Uuid
+  materialLot    MaterialLot          @relation(fields: [materialLotId], references: [id], onDelete: Restrict)
+  batchId        String?              @db.Uuid
+  batch          ProductionBatch?     @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  type           MaterialMovementType
+  quantity       Decimal              @db.Decimal(20, 6)
+  unit           Unit
+  baseQuantity   Decimal              @db.Decimal(20, 6)
+  baseUnit       Unit
+  stockBefore    Decimal              @db.Decimal(20, 6)
+  stockAfter     Decimal              @db.Decimal(20, 6)
+  reservedBefore Decimal              @db.Decimal(20, 6)
+  reservedAfter  Decimal              @db.Decimal(20, 6)
+  idempotencyKey String?
+  reason         String?
+  metadata       Json?
+  occurredAt     DateTime             @default(now())
+
+  @@index([workspaceId, materialLotId, occurredAt])
+  @@index([workspaceId, batchId, occurredAt])
+  @@index([workspaceId, idempotencyKey])
+  @@map("material_movements")
+}
+
+model ProductLot {
+  id                    String                    @id @default(uuid()) @db.Uuid
+  workspaceId           String                    @db.Uuid
+  workspace             Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  batchId               String                    @db.Uuid
+  batch                 ProductionBatch           @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  number                String
+  concreteGrade         String
+  status                ProductLotStatus          @default(AVAILABLE)
+  producedQuantity      Decimal                   @db.Decimal(20, 6)
+  goodQuantity          Decimal                   @db.Decimal(20, 6)
+  rejectedQuantity      Decimal                   @default(0) @db.Decimal(20, 6)
+  lossQuantity          Decimal                   @default(0) @db.Decimal(20, 6)
+  sentToLrtQuantity     Decimal                   @default(0) @db.Decimal(20, 6)
+  returnedQuantity      Decimal                   @default(0) @db.Decimal(20, 6)
+  writtenOffQuantity    Decimal                   @default(0) @db.Decimal(20, 6)
+  otherShipmentQuantity Decimal                   @default(0) @db.Decimal(20, 6)
+  availableQuantity     Decimal                   @db.Decimal(20, 6)
+  unit                  Unit
+  densityKgPerM3        Decimal?                  @db.Decimal(20, 6)
+  totalCost             Decimal                   @db.Decimal(20, 4)
+  unitCost              Decimal                   @db.Decimal(20, 4)
+  currency              String                    @default("KZT") @db.VarChar(3)
+  qualitySnapshot       Json?
+  producedAt            DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
+  materialTrace         ProductLotMaterialTrace[]
+  movements             ProductMovement[]
+  transferItems         LrtTransferItem[]
+
+  @@unique([workspaceId, number])
+  @@unique([batchId])
+  @@index([workspaceId, status, producedAt])
+  @@index([workspaceId, concreteGrade, producedAt])
+  @@map("product_lots")
+}
+
+model ProductLotMaterialTrace {
+  id               String                  @id @default(uuid()) @db.Uuid
+  productLotId     String                  @db.Uuid
+  productLot       ProductLot              @relation(fields: [productLotId], references: [id], onDelete: Cascade)
+  allocationId     String                  @db.Uuid
+  allocation       BatchMaterialAllocation @relation(fields: [allocationId], references: [id], onDelete: Restrict)
+  consumedQuantity Decimal                 @db.Decimal(20, 6)
+  unit             Unit
+  createdAt        DateTime                @default(now())
+
+  @@unique([productLotId, allocationId])
+  @@map("product_lot_material_trace")
+}
+
+model LrtTransfer {
+  id           String            @id @default(uuid()) @db.Uuid
+  workspaceId  String            @db.Uuid
+  workspace    Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  number       String
+  status       LrtTransferStatus @default(DRAFT)
+  transferAt   DateTime
+  senderId     String            @db.Uuid
+  sender       User              @relation("TransferSender", fields: [senderId], references: [id], onDelete: Restrict)
+  receiverId   String?           @db.Uuid
+  receiver     User?             @relation("TransferReceiver", fields: [receiverId], references: [id], onDelete: SetNull)
+  receiverName String?
+  transport    String?
+  comments     String?           @db.Text
+  sentAt       DateTime?
+  acceptedAt   DateTime?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  items        LrtTransferItem[]
+  attachments  Attachment[]
+
+  @@unique([workspaceId, number])
+  @@index([workspaceId, status, transferAt])
+  @@map("lrt_transfers")
+}
+
+model LrtTransferItem {
+  id                String            @id @default(uuid()) @db.Uuid
+  transferId        String            @db.Uuid
+  transfer          LrtTransfer       @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  productLotId      String            @db.Uuid
+  productLot        ProductLot        @relation(fields: [productLotId], references: [id], onDelete: Restrict)
+  batchId           String            @db.Uuid
+  batch             ProductionBatch   @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  requestedQuantity Decimal           @db.Decimal(20, 6)
+  sentQuantity      Decimal           @default(0) @db.Decimal(20, 6)
+  acceptedQuantity  Decimal           @default(0) @db.Decimal(20, 6)
+  returnedQuantity  Decimal           @default(0) @db.Decimal(20, 6)
+  rejectedQuantity  Decimal           @default(0) @db.Decimal(20, 6)
+  unit              Unit
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  productMovements  ProductMovement[]
+
+  @@unique([transferId, productLotId])
+  @@index([batchId])
+  @@map("lrt_transfer_items")
+}
+
+model ProductMovement {
+  id             String              @id @default(uuid()) @db.Uuid
+  workspaceId    String              @db.Uuid
+  productLotId   String              @db.Uuid
+  productLot     ProductLot          @relation(fields: [productLotId], references: [id], onDelete: Restrict)
+  transferItemId String?             @db.Uuid
+  transferItem   LrtTransferItem?    @relation(fields: [transferItemId], references: [id], onDelete: SetNull)
+  type           ProductMovementType
+  quantity       Decimal             @db.Decimal(20, 6)
+  unit           Unit
+  balanceBefore  Decimal             @db.Decimal(20, 6)
+  balanceAfter   Decimal             @db.Decimal(20, 6)
+  idempotencyKey String?
+  reason         String?
+  metadata       Json?
+  occurredAt     DateTime            @default(now())
+
+  @@index([workspaceId, productLotId, occurredAt])
+  @@index([workspaceId, idempotencyKey])
+  @@map("product_movements")
+}
+
+model QualityCheck {
+  id             String             @id @default(uuid()) @db.Uuid
+  workspaceId    String             @db.Uuid
+  batchId        String             @db.Uuid
+  batch          ProductionBatch    @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  performedById  String             @db.Uuid
+  performedBy    User               @relation(fields: [performedById], references: [id], onDelete: Restrict)
+  status         QualityCheckStatus @default(PENDING)
+  checkedAt      DateTime           @default(now())
+  slumpMm        Decimal?           @db.Decimal(12, 3)
+  temperatureC   Decimal?           @db.Decimal(12, 3)
+  densityKgPerM3 Decimal?           @db.Decimal(20, 6)
+  strengthMpa    Decimal?           @db.Decimal(12, 3)
+  metrics        Json?
+  comments       String?            @db.Text
+  attachments    Attachment[]
+
+  @@index([workspaceId, batchId, checkedAt])
+  @@map("quality_checks")
+}
+
+model Attachment {
+  id             String        @id @default(uuid()) @db.Uuid
+  name           String
+  storageKey     String
+  mimeType       String
+  sizeBytes      Int
+  url            String?
+  materialLotId  String?       @db.Uuid
+  materialLot    MaterialLot?  @relation(fields: [materialLotId], references: [id], onDelete: Cascade)
+  transferId     String?       @db.Uuid
+  transfer       LrtTransfer?  @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  qualityCheckId String?       @db.Uuid
+  qualityCheck   QualityCheck? @relation(fields: [qualityCheckId], references: [id], onDelete: Cascade)
+  createdAt      DateTime      @default(now())
+
+  @@index([materialLotId])
+  @@index([transferId])
+  @@index([qualityCheckId])
+  @@map("attachments")
+}
+
+model AdjustmentDocument {
+  id             String               @id @default(uuid()) @db.Uuid
+  workspaceId    String               @db.Uuid
+  workspace      Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  number         String
+  status         AdjustmentStatus     @default(DRAFT)
+  targetType     AdjustmentTargetType
+  targetId       String               @db.Uuid
+  reason         String               @db.Text
+  before         Json
+  changes        Json
+  createdById    String               @db.Uuid
+  createdBy      User                 @relation("AdjustmentCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedById   String?              @db.Uuid
+  approvedBy     User?                @relation("AdjustmentApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedAt     DateTime?
+  appliedAt      DateTime?
+  idempotencyKey String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@unique([workspaceId, number])
+  @@unique([workspaceId, idempotencyKey])
+  @@index([workspaceId, targetType, targetId])
+  @@map("adjustment_documents")
+}
+
+model AuditLog {
+  id          String          @id @default(uuid()) @db.Uuid
+  workspaceId String          @db.Uuid
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actorId     String?         @db.Uuid
+  actor       User?           @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action      String
+  entityType  AuditEntityType
+  entityId    String          @db.Uuid
+  before      Json?
+  after       Json?
+  metadata    Json?
+  requestId   String?
+  occurredAt  DateTime        @default(now())
+
+  @@index([workspaceId, entityType, entityId, occurredAt])
+  @@index([workspaceId, actorId, occurredAt])
+  @@map("audit_logs")
+}
+
+model IdempotencyRecord {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @db.Uuid
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  scope       String
+  key         String
+  requestHash String    @db.VarChar(64)
+  statusCode  Int
+  response    Json
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime?
+
+  @@unique([workspaceId, scope, key])
+  @@index([expiresAt])
+  @@map("idempotency_records")
+}

@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.vite/
+.env
+.env.local
+coverage/
+*.log
+*.tsbuildinfo
+.DS_Store
+apps/api/src/generated/prisma/
+apps/api/prisma/dev.db*
+graphify-out/

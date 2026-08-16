@@ -1,0 +1,27 @@
+{
+  "name": "betonflow",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CRM for concrete production planning, traceability and LRT transfers",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c cyan,green \"npm run dev -w @betonflow/api\" \"npm run dev -w @betonflow/web\"",
+    "build": "npm run build -w @betonflow/domain && npm run build -w @betonflow/api && npm run build -w @betonflow/web",
+    "test": "npm run test -w @betonflow/domain && npm run test -w @betonflow/api && npm run test -w @betonflow/web",
+    "typecheck": "npm run typecheck -w @betonflow/domain && npm run typecheck -w @betonflow/api && npm run typecheck -w @betonflow/web",
+    "db:generate": "npm run db:generate -w @betonflow/api",
+    "db:migrate": "npm run db:migrate -w @betonflow/api",
+    "db:seed": "npm run db:seed -w @betonflow/api"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "^5.9.2"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
+

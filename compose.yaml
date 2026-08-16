@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: betonflow
+      POSTGRES_PASSWORD: betonflow_dev
+      POSTGRES_DB: betonflow
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U betonflow -d betonflow"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - betonflow_postgres:/var/lib/postgresql/data
+
+volumes:
+  betonflow_postgres:
+
