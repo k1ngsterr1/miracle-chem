@@ -57,7 +57,7 @@ export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" |
       <div className="kpi-grid">
         <Kpi icon={<FlaskConical />} label="Расход сырья сегодня" value={formatMetric(data.metrics.consumedMaterials)} hint="фактическое списание" tone="lime" />
         <Kpi icon={<PackageCheck />} label="Произведено сегодня" value={formatMetric(data.metrics.produced)} hint="готового продукта" tone="blue" />
-        <Kpi icon={<Truck />} label="Передано на ЛРТ" value={formatMetric(data.metrics.sentToLrt)} hint="подтверждённые отправки" tone="violet" />
+        <Kpi icon={<Truck />} label="Отгружено" value={formatMetric(data.metrics.sentToLrt)} hint="подтверждённые отправки" tone="violet" />
         <Kpi icon={<Boxes />} label="Доступный остаток" value={formatMetric(data.metrics.availableProduct)} hint="по всем партиям" tone="amber" />
         <Kpi icon={<CircleGauge />} label="Активные замесы" value={String(data.metrics.activeBatches)} hint={`${active.filter((batch) => batch.status === "IN_PROGRESS").length} сейчас в работе`} tone="green" />
         <Kpi icon={<TrendingDown />} label="Потери за день" value={`${data.metrics.lossPercent}%`} hint="от общего выпуска" tone="red" warning={Number(data.metrics.lossPercent) > 2} />
@@ -65,7 +65,7 @@ export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" |
 
       <div className="dashboard-grid">
         <Panel className="chart-panel">
-          <PanelHeader title="Динамика производства" description="Выпуск, передача и потери за последние 7 дней" action={<div className="chart-legend"><span className="produced">Выпуск</span><span className="sent">ЛРТ</span></div>} />
+          <PanelHeader title="Динамика производства" description="Выпуск, отгрузка и потери за последние 7 дней" action={<div className="chart-legend"><span className="produced">Выпуск</span><span className="sent">Отгрузка</span></div>} />
           <div className="chart-wrap">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={trend} margin={{ top: 8, right: 6, left: -22, bottom: 0 }}>
@@ -91,7 +91,7 @@ export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" |
           </div>
           <div className="balance-lines">
             <div><span>Произведено</span><strong>{formatMetric(data.metrics.produced)}</strong></div>
-            <div><span>Передано ЛРТ</span><strong>{formatMetric(data.metrics.sentToLrt)}</strong></div>
+            <div><span>Отгружено</span><strong>{formatMetric(data.metrics.sentToLrt)}</strong></div>
             <div><span>Стоимость выпуска</span><strong>{formatMoney(data.metrics.productionCost)}</strong></div>
           </div>
           <button className="text-button" onClick={() => onNavigate("transfers")}>Открыть движения <ArrowRight size={15} /></button>
@@ -154,4 +154,3 @@ function Kpi({
     </article>
   );
 }
-

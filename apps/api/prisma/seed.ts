@@ -6,6 +6,7 @@ import {
   RecipeStatus,
   Unit,
   UserRole,
+  WagonStatus,
 } from "../src/generated/prisma/index.js";
 import { prisma } from "../src/lib/prisma.js";
 import { DEFAULT_ACTOR_ID, DEFAULT_WORKSPACE_ID } from "../src/config.js";
@@ -29,6 +30,9 @@ const ids = {
   additive: "44444444-4444-4444-8444-444444444445",
   recipe: "55555555-5555-4555-8555-555555555551",
   recipeVersion: "55555555-5555-4555-8555-555555555552",
+  wagonOne: "66666666-6666-4666-8666-666666666661",
+  wagonTwo: "66666666-6666-4666-8666-666666666662",
+  wagonThree: "66666666-6666-4666-8666-666666666663",
 } as const;
 
 async function main(): Promise<void> {
@@ -143,6 +147,7 @@ async function main(): Promise<void> {
   await seedRecipe();
   await seedFormulas();
   await seedBatches();
+  await seedWagons();
 }
 
 async function upsertUser(id: string, name: string, email: string, role: UserRole) {
@@ -192,6 +197,18 @@ async function seedMaterial(input: SeedMaterialInput): Promise<void> {
       },
     },
   });
+  if ((await prisma.materialPriceHistory.count({ where: { materialId: material.id } })) === 0) {
+    await prisma.materialPriceHistory.create({
+      data: {
+        workspaceId: DEFAULT_WORKSPACE_ID,
+        materialId: material.id,
+        pricePerBaseUnit: input.cost,
+        effectiveAt: new Date(),
+        source: "SEED",
+        note: `Начальная цена ${input.code}`,
+      },
+    });
+  }
   if (existingLot !== null) return;
   const receivedAt = new Date();
   receivedAt.setHours(7, 30, 0, 0);
@@ -220,6 +237,91 @@ async function seedMaterial(input: SeedMaterialInput): Promise<void> {
       data: { currentStock: { increment: input.quantity } },
     });
   });
+}
+
+async function seedWagons(): Promise<void> {
+  const now = new Date();
+  const wagons = [
+    {
+      id: ids.wagonOne,
+      number: "61245873",
+      type: "Полувагон",
+      capacity: "70",
+      status: WagonStatus.IN_TRANSIT,
+      location: "Перегон Алматы-1 — Бурундай",
+      cargoDescription: "Минеральный наполнитель",
+      cargoQuantity: "64.5",
+      shipmentNumber: "OTG-20260817-101",
+      note: "Отправлен со станции Алматы-1",
+    },
+    {
+      id: ids.wagonTwo,
+      number: "52680194",
+      type: "Хоппер",
+      capacity: "68",
+      status: WagonStatus.UNLOADING,
+      location: "Склад Miracle Chem · путь №2",
+      cargoDescription: "Цемент навалом",
+      cargoQuantity: "58.2",
+      shipmentNumber: "OTG-20260817-102",
+      note: "Вагон под выгрузкой",
+    },
+    {
+      id: ids.wagonThree,
+      number: "73419026",
+      type: "Крытый вагон",
+      capacity: "66",
+      status: WagonStatus.EMPTY,
+      location: "Станция Алматы-1 · накопительный путь",
+      cargoDescription: null,
+      cargoQuantity: "0",
+      shipmentNumber: null,
+      note: "Порожний, ожидает назначение",
+    },
+  ];
+
+  for (const input of wagons) {
+    const wagon = await prisma.wagon.upsert({
+      where: { id: input.id },
+      create: {
+        id: input.id,
+        workspaceId: DEFAULT_WORKSPACE_ID,
+        number: input.number,
+        type: input.type,
+        capacity: input.capacity,
+        capacityUnit: Unit.T,
+        tareWeightT: "24",
+        status: input.status,
+        currentLocation: input.location,
+        cargoDescription: input.cargoDescription,
+        cargoQuantity: input.cargoQuantity,
+        cargoUnit: Unit.T,
+        shipmentNumber: input.shipmentNumber,
+        lastReportedAt: now,
+      },
+      update: {
+        type: input.type,
+        active: true,
+      },
+    });
+    if ((await prisma.wagonLocationEvent.count({ where: { wagonId: wagon.id } })) === 0) {
+      await prisma.wagonLocationEvent.create({
+        data: {
+          workspaceId: DEFAULT_WORKSPACE_ID,
+          wagonId: wagon.id,
+          actorId: DEFAULT_ACTOR_ID,
+          status: input.status,
+          location: input.location,
+          cargoDescription: input.cargoDescription,
+          cargoQuantity: input.cargoQuantity,
+          cargoUnit: Unit.T,
+          shipmentNumber: input.shipmentNumber,
+          occurredAt: now,
+          note: input.note,
+        },
+      });
+    }
+  }
 }
 
 async function seedRecipe(): Promise<void> {

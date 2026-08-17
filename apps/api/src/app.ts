@@ -15,6 +15,8 @@ import { registerMetaRoutes } from "./routes/meta.js";
 import { registerProductRoutes } from "./routes/products.js";
 import { registerAdjustmentRoutes } from "./routes/adjustments.js";
 import { registerAttachmentRoutes } from "./routes/attachments.js";
+import { registerCalculatorRoutes } from "./routes/calculator.js";
+import { registerWagonRoutes } from "./routes/wagons.js";
 
 export async function buildApp() {
   const app = Fastify({
@@ -45,6 +47,8 @@ export async function buildApp() {
     await registerProductRoutes(api);
     await registerAdjustmentRoutes(api);
     await registerAttachmentRoutes(api);
+    await registerCalculatorRoutes(api);
+    await registerWagonRoutes(api);
   }, { prefix: "/api" });
 
   app.addHook("onClose", async () => {

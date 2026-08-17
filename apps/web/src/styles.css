@@ -524,17 +524,125 @@ h1, h2, h3, p { margin: 0; }
 .report-footnotes .panel-header { padding-inline: 0; }
 .report-footnotes p { color: #7f8578; font-size: 8px; line-height: 1.55; }
 
+.warehouse-detail-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px 0; }
+.warehouse-history-grid { display: grid; grid-template-columns: 1.2fr .8fr; gap: 14px; padding: 0 18px 18px; }
+.warehouse-history-grid .section-title { margin-top: 14px; }
+.warehouse-history-grid .lots-list { padding: 0; }
+.compact-list .lot-row { grid-template-columns: auto 1fr 105px 105px; }
+.warehouse-movements { grid-column: 1 / -1; }
+.price-history-list, .movement-list { overflow: hidden; border: 1px solid var(--line); border-radius: 10px; }
+.price-history-list > div, .movement-list > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 11px; border-bottom: 1px solid var(--line); }
+.price-history-list > div:last-child, .movement-list > div:last-child { border: 0; }
+.price-history-list span, .movement-list span { min-width: 0; }
+.price-history-list span:last-child, .movement-list span:last-child { text-align: right; }
+.price-history-list strong, .price-history-list small, .movement-list strong, .movement-list small { display: block; }
+.price-history-list strong, .movement-list strong { font-size: 9px; }
+.price-history-list small, .movement-list small { margin-top: 3px; color: #92988c; font-size: 7px; }
+.price-up { color: #b45f37; }
+.movement-list > div { display: grid; grid-template-columns: auto 1fr auto; }
+.movement-mark { width: 8px; height: 8px; border-radius: 50%; background: #9ea597; }
+.movement-mark.receipt, .movement-mark.return { background: #74ad3b; }
+.movement-mark.consumption, .movement-mark.loss { background: #dc6758; }
+.movement-mark.reservation { background: #667bd1; }
+.consumption-warning { display: flex; align-items: center; gap: 8px; padding: 10px; color: #687747; background: #f4f8ec; border: 1px solid #e0eacb; border-radius: 8px; font-size: 8px; line-height: 1.5; }
+
+.recipe-effective { display: block; margin: -5px 0 11px; color: #969c8f; font-size: 7px; }
+.recipe-builder-title { padding-inline: 18px; }
+.recipe-builder-list { display: grid; gap: 8px; padding: 0 18px 15px; }
+.recipe-builder-list > div { display: grid; grid-template-columns: minmax(240px, 1.5fr) 1fr .75fr auto; align-items: end; gap: 9px; padding: 10px; background: #fafbf8; border: 1px solid var(--line); border-radius: 9px; }
+.recipe-builder-list label, .recipe-builder-list .form-field { display: grid; gap: 6px; color: #646a5e; font-size: 8px; font-weight: 700; }
+.recipe-builder-list input { width: 100%; min-height: 37px; padding: 8px 9px; border: 1px solid #dce1d4; border-radius: 8px; outline: 0; background: #fff; font-size: 9px; }
+.row-action.danger { color: #c45549; background: #fff0ed; }
+.modal-inline-error { margin: 0 18px 10px; }
+.modal > form > .modal-actions { padding: 0 18px 18px; }
+
+.recipe-calculator-panel { margin-bottom: 22px; overflow: visible; }
+.calculator-heading { display: flex; align-items: center; gap: 11px; padding: 17px 18px 4px; }
+.calculator-heading > span { width: 38px; height: 38px; display: grid; place-items: center; color: #637f2c; background: #eff6e3; border-radius: 10px; }
+.calculator-heading .eyebrow { margin-bottom: 3px; }
+.calculator-heading h2 { font-size: 15px; }
+.calculator-heading p { margin-top: 4px; color: #8b9185; font-size: 8px; }
+.calculator-controls { display: grid; grid-template-columns: minmax(260px, 1.5fr) .6fr 1fr auto; align-items: end; gap: 11px; padding: 14px 18px 17px; }
+.calculator-controls label, .calculator-controls .form-field { display: grid; gap: 6px; color: #646a5e; font-size: 8px; font-weight: 700; }
+.calculator-controls input { width: 100%; min-height: 37px; padding: 8px 10px; border: 1px solid #dce1d4; border-radius: 8px; outline: 0; background: #fbfcf9; font-size: 10px; }
+.calculator-controls .button { min-height: 38px; }
+.calculator-error { margin: 0 18px 14px; }
+.calculator-empty { display: flex; align-items: center; justify-content: center; gap: 9px; min-height: 84px; padding: 15px; color: #92988c; background: #fafbf8; border-top: 1px solid var(--line); font-size: 9px; }
+.calculator-result { border-top: 1px solid var(--line); }
+.calculator-kpis { display: grid; grid-template-columns: repeat(4, 1fr); background: #fafbf8; border-bottom: 1px solid var(--line); }
+.calculator-kpis > span { padding: 12px 15px; border-right: 1px solid var(--line); }
+.calculator-kpis > span:last-child { border: 0; }
+.calculator-kpis small, .calculator-kpis strong { display: block; }
+.calculator-kpis small { color: #969c8f; font-size: 7px; }
+.calculator-kpis strong { margin-top: 4px; font-size: 10px; }
+.calculator-kpis .sufficient strong { color: #5e8129; }
+.calculator-kpis .shortage strong { color: #bb5347; }
+.calculator-table-wrap { max-height: 320px; overflow: auto; }
+.calculator-table td > strong, .calculator-table td > small { display: block; }
+.calculator-table td > small { margin-top: 3px; color: #989e92; font-size: 7px; }
+.calculation-ok, .calculation-shortage { display: inline-flex; align-items: center; gap: 4px; color: #5e8129; font-size: 8px; font-weight: 750; }
+.calculation-shortage { color: #bb5347; }
+.formula-section-heading { margin: 3px 0 11px; }
+.formula-section-heading .eyebrow { margin-bottom: 3px; }
+.formula-section-heading h2 { font-size: 17px; }
+
+.wagon-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 14px; }
+.wagon-summary .panel { display: flex; align-items: center; gap: 11px; padding: 14px; }
+.wagon-summary .panel > span { width: 35px; height: 35px; display: grid; place-items: center; color: #69822f; background: #eff6e5; border-radius: 10px; }
+.wagon-summary .blue { color: #586fbd !important; background: #eef1ff !important; }
+.wagon-summary .amber { color: #a17422 !important; background: #fff4dc !important; }
+.wagon-summary .green { color: #4c8c56 !important; background: #eaf7ec !important; }
+.wagon-summary strong, .wagon-summary small { display: block; }
+.wagon-summary strong { font-size: 16px; }
+.wagon-summary small { margin-top: 3px; color: #8e9487; font-size: 8px; }
+.wagon-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 13px; }
+.wagon-card { padding: 16px; overflow: hidden; background: #fff; border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); cursor: pointer; transition: .17s ease; }
+.wagon-card:hover { transform: translateY(-2px); box-shadow: 0 14px 40px rgba(40, 44, 32, .09); }
+.wagon-visual { position: relative; height: 76px; display: flex; align-items: flex-end; justify-content: center; margin: -16px -16px 13px; background: linear-gradient(180deg, #f1f5eb, #f8faf5); border-bottom: 1px solid var(--line); }
+.wagon-visual::after { position: absolute; right: 0; bottom: 10px; left: 0; height: 2px; content: ""; background: #c8cdc1; box-shadow: 0 5px #e1e4dc; }
+.wagon-body { position: relative; z-index: 1; min-width: 155px; height: 46px; display: flex; align-items: center; justify-content: center; gap: 9px; color: #e5eadc; background: #272b25; border-radius: 8px 8px 4px 4px; box-shadow: inset 0 3px #b6ee48; }
+.wagon-body strong { font-size: 12px; letter-spacing: .08em; }
+.wagon-visual > i { position: absolute; z-index: 2; bottom: 4px; width: 13px; height: 13px; border: 3px solid #fff; border-radius: 50%; background: #464b42; }
+.wagon-visual > i:nth-of-type(1) { left: calc(50% - 57px); }
+.wagon-visual > i:nth-of-type(2) { right: calc(50% - 57px); }
+.wagon-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.wagon-card-head small { color: #93998c; font-size: 7px; }
+.wagon-card-head h2 { margin-top: 3px; font-size: 14px; }
+.wagon-location { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 10px; color: #667f30; background: #f5f8ef; border-radius: 9px; }
+.wagon-location small, .wagon-location strong { display: block; }
+.wagon-location small { color: #8c9384; font-size: 7px; }
+.wagon-location strong { margin-top: 3px; color: #43493e; font-size: 9px; }
+.wagon-facts { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 11px; padding-block: 10px; border-block: 1px solid var(--line); }
+.wagon-facts > span { padding-inline: 8px; border-right: 1px solid var(--line); }
+.wagon-facts > span:first-child { padding-left: 0; }
+.wagon-facts > span:last-child { border: 0; }
+.wagon-facts small, .wagon-facts strong { display: block; }
+.wagon-facts small { color: #969c8f; font-size: 6px; }
+.wagon-facts strong { margin-top: 3px; overflow: hidden; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.wagon-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 11px; }
+.wagon-card-foot > span { display: flex; align-items: center; gap: 4px; color: #969c8f; font-size: 7px; }
+.wagon-timeline { margin: 0 18px 18px; border-left: 1px solid #dce1d4; }
+.wagon-timeline > div { position: relative; display: grid; grid-template-columns: 1fr auto; gap: 12px; margin-left: 15px; padding: 0 0 16px 7px; }
+.timeline-mark { position: absolute; top: 3px; left: -20px; width: 9px; height: 9px; border: 2px solid #fff; border-radius: 50%; background: #95bf3f; box-shadow: 0 0 0 1px #cbd6b5; }
+.wagon-timeline strong, .wagon-timeline small { display: block; }
+.wagon-timeline strong { font-size: 9px; }
+.wagon-timeline small { margin-top: 3px; color: #92988c; font-size: 7px; }
+.wagon-timeline p { margin-top: 5px; color: #71786b; font-size: 8px; }
+.wagon-timeline > div > span:last-child { text-align: right; }
+
 @media (max-width: 1280px) {
   .kpi-grid { grid-template-columns: repeat(3, 1fr); }
   .recipe-grid, .transfer-cards { grid-template-columns: repeat(2, 1fr); }
   .formula-layout { grid-template-columns: 210px 1fr; }
   .formula-result { grid-column: 1 / -1; min-height: 360px; }
+  .wagon-grid { grid-template-columns: repeat(2, 1fr); }
+  .calculator-controls { grid-template-columns: 1fr 1fr; }
 }
 
 @media (max-width: 980px) {
   .sidebar { position: fixed; inset: auto 0 0; width: 100%; height: 64px; flex-direction: row; align-items: center; padding: 7px 10px; border: 0; border-top: 1px solid #2b2e28; }
   .brand, .plant-select, .sidebar-footer, .nav-label { display: none; }
-  .sidebar nav { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; width: 100%; }
+  .sidebar nav { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; width: 100%; }
   .sidebar nav button { display: flex; flex-direction: column; gap: 3px; justify-content: center; padding: 7px 2px; font-size: 7px; text-align: center; }
   .sidebar nav button.active { box-shadow: inset 0 -2px var(--lime); }
   .sidebar nav em { display: none; }
@@ -548,6 +656,8 @@ h1, h2, h3, p { margin: 0; }
   .summary-item:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
   .stock-overview { grid-template-columns: 1fr 1fr; }
   .stock-health { grid-column: 1 / -1; }
+  .warehouse-history-grid { grid-template-columns: 1fr; }
+  .warehouse-movements { grid-column: auto; }
 }
 
 @media (max-width: 680px) {
@@ -573,7 +683,7 @@ h1, h2, h3, p { margin: 0; }
   .component-row { grid-template-columns: auto 1fr 80px; }
   .component-row > span:nth-of-type(n+3), .component-row label { display: none; }
   .completion-inline { grid-template-columns: 1fr 1fr; }
-  .recipe-summary, .transfer-summary, .recipe-grid, .transfer-cards, .report-cards, .report-footnotes, .stock-overview { grid-template-columns: 1fr; }
+  .recipe-summary, .transfer-summary, .recipe-grid, .transfer-cards, .report-cards, .report-footnotes, .stock-overview, .wagon-summary, .wagon-grid { grid-template-columns: 1fr; }
   .stock-health { grid-column: auto; }
   .formula-layout { grid-template-columns: 1fr; }
   .formula-library, .formula-editor, .formula-result { min-height: auto; }
@@ -584,6 +694,12 @@ h1, h2, h3, p { margin: 0; }
   .transfer-items > div { grid-template-columns: auto 1fr; }
   .transfer-items > div > span:nth-child(n+3) { display: none; }
   .period-control { flex-wrap: wrap; }
+  .compact-list .lot-row { grid-template-columns: auto 1fr; }
+  .compact-list .lot-row > span:nth-child(n+3) { display: none; }
+  .recipe-builder-list > div, .calculator-controls { grid-template-columns: 1fr; }
+  .calculator-kpis { grid-template-columns: repeat(2, 1fr); }
+  .calculator-kpis > span:nth-child(2) { border-right: 0; }
+  .calculator-kpis > span:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
   .date-picker-popover { padding: 13px; }
   .date-picker-grid button { height: 33px; }
   .sidebar nav button span { max-width: 44px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

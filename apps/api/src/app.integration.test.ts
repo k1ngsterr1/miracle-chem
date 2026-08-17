@@ -8,6 +8,7 @@ import {
   RecipeStatus,
   Unit,
   UserRole,
+  WagonStatus,
 } from "./generated/prisma/index.js";
 import { buildApp } from "./app.js";
 import { prisma } from "./lib/prisma.js";
@@ -156,6 +157,25 @@ describe("Miracle Chem API integration", () => {
     expect(calculation.statusCode).toBe(200);
     expect(calculation.json()).toMatchObject({ value: "0.4487" });
     expect(calculation.json().trace.length).toBeGreaterThanOrEqual(2);
+
+    const recipeCalculation = await app.inject({
+      method: "POST",
+      url: "/api/calculator/recipe",
+      headers: contextHeaders,
+      payload: {
+        recipeVersionId: testIds.recipeVersion,
+        plannedVolume: "1",
+        plannedVolumeUnit: "M3",
+        calculatedFor: new Date().toISOString(),
+      },
+    });
+    expect(recipeCalculation.statusCode).toBe(200);
+    expect(recipeCalculation.json()).toMatchObject({
+      plannedVolume: "1",
+      totalCost: "50",
+      sufficient: false,
+    });
+    expect(recipeCalculation.json().components[0]).toMatchObject({ shortage: "4", sufficient: false });
   });
 
   it("makes material receipts idempotent", async () => {
@@ -178,6 +198,29 @@ describe("Miracle Chem API integration", () => {
     })).toBe(1);
     expect(await prisma.materialMovement.count({
       where: { workspaceId: testIds.workspace, idempotencyKey: "receipt-once" },
+    })).toBe(1);
+    expect(await prisma.materialPriceHistory.count({
+      where: { workspaceId: testIds.workspace, materialId: testIds.receiptMaterial },
+    })).toBe(1);
+  });
+
+  it("records warehouse consumption once and keeps reserved stock protected", async () => {
+    const payload = {
+      materialId: testIds.receiptMaterial,
+      quantity: "25",
+      unit: "KG",
+      consumedAt: new Date().toISOString(),
+      reason: "Integration warehouse consumption",
+      reference: "REQ-25",
+    };
+    const headers = { ...contextHeaders, "idempotency-key": "warehouse-consumption-once" };
+    const first = await app.inject({ method: "POST", url: "/api/materials/consumptions", headers, payload });
+    const retried = await app.inject({ method: "POST", url: "/api/materials/consumptions", headers, payload });
+    expect(first.statusCode).toBe(201);
+    expect(retried.json()).toEqual(first.json());
+    expect((await prisma.material.findUniqueOrThrow({ where: { id: testIds.receiptMaterial } })).currentStock.toString()).toBe("75");
+    expect(await prisma.materialMovement.count({
+      where: { workspaceId: testIds.workspace, idempotencyKey: "warehouse-consumption-once" },
     })).toBe(1);
   });
 
@@ -375,6 +418,48 @@ describe("Miracle Chem API integration", () => {
     })).toBe(1);
   });
 
+  it("tracks wagon dislocation as an append-only event history", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/wagons",
+      headers: contextHeaders,
+      payload: {
+        number: "TEST-WAGON-01",
+        type: "Hopper",
+        capacity: "68",
+        capacityUnit: "T",
+        status: WagonStatus.EMPTY,
+        location: "Test origin",
+        cargoQuantity: "0",
+        cargoUnit: "T",
+        lastReportedAt: new Date().toISOString(),
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const wagonId = created.json().id as string;
+    const moved = await app.inject({
+      method: "POST",
+      url: `/api/wagons/${wagonId}/location`,
+      headers: contextHeaders,
+      payload: {
+        status: WagonStatus.IN_TRANSIT,
+        location: "Test destination route",
+        cargoDescription: "Cement",
+        cargoQuantity: "60",
+        cargoUnit: "T",
+        shipmentNumber: "TEST-SHIPMENT-1",
+        occurredAt: new Date().toISOString(),
+      },
+    });
+    expect(moved.statusCode).toBe(201);
+    expect(moved.json()).toMatchObject({
+      status: WagonStatus.IN_TRANSIT,
+      currentLocation: "Test destination route",
+      shipmentNumber: "TEST-SHIPMENT-1",
+    });
+    expect(await prisma.wagonLocationEvent.count({ where: { wagonId } })).toBe(2);
+  });
+
   it("links attachment metadata to scoped records and exports valid XLSX", async () => {
     const attachment = await app.inject({
       method: "POST",
@@ -423,6 +508,8 @@ async function cleanupTestWorkspace(): Promise<void> {
   const workspaceId = testIds.workspace;
   if ((await prisma.workspace.count({ where: { id: workspaceId } })) === 0) return;
   await prisma.$transaction(async (tx) => {
+    await tx.wagonLocationEvent.deleteMany({ where: { workspaceId } });
+    await tx.wagon.deleteMany({ where: { workspaceId } });
     await tx.productMovement.deleteMany({ where: { workspaceId } });
     await tx.lrtTransfer.deleteMany({ where: { workspaceId } });
     await tx.productLotMaterialTrace.deleteMany({ where: { productLot: { workspaceId } } });
@@ -433,6 +520,7 @@ async function cleanupTestWorkspace(): Promise<void> {
     await tx.recipe.deleteMany({ where: { workspaceId } });
     await tx.formula.deleteMany({ where: { workspaceId } });
     await tx.materialLot.deleteMany({ where: { workspaceId } });
+    await tx.materialPriceHistory.deleteMany({ where: { workspaceId } });
     await tx.material.deleteMany({ where: { workspaceId } });
     await tx.supplier.deleteMany({ where: { workspaceId } });
     await tx.productionLine.deleteMany({ where: { workspaceId } });

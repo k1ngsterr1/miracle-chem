@@ -288,7 +288,7 @@ async function loadTargetSnapshot(
     };
   }
   const row = await tx.lrtTransfer.findFirst({ where: { id: targetId, workspaceId } });
-  if (row === null) throw new ApiError(404, "TRANSFER_NOT_FOUND", "Передача ЛРТ не найдена");
+  if (row === null) throw new ApiError(404, "TRANSFER_NOT_FOUND", "Отгрузка не найдена");
   return {
     id: row.id,
     number: row.number,

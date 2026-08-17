@@ -83,7 +83,7 @@ async function assertTarget(
   }
   if (targetType === "LRT_TRANSFER") {
     const row = await prisma.lrtTransfer.findFirst({ where: { id: targetId, workspaceId }, select: { id: true } });
-    if (row === null) throw new ApiError(404, "TRANSFER_NOT_FOUND", "Передача ЛРТ не найдена");
+    if (row === null) throw new ApiError(404, "TRANSFER_NOT_FOUND", "Отгрузка не найдена");
     return AuditEntityType.LRT_TRANSFER;
   }
   const row = await prisma.qualityCheck.findFirst({ where: { id: targetId, workspaceId }, select: { id: true } });

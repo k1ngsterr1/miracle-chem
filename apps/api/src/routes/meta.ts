@@ -7,6 +7,7 @@ import {
   RecipeStatus,
   Unit,
   UserRole,
+  WagonStatus,
 } from "../generated/prisma/index.js";
 import { prisma } from "../lib/prisma.js";
 import { getRequestContext } from "../lib/request-context.js";
@@ -45,8 +46,8 @@ export async function registerMetaRoutes(app: FastifyInstance): Promise<void> {
         transferStatuses: Object.values(LrtTransferStatus),
         userRoles: Object.values(UserRole),
         roundingModes: Object.values(FormulaRoundingMode),
+        wagonStatuses: Object.values(WagonStatus),
       },
     };
   });
 }
-

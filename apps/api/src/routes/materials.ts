@@ -8,7 +8,7 @@ import {
   parseBody,
   positiveDecimalString,
 } from "../lib/validation.js";
-import { createMaterial, receiveMaterial } from "../services/material-service.js";
+import { consumeMaterial, createMaterial, receiveMaterial } from "../services/material-service.js";
 import { ApiError } from "../lib/api-error.js";
 
 const createMaterialSchema = z.object({
@@ -39,6 +39,15 @@ const receiptSchema = z.object({
   qualitySnapshot: z.record(z.string(), z.unknown()).optional(),
 });
 
+const consumptionSchema = z.object({
+  materialId: z.string().uuid(),
+  quantity: positiveDecimalString,
+  unit: z.nativeEnum(Unit),
+  consumedAt: z.coerce.date(),
+  reason: z.string().trim().min(3).max(1000),
+  reference: z.string().trim().max(200).optional(),
+});
+
 export async function registerMaterialRoutes(app: FastifyInstance): Promise<void> {
   app.get("/materials", async (request) => {
     const { workspaceId } = await getRequestContext(request, prisma);
@@ -47,9 +56,11 @@ export async function registerMaterialRoutes(app: FastifyInstance): Promise<void
       include: {
         lots: {
           where: { availableQuantity: { gt: 0 } },
+          include: { supplier: { select: { name: true } } },
           orderBy: [{ expiresAt: "asc" }, { receivedAt: "asc" }],
           take: 5,
         },
+        priceHistory: { orderBy: { effectiveAt: "desc" }, take: 6 },
       },
       orderBy: [{ type: "asc" }, { name: "asc" }],
     });
@@ -82,6 +93,47 @@ export async function registerMaterialRoutes(app: FastifyInstance): Promise<void
     };
     const result = await receiveMaterial(workspaceId, actor.id, idempotencyKey, input);
     return reply.status(201).send(result);
+  });
+
+  app.post("/materials/consumptions", async (request, reply) => {
+    const { workspaceId, actor } = await getRequestContext(request, prisma);
+    const idempotencyKey = request.headers["idempotency-key"];
+    if (typeof idempotencyKey !== "string") {
+      throw new ApiError(400, "IDEMPOTENCY_KEY_REQUIRED", "Добавьте заголовок Idempotency-Key");
+    }
+    const result = await consumeMaterial(
+      workspaceId,
+      actor.id,
+      idempotencyKey,
+      parseBody(consumptionSchema, request.body),
+    );
+    return reply.status(201).send(result);
+  });
+
+  app.get<{ Params: { id: string } }>("/materials/:id/history", async (request) => {
+    const { workspaceId } = await getRequestContext(request, prisma);
+    const material = await prisma.material.findFirst({
+      where: { id: request.params.id, workspaceId },
+      include: {
+        lots: {
+          include: { supplier: { select: { name: true } } },
+          orderBy: { receivedAt: "desc" },
+          take: 200,
+        },
+        priceHistory: { orderBy: { effectiveAt: "desc" }, take: 200 },
+      },
+    });
+    if (material === null) throw new ApiError(404, "MATERIAL_NOT_FOUND", "Материал не найден");
+    const movements = await prisma.materialMovement.findMany({
+      where: { workspaceId, materialLot: { materialId: material.id } },
+      include: {
+        materialLot: { select: { lotNumber: true } },
+        batch: { select: { number: true } },
+      },
+      orderBy: { occurredAt: "desc" },
+      take: 500,
+    });
+    return { material, movements };
   });
 
   app.get<{ Params: { id: string } }>("/materials/:id/movements", async (request) => {

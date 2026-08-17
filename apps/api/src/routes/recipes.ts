@@ -30,6 +30,7 @@ const versionSchema = z.object({
   technologyInstructions: z.string().trim().min(1),
   components: z.array(componentSchema).min(1).max(100),
   publish: z.boolean().optional(),
+  effectiveAt: z.coerce.date().optional(),
 });
 
 const createSchema = z.object({
@@ -94,4 +95,3 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
     return changeRecipeStatus(workspaceId, actor.id, request.params.id, body.status);
   });
 }
-

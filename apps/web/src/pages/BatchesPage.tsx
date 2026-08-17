@@ -143,7 +143,7 @@ function CreateBatchModal({
   const now = new Date(Date.now() + 5 * 60 * 1000);
   const [form, setForm] = useState({
     number: `ZM-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${String(Math.floor(Math.random() * 900) + 100)}`,
-    scheduledAt: now.toISOString().slice(0, 16),
+    scheduledAt: localDateTime(now),
     recipeVersionId: activeRecipes[0]?.versions[0]?.id ?? "",
     plannedVolume: "5",
     operatorId: meta?.users.find((user) => user.role === "OPERATOR")?.id ?? meta?.actor.id ?? "",
@@ -186,6 +186,11 @@ function CreateBatchModal({
       </form>
     </Modal>
   );
+}
+
+function localDateTime(date = new Date()): string {
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 }
 
 function BatchDetailModal({ id, onClose, onChanged }: { id: string; onClose: () => void; onChanged: () => Promise<void> }) {

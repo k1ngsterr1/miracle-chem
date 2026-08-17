@@ -52,7 +52,7 @@ export async function createTransfer(
     }
     const duplicateLots = new Set(input.items.map((item) => item.productLotId));
     if (duplicateLots.size !== input.items.length) {
-      throw new ApiError(400, "DUPLICATE_TRANSFER_ITEM", "Партию нельзя добавить в передачу дважды");
+      throw new ApiError(400, "DUPLICATE_TRANSFER_ITEM", "Партию нельзя добавить в отгрузку дважды");
     }
     const items = input.items.map((item) => {
       const lot = lots.find((candidate) => candidate.id === item.productLotId);
@@ -62,7 +62,7 @@ export async function createTransfer(
         lot.unit,
         lot.densityKgPerM3?.toString(),
       ).value;
-      if (quantity.lte(0)) throw new ApiError(422, "INVALID_QUANTITY", "Количество передачи должно быть больше нуля");
+      if (quantity.lte(0)) throw new ApiError(422, "INVALID_QUANTITY", "Количество отгрузки должно быть больше нуля");
       return {
         productLotId: lot.id,
         batchId: lot.batchId,
@@ -109,7 +109,7 @@ export async function prepareTransfer(
       where: { id: transferId, workspaceId },
       include: { items: { include: { productLot: true } } },
     });
-    if (transfer === null) throw new ApiError(404, "TRANSFER_NOT_FOUND", "Передача не найдена");
+    if (transfer === null) throw new ApiError(404, "TRANSFER_NOT_FOUND", "Отгрузка не найдена");
     if (transfer.status !== LrtTransferStatus.DRAFT) {
       throw new ApiError(409, "INVALID_TRANSFER_STATUS", "Подготовить можно только черновик");
     }
@@ -153,13 +153,13 @@ export async function sendTransfer(
           where: { id: transferId, workspaceId },
           include: { items: { include: { productLot: true, batch: true } } },
         });
-        if (transfer === null) throw new ApiError(404, "TRANSFER_NOT_FOUND", "Передача не найдена");
+        if (transfer === null) throw new ApiError(404, "TRANSFER_NOT_FOUND", "Отгрузка не найдена");
         const sendableStatuses: LrtTransferStatus[] = [
           LrtTransferStatus.DRAFT,
           LrtTransferStatus.PREPARED,
         ];
         if (!sendableStatuses.includes(transfer.status)) {
-          throw new ApiError(409, "INVALID_TRANSFER_STATUS", "Отправить можно черновик или подготовленную передачу");
+          throw new ApiError(409, "INVALID_TRANSFER_STATUS", "Отправить можно черновик или подготовленную отгрузку");
         }
         for (const item of transfer.items) {
           const lot = item.productLot;
@@ -248,10 +248,10 @@ export async function cancelTransfer(
       payload: { transferId, reason },
     }, async () => {
       const transfer = await tx.lrtTransfer.findFirst({ where: { id: transferId, workspaceId } });
-      if (transfer === null) throw new ApiError(404, "TRANSFER_NOT_FOUND", "Передача не найдена");
+      if (transfer === null) throw new ApiError(404, "TRANSFER_NOT_FOUND", "Отгрузка не найдена");
       const cancellable: LrtTransferStatus[] = [LrtTransferStatus.DRAFT, LrtTransferStatus.PREPARED];
       if (!cancellable.includes(transfer.status)) {
-        throw new ApiError(409, "INVALID_TRANSFER_STATUS", "Отменить можно только неотправленную передачу");
+        throw new ApiError(409, "INVALID_TRANSFER_STATUS", "Отменить можно только неотправленную отгрузку");
       }
       const updated = await tx.lrtTransfer.update({
         where: { id: transfer.id },
@@ -291,7 +291,7 @@ export async function acceptTransfer(
           where: { id: transferId, workspaceId },
           include: { items: { include: { productLot: true } } },
         });
-        if (transfer === null) throw new ApiError(404, "TRANSFER_NOT_FOUND", "Передача не найдена");
+        if (transfer === null) throw new ApiError(404, "TRANSFER_NOT_FOUND", "Отгрузка не найдена");
         if (transfer.status !== LrtTransferStatus.SENT) {
           throw new ApiError(409, "INVALID_TRANSFER_STATUS", "Принять можно только отправленную передачу");
         }
@@ -377,7 +377,7 @@ export async function returnTransferProduct(
           where: { id: transferId, workspaceId },
           include: { items: { include: { productLot: true, batch: true } } },
         });
-        if (transfer === null) throw new ApiError(404, "TRANSFER_NOT_FOUND", "Передача не найдена");
+        if (transfer === null) throw new ApiError(404, "TRANSFER_NOT_FOUND", "Отгрузка не найдена");
         const returnableStatuses: LrtTransferStatus[] = [
           LrtTransferStatus.SENT,
           LrtTransferStatus.ACCEPTED,
@@ -385,11 +385,11 @@ export async function returnTransferProduct(
           LrtTransferStatus.REJECTED,
         ];
         if (!returnableStatuses.includes(transfer.status)) {
-          throw new ApiError(409, "INVALID_TRANSFER_STATUS", "Для этой передачи возврат невозможен");
+          throw new ApiError(409, "INVALID_TRANSFER_STATUS", "Для этой отгрузки возврат невозможен");
         }
         for (const returnItem of input.items) {
           const item = transfer.items.find((candidate) => candidate.id === returnItem.transferItemId);
-          if (item === undefined) throw new ApiError(404, "TRANSFER_ITEM_NOT_FOUND", "Позиция передачи не найдена");
+          if (item === undefined) throw new ApiError(404, "TRANSFER_ITEM_NOT_FOUND", "Позиция отгрузки не найдена");
           const quantity = convertQuantity(
             { value: returnItem.quantity, unit: returnItem.unit },
             item.unit,

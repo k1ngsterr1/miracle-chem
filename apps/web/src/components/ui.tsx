@@ -56,8 +56,8 @@ const STATUS_LABELS: Record<string, string> = {
   PREPARATION: "Подготовка",
   IN_PROGRESS: "В производстве",
   COMPLETED: "Завершён",
-  PARTIALLY_TRANSFERRED: "Частично отправлен",
-  FULLY_TRANSFERRED: "Полностью отправлен",
+  PARTIALLY_TRANSFERRED: "Частично отгружен",
+  FULLY_TRANSFERRED: "Полностью отгружен",
   CANCELLED: "Отменён",
   REJECTED: "Забракован",
   DRAFT: "Черновик",
@@ -71,14 +71,22 @@ const STATUS_LABELS: Record<string, string> = {
   PARTIALLY_DISPATCHED: "Частично отгружена",
   DEPLETED: "Израсходована",
   BLOCKED: "Заблокирована",
+  EMPTY: "Порожний",
+  LOADING: "Под погрузкой",
+  LOADED: "Загружен",
+  IN_TRANSIT: "В пути",
+  AT_DESTINATION: "На назначении",
+  UNLOADING: "Под выгрузкой",
+  RETURNING: "Возвращается",
+  MAINTENANCE: "Обслуживание",
 };
 
 export function StatusBadge({ status }: { status: string }) {
-  const style = ["COMPLETED", "ACTIVE", "ACCEPTED", "AVAILABLE"].includes(status)
+  const style = ["COMPLETED", "ACTIVE", "ACCEPTED", "AVAILABLE", "EMPTY", "AT_DESTINATION"].includes(status)
     ? "success"
-    : ["IN_PROGRESS", "PARTIALLY_TRANSFERRED", "PARTIALLY_ACCEPTED", "SENT"].includes(status)
+    : ["IN_PROGRESS", "PARTIALLY_TRANSFERRED", "PARTIALLY_ACCEPTED", "SENT", "IN_TRANSIT", "RETURNING", "LOADING", "UNLOADING", "LOADED"].includes(status)
       ? "progress"
-      : ["REJECTED", "CANCELLED", "BLOCKED"].includes(status)
+      : ["REJECTED", "CANCELLED", "BLOCKED", "MAINTENANCE"].includes(status)
         ? "danger"
         : "neutral";
   return <span className={`status-badge ${style}`}><span />{STATUS_LABELS[status] ?? status}</span>;
@@ -138,4 +146,3 @@ export function Modal({
 export function ProgressBar({ value, tone = "lime" }: { value: number; tone?: "lime" | "amber" | "red" }) {
   return <div className={`progress-track ${tone}`}><span style={{ width: `${Math.min(100, Math.max(0, value))}%` }} /></div>;
 }
-

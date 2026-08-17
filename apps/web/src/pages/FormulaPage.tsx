@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import {
+  AlertTriangle,
   Braces,
+  Calculator,
   CheckCircle2,
   ChevronDown,
   CircleHelp,
@@ -10,8 +12,11 @@ import {
   Sigma,
 } from "lucide-react";
 import { apiMutation } from "../api.js";
+import { CustomSelect } from "../components/CustomSelect.js";
+import { DateTimePicker } from "../components/DateTimePicker.js";
 import { useApi } from "../hooks/use-api.js";
-import { formatNumber } from "../lib/format.js";
+import type { Recipe, RecipeCalculation } from "../types.js";
+import { formatMoney, formatNumber, unitLabel } from "../lib/format.js";
 import { ErrorState, LoadingState, PageHeader, Panel, PanelHeader } from "../components/ui.js";
 
 interface StoredFormula {
@@ -45,6 +50,7 @@ interface Evaluation {
 
 export function FormulaPage() {
   const formulas = useApi<{ items: StoredFormula[] }>("/formulas");
+  const recipes = useApi<{ items: Recipe[] }>("/recipes");
   const [selectedId, setSelectedId] = useState<string>("");
   const selected = useMemo(
     () => formulas.data?.items.find((formula) => formula.id === selectedId) ?? formulas.data?.items[0] ?? null,
@@ -67,10 +73,23 @@ export function FormulaPage() {
   const [result, setResult] = useState<Evaluation | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  if (formulas.loading) return <LoadingState />;
+  const [calculationRecipeId, setCalculationRecipeId] = useState("");
+  const [calculationVolume, setCalculationVolume] = useState("5");
+  const [calculatedFor, setCalculatedFor] = useState(localDateTime());
+  const [recipeResult, setRecipeResult] = useState<RecipeCalculation | null>(null);
+  const [calculatorBusy, setCalculatorBusy] = useState(false);
+  const [calculatorError, setCalculatorError] = useState<string | null>(null);
+  if (formulas.loading || recipes.loading) return <LoadingState />;
   if (formulas.error !== null) return <ErrorState message={formulas.error} retry={formulas.reload} />;
+  if (recipes.error !== null) return <ErrorState message={recipes.error} retry={recipes.reload} />;
   const expression = customExpression || version?.expression || "normPerM3 * plannedVolumeM3";
   const variableNames = extractVariables(expression);
+  const recipeOptions = (recipes.data?.items ?? []).flatMap((recipe) => recipe.versions.map((recipeVersion) => ({
+    value: recipeVersion.id,
+    label: recipe.name,
+    description: `v${recipeVersion.version} · ${recipeVersion.concreteGrade}`,
+  })));
+  const activeCalculationRecipeId = calculationRecipeId || recipeOptions[0]?.value || "";
 
   async function evaluate(): Promise<void> {
     setBusy(true); setError(null);
@@ -79,6 +98,7 @@ export function FormulaPage() {
         expression,
         precision: version?.precision ?? 3,
         roundingMode: version?.roundingMode ?? "HALF_UP",
+        formulaVersionId: customExpression === "" ? version?.id : undefined,
         variables: Object.fromEntries(variableNames.map((name) => [name, { value: values[name] ?? "0" }])),
       });
       setResult(evaluation);
@@ -86,14 +106,55 @@ export function FormulaPage() {
     finally { setBusy(false); }
   }
 
+  async function calculateRecipe(): Promise<void> {
+    if (activeCalculationRecipeId === "") return;
+    setCalculatorBusy(true);
+    setCalculatorError(null);
+    try {
+      setRecipeResult(await apiMutation<RecipeCalculation>("/calculator/recipe", {
+        recipeVersionId: activeCalculationRecipeId,
+        plannedVolume: calculationVolume,
+        plannedVolumeUnit: "M3",
+        calculatedFor: new Date(calculatedFor).toISOString(),
+      }));
+    } catch (cause) {
+      setCalculatorError(cause instanceof Error ? cause.message : "Расчёт не выполнен");
+    } finally {
+      setCalculatorBusy(false);
+    }
+  }
+
   return (
     <>
       <PageHeader
         eyebrow="Расчётное ядро"
-        title="Формулы производства"
-        description="Безопасный AST-движок на Decimal: без eval, с проверкой единиц и полной расшифровкой каждого шага."
+        title="Калькулятор производства"
+        description="Backend рассчитывает состав, себестоимость и дефицит склада; ниже доступен инженерный редактор формул с полной трассировкой."
         actions={<span className="engine-badge"><ShieldCheck size={16} /> Backend verified</span>}
       />
+      <Panel className="recipe-calculator-panel">
+        <div className="calculator-heading"><span><Calculator size={21} /></span><div><span className="eyebrow">Производственный расчёт</span><h2>Расчёт замеса по рецептуре</h2><p>Все количества и цены пересчитываются на сервере в Decimal.</p></div></div>
+        <div className="calculator-controls">
+          <div className="form-field"><span>Рецептура</span><CustomSelect ariaLabel="Рецептура для расчёта" value={activeCalculationRecipeId} onChange={(value) => { setCalculationRecipeId(value); setRecipeResult(null); }} options={recipeOptions} /></div>
+          <label><span>Объём, м³</span><input type="number" min="0.001" step="0.001" value={calculationVolume} onChange={(event) => setCalculationVolume(event.target.value)} /></label>
+          <div className="form-field"><span>Дата расчёта</span><DateTimePicker ariaLabel="Дата производственного расчёта" value={calculatedFor} onChange={setCalculatedFor} align="right" /></div>
+          <button className="button primary" disabled={calculatorBusy || activeCalculationRecipeId === ""} onClick={() => void calculateRecipe()}><Calculator size={16} /> {calculatorBusy ? "Считаем…" : "Рассчитать на backend"}</button>
+        </div>
+        {calculatorError === null ? null : <div className="form-error calculator-error">{calculatorError}</div>}
+        {recipeResult === null ? <div className="calculator-empty"><FlaskConical size={27} /><span>Выберите рецептуру и объём — получите план расхода, стоимость и проверку остатков.</span></div> : (
+          <div className="calculator-result">
+            <div className="calculator-kpis">
+              <span><small>Плановый выпуск</small><strong>{formatNumber(recipeResult.plannedOutput)} {unitLabel[recipeResult.plannedOutputUnit]}</strong></span>
+              <span><small>Стоимость замеса</small><strong>{formatMoney(recipeResult.totalCost, recipeResult.currency)}</strong></span>
+              <span><small>Себестоимость 1 м³</small><strong>{formatMoney(recipeResult.costPerM3, recipeResult.currency)}</strong></span>
+              <span className={recipeResult.sufficient ? "sufficient" : "shortage"}><small>Готовность склада</small><strong>{recipeResult.sufficient ? "Материалов достаточно" : "Есть дефицит"}</strong></span>
+            </div>
+            <div className="calculator-table-wrap"><table className="data-table calculator-table"><thead><tr><th>Компонент</th><th>Норма</th><th>Требуется</th><th>Свободно</th><th>Цена</th><th>Стоимость</th><th>Проверка</th></tr></thead><tbody>{recipeResult.components.map((component) => <tr key={component.materialId}><td><strong>{component.name}</strong><small>{component.code}</small></td><td>{formatNumber(component.normPerM3)} {unitLabel[component.recipeUnit]}</td><td><strong>{formatNumber(component.quantity)} {unitLabel[component.unit]}</strong></td><td>{formatNumber(component.freeStock)} {unitLabel[component.unit]}</td><td>{formatMoney(component.unitCost, recipeResult.currency)}</td><td>{formatMoney(component.componentCost, recipeResult.currency)}</td><td>{component.sufficient ? <span className="calculation-ok"><CheckCircle2 size={14} /> Достаточно</span> : <span className="calculation-shortage"><AlertTriangle size={14} /> −{formatNumber(component.shortage)}</span>}</td></tr>)}</tbody></table></div>
+          </div>
+        )}
+      </Panel>
+
+      <div className="formula-section-heading"><span className="eyebrow">Инженерный режим</span><h2>Редактор формул</h2></div>
       <div className="formula-layout">
         <Panel className="formula-library">
           <PanelHeader title="Библиотека" description={`${formulas.data?.items.length ?? 0} активных формул`} />
@@ -120,6 +181,11 @@ export function FormulaPage() {
   );
 }
 
+function localDateTime(date = new Date()): string {
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
 function extractVariables(expression: string): string[] {
   const functions = new Set(["min", "max", "round", "abs", "if", "convert", "kg", "g", "t", "l", "ml", "m3"]);
   return [...new Set(expression.match(/[A-Za-z_][A-Za-z0-9_.]*/gu) ?? [])].filter((name) => !functions.has(name.toLowerCase()));
@@ -141,4 +207,3 @@ function formatResult(value: Evaluation["trace"][number]["result"]): string {
   if (typeof value !== "object") return String(value);
   return `${formatNumber(value.value)}${value.unit === null ? "" : ` ${value.unit}`}`;
 }
-

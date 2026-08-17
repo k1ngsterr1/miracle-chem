@@ -55,8 +55,36 @@ export interface MaterialLot {
   reservedQuantity: string;
   unit: Unit;
   unitCost: string;
+  currency: string;
   certificateNumber: string | null;
   supplier?: { name: string } | null;
+}
+
+export interface MaterialPrice {
+  id: string;
+  pricePerBaseUnit: string;
+  currency: string;
+  effectiveAt: string;
+  source: string;
+  referenceId: string | null;
+  note: string | null;
+}
+
+export interface MaterialMovement {
+  id: string;
+  type: string;
+  quantity: string;
+  unit: Unit;
+  baseQuantity: string;
+  baseUnit: Unit;
+  stockBefore: string;
+  stockAfter: string;
+  reservedBefore: string;
+  reservedAfter: string;
+  reason: string | null;
+  occurredAt: string;
+  materialLot: { lotNumber: string };
+  batch: { number: string } | null;
 }
 
 export interface Material {
@@ -69,10 +97,12 @@ export interface Material {
   reservedStock: string;
   minimumStock: string;
   costPerBaseUnit: string;
+  currency: string;
   densityKgPerM3: string | null;
   isCritical?: boolean;
   freeStock?: string;
   lots?: MaterialLot[];
+  priceHistory?: MaterialPrice[];
 }
 
 export interface RecipeComponent {
@@ -97,6 +127,7 @@ export interface RecipeVersion {
   yieldUnit: Unit;
   technologyInstructions: string;
   snapshotHash: string;
+  publishedAt: string | null;
   components: RecipeComponent[];
 }
 
@@ -195,4 +226,71 @@ export interface Transfer {
   sender: UserSummary;
   receiver?: UserSummary | null;
   items: TransferItem[];
+}
+
+export type WagonStatus = "EMPTY" | "LOADING" | "LOADED" | "IN_TRANSIT" | "AT_DESTINATION" | "UNLOADING" | "RETURNING" | "MAINTENANCE";
+
+export interface WagonLocationEvent {
+  id: string;
+  status: WagonStatus;
+  location: string;
+  cargoDescription: string | null;
+  cargoQuantity: string;
+  cargoUnit: Unit;
+  shipmentNumber: string | null;
+  note: string | null;
+  occurredAt: string;
+  actor: Pick<UserSummary, "id" | "name">;
+}
+
+export interface Wagon {
+  id: string;
+  number: string;
+  type: string;
+  capacity: string;
+  capacityUnit: Unit;
+  tareWeightT: string | null;
+  status: WagonStatus;
+  currentLocation: string;
+  cargoDescription: string | null;
+  cargoQuantity: string;
+  cargoUnit: Unit;
+  shipmentNumber: string | null;
+  lastReportedAt: string;
+  locationEvents: WagonLocationEvent[];
+}
+
+export interface RecipeCalculation {
+  calculatedFor: string;
+  recipe: {
+    id: string;
+    code: string;
+    name: string;
+    versionId: string;
+    version: number;
+    concreteGrade: string;
+  };
+  plannedVolume: string;
+  plannedVolumeUnit: Unit;
+  plannedOutput: string;
+  plannedOutputUnit: Unit;
+  totalCost: string;
+  costPerM3: string;
+  costPerOutputUnit: string;
+  currency: string;
+  sufficient: boolean;
+  components: Array<{
+    materialId: string;
+    code: string;
+    name: string;
+    quantity: string;
+    unit: Unit;
+    normPerM3: string;
+    recipeUnit: Unit;
+    unitCost: string;
+    componentCost: string;
+    freeStock: string;
+    shortage: string;
+    sufficient: boolean;
+  }>;
 }

@@ -40,6 +40,15 @@ export interface ReceiveMaterialInput {
   qualitySnapshot?: Prisma.InputJsonValue;
 }
 
+export interface ConsumeMaterialInput {
+  materialId: string;
+  quantity: string;
+  unit: Unit;
+  consumedAt: Date;
+  reason: string;
+  reference?: string;
+}
+
 export async function createMaterial(
   workspaceId: string,
   actorId: string,
@@ -59,6 +68,17 @@ export async function createMaterial(
         costPerBaseUnit: input.costPerBaseUnit,
         minimumStock: input.minimumStock,
         currency: input.currency ?? "KZT",
+      },
+    });
+    await tx.materialPriceHistory.create({
+      data: {
+        workspaceId,
+        materialId: material.id,
+        pricePerBaseUnit: material.costPerBaseUnit,
+        currency: material.currency,
+        effectiveAt: material.createdAt,
+        source: "INITIAL",
+        note: "Начальная учётная цена",
       },
     });
     await writeAudit(tx, {
@@ -144,6 +164,18 @@ export async function receiveMaterial(
             costPerBaseUnit: normalizedCost.toString(),
           },
         });
+        await tx.materialPriceHistory.create({
+          data: {
+            workspaceId,
+            materialId: material.id,
+            pricePerBaseUnit: normalizedCost.toString(),
+            currency: input.currency ?? material.currency,
+            effectiveAt: input.receivedAt,
+            source: "RECEIPT",
+            referenceId: lot.id,
+            note: `Приход партии ${lot.lotNumber}`,
+          },
+        });
         await tx.materialMovement.create({
           data: {
             workspaceId,
@@ -184,6 +216,140 @@ export async function receiveMaterial(
   );
 }
 
+export async function consumeMaterial(
+  workspaceId: string,
+  actorId: string,
+  idempotencyKey: string,
+  input: ConsumeMaterialInput,
+) {
+  return prisma.$transaction(
+    (tx) =>
+      runIdempotent(tx, {
+        workspaceId,
+        scope: "material-consumption",
+        key: idempotencyKey,
+        payload: serializeConsumption(input),
+      }, async () => {
+        const material = await tx.material.findFirst({
+          where: { id: input.materialId, workspaceId, active: true },
+        });
+        if (material === null) {
+          throw new ApiError(404, "MATERIAL_NOT_FOUND", "Материал не найден");
+        }
+
+        const normalized = convertQuantity(
+          { value: input.quantity, unit: input.unit },
+          material.baseUnit,
+          material.densityKgPerM3?.toString(),
+        ).value;
+        const freeStock = new Decimal(material.currentStock.toString()).sub(
+          material.reservedStock.toString(),
+        );
+        if (freeStock.lt(normalized)) {
+          throw new ApiError(409, "INSUFFICIENT_FREE_STOCK", "Недостаточно свободного остатка", {
+            available: Decimal.max(0, freeStock).toString(),
+            requested: normalized.toString(),
+            unit: material.baseUnit,
+          });
+        }
+
+        const lots = await tx.materialLot.findMany({
+          where: {
+            workspaceId,
+            materialId: material.id,
+            availableQuantity: { gt: 0 },
+            OR: [{ expiresAt: null }, { expiresAt: { gt: input.consumedAt } }],
+          },
+          orderBy: [{ expiresAt: "asc" }, { receivedAt: "asc" }],
+        });
+        let remaining = normalized;
+        const allocations: Prisma.InputJsonObject[] = [];
+
+        for (const lot of lots) {
+          if (remaining.lte(0)) break;
+          const availableBefore = new Decimal(lot.availableQuantity.toString());
+          const reservedBefore = new Decimal(lot.reservedQuantity.toString());
+          const availableToConsume = Decimal.max(0, availableBefore.sub(reservedBefore));
+          if (availableToConsume.lte(0)) continue;
+          const consumed = Decimal.min(availableToConsume, remaining);
+          const availableAfter = availableBefore.sub(consumed);
+
+          await tx.materialLot.update({
+            where: { id: lot.id },
+            data: { availableQuantity: availableAfter.toString() },
+          });
+          await tx.materialMovement.create({
+            data: {
+              workspaceId,
+              materialLotId: lot.id,
+              type: MaterialMovementType.CONSUMPTION,
+              quantity: consumed.toString(),
+              unit: material.baseUnit,
+              baseQuantity: consumed.toString(),
+              baseUnit: material.baseUnit,
+              stockBefore: availableBefore.toString(),
+              stockAfter: availableAfter.toString(),
+              reservedBefore: reservedBefore.toString(),
+              reservedAfter: reservedBefore.toString(),
+              idempotencyKey,
+              reason: input.reason,
+              metadata: {
+                operation: "WAREHOUSE_CONSUMPTION",
+                reference: input.reference ?? null,
+              },
+              occurredAt: input.consumedAt,
+            },
+          });
+          allocations.push({
+            materialLotId: lot.id,
+            lotNumber: lot.lotNumber,
+            quantity: consumed.toString(),
+            unit: material.baseUnit,
+          });
+          remaining = remaining.sub(consumed);
+        }
+
+        if (remaining.gt(0)) {
+          throw new ApiError(409, "INSUFFICIENT_LOT_STOCK", "Свободный остаток не обеспечен партиями", {
+            shortage: remaining.toString(),
+            unit: material.baseUnit,
+          });
+        }
+
+        const stockAfter = new Decimal(material.currentStock.toString()).sub(normalized);
+        await tx.material.update({
+          where: { id: material.id },
+          data: { currentStock: stockAfter.toString() },
+        });
+        await writeAudit(tx, {
+          workspaceId,
+          actorId,
+          action: "WAREHOUSE_MATERIAL_CONSUMED",
+          entityType: AuditEntityType.MATERIAL,
+          entityId: material.id,
+          before: { currentStock: material.currentStock.toString() },
+          after: {
+            currentStock: stockAfter.toString(),
+            quantity: normalized.toString(),
+            unit: material.baseUnit,
+            reason: input.reason,
+            reference: input.reference ?? null,
+            allocations,
+          },
+        });
+
+        return {
+          materialId: material.id,
+          consumedQuantity: normalized.toString(),
+          unit: material.baseUnit,
+          currentStock: stockAfter.toString(),
+          allocations,
+        } satisfies Prisma.InputJsonObject;
+      }),
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+  );
+}
+
 function serializeReceipt(input: ReceiveMaterialInput): Prisma.InputJsonObject {
   return {
     materialId: input.materialId,
@@ -197,3 +363,13 @@ function serializeReceipt(input: ReceiveMaterialInput): Prisma.InputJsonObject {
   };
 }
 
+function serializeConsumption(input: ConsumeMaterialInput): Prisma.InputJsonObject {
+  return {
+    materialId: input.materialId,
+    quantity: input.quantity,
+    unit: input.unit,
+    consumedAt: input.consumedAt.toISOString(),
+    reason: input.reason,
+    reference: input.reference ?? null,
+  };
+}

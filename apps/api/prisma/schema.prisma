@@ -98,6 +98,17 @@ enum LrtTransferStatus {
   CANCELLED
 }
 
+enum WagonStatus {
+  EMPTY
+  LOADING
+  LOADED
+  IN_TRANSIT
+  AT_DESTINATION
+  UNLOADING
+  RETURNING
+  MAINTENANCE
+}
+
 enum QualityCheckStatus {
   PENDING
   PASSED
@@ -131,21 +142,23 @@ enum AuditEntityType {
   PRODUCTION_BATCH
   PRODUCT_LOT
   LRT_TRANSFER
+  WAGON
   QUALITY_CHECK
   ADJUSTMENT
 }
 
 model Workspace {
-  id              String               @id @default(uuid()) @db.Uuid
+  id              String                 @id @default(uuid()) @db.Uuid
   name            String
-  timezone        String               @default("Asia/Almaty")
-  currency        String               @default("KZT") @db.VarChar(3)
-  createdAt       DateTime             @default(now())
-  updatedAt       DateTime             @updatedAt
+  timezone        String                 @default("Asia/Almaty")
+  currency        String                 @default("KZT") @db.VarChar(3)
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
   users           User[]
   productionLines ProductionLine[]
   suppliers       Supplier[]
   materials       Material[]
+  materialPrices  MaterialPriceHistory[]
   materialLots    MaterialLot[]
   recipes         Recipe[]
   recipeVersions  RecipeVersion[]
@@ -154,6 +167,8 @@ model Workspace {
   batches         ProductionBatch[]
   productLots     ProductLot[]
   lrtTransfers    LrtTransfer[]
+  wagons          Wagon[]
+  wagonEvents     WagonLocationEvent[]
   adjustments     AdjustmentDocument[]
   auditLogs       AuditLog[]
   idempotency     IdempotencyRecord[]
@@ -178,6 +193,7 @@ model User {
   approvedAdjustments AdjustmentDocument[] @relation("AdjustmentApprover")
   createdAdjustments  AdjustmentDocument[] @relation("AdjustmentCreator")
   auditLogs           AuditLog[]
+  wagonLocationEvents WagonLocationEvent[]
 
   @@unique([workspaceId, email])
   @@index([workspaceId, role, active])
@@ -219,23 +235,24 @@ model Supplier {
 }
 
 model Material {
-  id               String            @id @default(uuid()) @db.Uuid
-  workspaceId      String            @db.Uuid
-  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  id               String                 @id @default(uuid()) @db.Uuid
+  workspaceId      String                 @db.Uuid
+  workspace        Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   code             String
   name             String
   type             MaterialType
   baseUnit         Unit
-  densityKgPerM3   Decimal?          @db.Decimal(20, 6)
-  costPerBaseUnit  Decimal           @db.Decimal(20, 4)
-  currency         String            @default("KZT") @db.VarChar(3)
-  currentStock     Decimal           @default(0) @db.Decimal(20, 6)
-  reservedStock    Decimal           @default(0) @db.Decimal(20, 6)
-  minimumStock     Decimal           @default(0) @db.Decimal(20, 6)
-  active           Boolean           @default(true)
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  densityKgPerM3   Decimal?               @db.Decimal(20, 6)
+  costPerBaseUnit  Decimal                @db.Decimal(20, 4)
+  currency         String                 @default("KZT") @db.VarChar(3)
+  currentStock     Decimal                @default(0) @db.Decimal(20, 6)
+  reservedStock    Decimal                @default(0) @db.Decimal(20, 6)
+  minimumStock     Decimal                @default(0) @db.Decimal(20, 6)
+  active           Boolean                @default(true)
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
   lots             MaterialLot[]
+  priceHistory     MaterialPriceHistory[]
   recipeComponents RecipeComponent[]
   batchComponents  BatchComponent[]
 
@@ -243,6 +260,25 @@ model Material {
   @@index([workspaceId, type, active])
   @@index([workspaceId, currentStock, minimumStock])
   @@map("materials")
+}
+
+model MaterialPriceHistory {
+  id               String    @id @default(uuid()) @db.Uuid
+  workspaceId      String    @db.Uuid
+  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  materialId       String    @db.Uuid
+  material         Material  @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  pricePerBaseUnit Decimal   @db.Decimal(20, 4)
+  currency         String    @default("KZT") @db.VarChar(3)
+  effectiveAt      DateTime
+  source           String    @db.VarChar(40)
+  referenceId      String?   @db.Uuid
+  note             String?
+  createdAt        DateTime  @default(now())
+
+  @@index([workspaceId, materialId, effectiveAt])
+  @@index([referenceId])
+  @@map("material_price_history")
 }
 
 model MaterialLot {
@@ -628,6 +664,55 @@ model LrtTransferItem {
   @@unique([transferId, productLotId])
   @@index([batchId])
   @@map("lrt_transfer_items")
+}
+
+model Wagon {
+  id               String               @id @default(uuid()) @db.Uuid
+  workspaceId      String               @db.Uuid
+  workspace        Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  number           String
+  type             String
+  capacity         Decimal              @db.Decimal(20, 6)
+  capacityUnit     Unit                 @default(M3)
+  tareWeightT      Decimal?             @db.Decimal(20, 6)
+  status           WagonStatus          @default(EMPTY)
+  currentLocation  String
+  cargoDescription String?
+  cargoQuantity    Decimal              @default(0) @db.Decimal(20, 6)
+  cargoUnit        Unit                 @default(M3)
+  shipmentNumber   String?
+  lastReportedAt   DateTime             @default(now())
+  active           Boolean              @default(true)
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  locationEvents   WagonLocationEvent[]
+
+  @@unique([workspaceId, number])
+  @@index([workspaceId, status, lastReportedAt])
+  @@map("wagons")
+}
+
+model WagonLocationEvent {
+  id               String      @id @default(uuid()) @db.Uuid
+  workspaceId      String      @db.Uuid
+  workspace        Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  wagonId          String      @db.Uuid
+  wagon            Wagon       @relation(fields: [wagonId], references: [id], onDelete: Cascade)
+  status           WagonStatus
+  location         String
+  cargoDescription String?
+  cargoQuantity    Decimal     @default(0) @db.Decimal(20, 6)
+  cargoUnit        Unit        @default(M3)
+  shipmentNumber   String?
+  note             String?
+  occurredAt       DateTime
+  actorId          String      @db.Uuid
+  actor            User        @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  createdAt        DateTime    @default(now())
+
+  @@index([workspaceId, occurredAt])
+  @@index([wagonId, occurredAt])
+  @@map("wagon_location_events")
 }
 
 model ProductMovement {

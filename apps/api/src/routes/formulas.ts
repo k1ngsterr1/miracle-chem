@@ -24,7 +24,10 @@ const createSchema = versionSchema.extend({
   description: z.string().trim().min(1).max(2000),
 });
 
-const evaluateSchema = versionSchema.omit({ publish: true }).extend({
+const evaluateSchema = z.object({
+  expression: z.string().trim().min(1).max(4096).optional(),
+  precision: z.number().int().min(0).max(12).optional(),
+  roundingMode: z.nativeEnum(FormulaRoundingMode).optional(),
   name: z.string().optional(),
   description: z.string().optional(),
   version: z.number().int().positive().optional(),
@@ -34,6 +37,10 @@ const evaluateSchema = versionSchema.omit({ publish: true }).extend({
     z.string(),
     z.object({ value: decimalString, unit: z.nativeEnum(Unit).optional() }),
   ),
+}).superRefine((value, context) => {
+  if (value.formulaVersionId === undefined && value.expression === undefined) {
+    context.addIssue({ code: "custom", path: ["expression"], message: "Укажите выражение или версию формулы" });
+  }
 });
 
 export async function registerFormulaRoutes(app: FastifyInstance): Promise<void> {
@@ -90,6 +97,14 @@ export async function registerFormulaRoutes(app: FastifyInstance): Promise<void>
         body.batchId,
       );
     }
-    return evaluateAndLogFormula(workspaceId, actor.id, body);
+    return evaluateAndLogFormula(workspaceId, actor.id, {
+      expression: body.expression ?? "",
+      name: body.name,
+      description: body.description,
+      version: body.version,
+      precision: body.precision ?? 3,
+      roundingMode: body.roundingMode ?? FormulaRoundingMode.HALF_UP,
+      variables: body.variables,
+    });
   });
 }

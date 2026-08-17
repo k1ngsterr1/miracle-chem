@@ -10,6 +10,7 @@ import {
   FlaskConical,
   LayoutDashboard,
   Search,
+  TrainFront,
   Truck,
 } from "lucide-react";
 import { useApi } from "./hooks/use-api.js";
@@ -21,17 +22,19 @@ const MaterialsPage = lazy(() => import("./pages/MaterialsPage.js").then((module
 const RecipesPage = lazy(() => import("./pages/RecipesPage.js").then((module) => ({ default: module.RecipesPage })));
 const FormulaPage = lazy(() => import("./pages/FormulaPage.js").then((module) => ({ default: module.FormulaPage })));
 const TransfersPage = lazy(() => import("./pages/TransfersPage.js").then((module) => ({ default: module.TransfersPage })));
+const WagonsPage = lazy(() => import("./pages/WagonsPage.js").then((module) => ({ default: module.WagonsPage })));
 const ReportsPage = lazy(() => import("./pages/ReportsPage.js").then((module) => ({ default: module.ReportsPage })));
 
-type ViewId = "dashboard" | "batches" | "materials" | "recipes" | "formulas" | "transfers" | "reports";
+type ViewId = "dashboard" | "batches" | "materials" | "recipes" | "formulas" | "transfers" | "wagons" | "reports";
 
 const NAVIGATION = [
   { id: "dashboard" as const, label: "Обзор", icon: LayoutDashboard },
   { id: "batches" as const, label: "Производство", icon: Factory },
-  { id: "materials" as const, label: "Материалы", icon: Boxes },
+  { id: "materials" as const, label: "Склад", icon: Boxes },
   { id: "recipes" as const, label: "Рецептуры", icon: Beaker },
-  { id: "formulas" as const, label: "Формулы", icon: FlaskConical },
-  { id: "transfers" as const, label: "Передачи ЛРТ", icon: Truck },
+  { id: "formulas" as const, label: "Калькулятор", icon: FlaskConical },
+  { id: "transfers" as const, label: "Отгрузки", icon: Truck },
+  { id: "wagons" as const, label: "Дислокация", icon: TrainFront },
   { id: "reports" as const, label: "Отчёты", icon: BarChart3 },
 ];
 
@@ -57,6 +60,8 @@ export function App() {
         return <FormulaPage />;
       case "transfers":
         return <TransfersPage meta={meta} />;
+      case "wagons":
+        return <WagonsPage />;
       case "reports":
         return <ReportsPage />;
       case "dashboard":
@@ -110,7 +115,7 @@ export function App() {
 
       <main className="main-area">
         <header className="topbar">
-          <div className="search-box"><Search size={17} /><input placeholder="Найти замес, партию или материал…" /><kbd>⌘ K</kbd></div>
+          <div className="search-box"><Search size={17} /><input placeholder="Найти замес, складскую позицию или вагон…" /><kbd>⌘ K</kbd></div>
           <div className="topbar-meta">
             <span className="shift-pill"><ClipboardList size={15} /> Смена №2 · 08:00–20:00</span>
             <span className="live-pill"><i /> Онлайн</span>

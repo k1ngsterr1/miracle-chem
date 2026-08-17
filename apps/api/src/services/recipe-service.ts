@@ -24,6 +24,7 @@ export interface RecipeVersionInput {
   technologyInstructions: string;
   components: RecipeComponentInput[];
   publish?: boolean;
+  effectiveAt?: Date;
 }
 
 export interface CreateRecipeInput {
@@ -167,7 +168,7 @@ async function createVersionRecord(
       yieldUnit: input.yieldUnit,
       technologyInstructions: input.technologyInstructions,
       snapshotHash,
-      ...(input.publish === true ? { publishedAt: new Date() } : {}),
+      ...(input.publish === true ? { publishedAt: input.effectiveAt ?? new Date() } : {}),
       components: {
         create: input.components.map((component, index) => ({
           materialId: component.materialId,
@@ -198,4 +199,3 @@ async function ensureMaterials(
     throw new ApiError(422, "MATERIAL_NOT_FOUND", "Один или несколько материалов рецептуры не найдены");
   }
 }
-
