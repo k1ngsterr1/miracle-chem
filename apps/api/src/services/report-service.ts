@@ -1,5 +1,6 @@
 import { Decimal } from "decimal.js";
 import {
+  ExpenseStatus,
   MaterialMovementType,
   ProductMovementType,
   ProductionBatchStatus,
@@ -21,7 +22,7 @@ export async function getDashboard(workspaceId: string, timezone: string) {
     ProductionBatchStatus.PREPARATION,
     ProductionBatchStatus.IN_PROGRESS,
   ];
-  const [consumption, completedBatches, dispatches, availableLots, activeBatches, criticalMaterials, deviations] =
+  const [consumption, completedBatches, dispatches, availableLots, activeBatches, criticalMaterials, deviations, expenses] =
     await Promise.all([
       prisma.materialMovement.findMany({
         where: {
@@ -76,6 +77,15 @@ export async function getDashboard(workspaceId: string, timezone: string) {
         orderBy: { deviationPercent: "desc" },
         take: 20,
       }),
+      prisma.expense.groupBy({
+        by: ["currency"],
+        where: {
+          workspaceId,
+          status: ExpenseStatus.RECORDED,
+          incurredAt: { gte: today.from, lt: today.to },
+        },
+        _sum: { amount: true },
+      }),
     ]);
 
   const outputTotal = sumDecimals(completedBatches.map((batch) => batch.actualOutput?.toString() ?? "0"));
@@ -100,6 +110,10 @@ export async function getDashboard(workspaceId: string, timezone: string) {
       criticalStockCount: critical.length,
       deviationBatchCount: new Set(deviations.map((component) => component.batchId)).size,
       productionCost: sumDecimals(completedBatches.map((batch) => batch.totalCost.toString())).toFixed(2),
+      operatingExpenses: expenses.map((expense) => ({
+        amount: expense._sum.amount?.toString() ?? "0",
+        currency: expense.currency,
+      })),
     },
     criticalMaterials: critical,
     deviations,
@@ -142,6 +156,29 @@ export async function getProductionReport(workspaceId: string, period: Period) {
     costPerUnit: batch.costPerOutputUnit.toString(),
     currency: batch.currency,
     deviations: batch.components.filter((component) => !component.withinTolerance).length,
+  }));
+}
+
+export async function getExpenseReport(workspaceId: string, period: Period) {
+  const expenses = await prisma.expense.findMany({
+    where: { workspaceId, incurredAt: { gte: period.from, lte: period.to } },
+    include: { createdBy: { select: { name: true } } },
+    orderBy: [{ incurredAt: "asc" }, { number: "asc" }],
+  });
+  return expenses.map((expense) => ({
+    expenseNumber: expense.number,
+    incurredAt: expense.incurredAt.toISOString(),
+    status: expense.status,
+    category: expense.category,
+    costCenter: expense.costCenter,
+    paymentMethod: expense.paymentMethod,
+    description: expense.description,
+    counterparty: expense.counterparty ?? "",
+    documentNumber: expense.documentNumber ?? "",
+    amount: expense.amount.toString(),
+    currency: expense.currency,
+    createdBy: expense.createdBy.name,
+    cancellationReason: expense.cancellationReason ?? "",
   }));
 }
 

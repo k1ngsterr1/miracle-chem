@@ -5,6 +5,7 @@ import { ApiError } from "../lib/api-error.js";
 import { createXlsx } from "../lib/xlsx.js";
 import {
   getDashboard,
+  getExpenseReport,
   getMaterialConsumptionReport,
   getLrtTransferReport,
   getProductBalanceReport,
@@ -31,6 +32,11 @@ export async function registerReportRoutes(app: FastifyInstance): Promise<void> 
   app.get("/reports/production", async (request) => {
     const { workspaceId } = await getRequestContext(request, prisma);
     return { items: await getProductionReport(workspaceId, parsePeriod(request.query)) };
+  });
+
+  app.get("/reports/expenses", async (request) => {
+    const { workspaceId } = await getRequestContext(request, prisma);
+    return { items: await getExpenseReport(workspaceId, parsePeriod(request.query)) };
   });
 
   app.get("/reports/production-summary", async (request) => {
@@ -79,7 +85,9 @@ export async function registerReportRoutes(app: FastifyInstance): Promise<void> 
     const query = request.query as { type?: string; format?: string; from?: string; to?: string; groupBy?: string };
     const period = parsePeriod(query);
     const type = query.type ?? "production";
-    const rows = type === "materials"
+    const rows = type === "expenses"
+      ? await getExpenseReport(workspaceId, period)
+      : type === "materials"
       ? await getMaterialConsumptionReport(workspaceId, period)
       : type === "balance"
         ? await getProductBalanceReport(workspaceId, period)

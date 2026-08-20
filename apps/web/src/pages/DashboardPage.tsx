@@ -31,7 +31,7 @@ import {
   StatusBadge,
 } from "../components/ui.js";
 
-export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" | "materials" | "transfers") => void }) {
+export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" | "materials" | "transfers" | "expenses") => void }) {
   const dashboard = useApi<DashboardData>("/dashboard");
   const batches = useApi<{ items: Batch[] }>("/batches");
   if (dashboard.loading || batches.loading) return <LoadingState />;
@@ -93,8 +93,9 @@ export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" |
             <div><span>Произведено</span><strong>{formatMetric(data.metrics.produced)}</strong></div>
             <div><span>Отгружено</span><strong>{formatMetric(data.metrics.sentToLrt)}</strong></div>
             <div><span>Стоимость выпуска</span><strong>{formatMoney(data.metrics.productionCost)}</strong></div>
+            <div><span>Операционные расходы</span><strong>{formatExpenseTotals(data.metrics.operatingExpenses)}</strong></div>
           </div>
-          <button className="text-button" onClick={() => onNavigate("transfers")}>Открыть движения <ArrowRight size={15} /></button>
+          <button className="text-button" onClick={() => onNavigate("expenses")}>Открыть расходы <ArrowRight size={15} /></button>
         </Panel>
       </div>
 
@@ -130,6 +131,11 @@ export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" |
       </div>
     </>
   );
+}
+
+function formatExpenseTotals(values: Array<{ amount: string; currency: string }>): string {
+  if (values.length === 0) return formatMoney(0);
+  return values.map((value) => formatMoney(value.amount, value.currency)).join(" · ");
 }
 
 function Kpi({

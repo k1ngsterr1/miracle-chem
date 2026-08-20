@@ -17,6 +17,7 @@ export interface DashboardData {
     criticalStockCount: number;
     deviationBatchCount: number;
     productionCost: string;
+    operatingExpenses: Array<{ amount: string; currency: string }>;
   };
   criticalMaterials: Material[];
   deviations: BatchComponent[];
@@ -293,4 +294,40 @@ export interface RecipeCalculation {
     shortage: string;
     sufficient: boolean;
   }>;
+}
+
+export type ExpenseCategory = "RAW_MATERIALS" | "LOGISTICS" | "UTILITIES" | "MAINTENANCE" | "SALARY" | "TAXES" | "RENT" | "LABORATORY" | "OTHER";
+export type ExpenseCostCenter = "PRODUCTION" | "WAREHOUSE" | "LOGISTICS" | "LABORATORY" | "ADMINISTRATION" | "OTHER";
+export type ExpensePaymentMethod = "BANK_TRANSFER" | "CASH" | "CORPORATE_CARD" | "OFFSET" | "OTHER";
+export type ExpenseStatus = "RECORDED" | "CANCELLED";
+
+export interface Expense {
+  id: string;
+  number: string;
+  category: ExpenseCategory;
+  costCenter: ExpenseCostCenter;
+  paymentMethod: ExpensePaymentMethod;
+  status: ExpenseStatus;
+  incurredAt: string;
+  amount: string;
+  currency: string;
+  description: string;
+  counterparty: string | null;
+  documentNumber: string | null;
+  note: string | null;
+  createdBy: Pick<UserSummary, "id" | "name">;
+  cancelledAt: string | null;
+  cancelledBy: Pick<UserSummary, "id" | "name"> | null;
+  cancellationReason: string | null;
+  createdAt: string;
+}
+
+export interface ExpenseResponse {
+  items: Expense[];
+  summary: {
+    totals: Array<{ currency: string; amount: string }>;
+    byCategory: Array<{ category: ExpenseCategory; currency: string; amount: string; count: number }>;
+    recordedCount: number;
+    cancelledCount: number;
+  };
 }

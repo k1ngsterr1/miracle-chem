@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import { Decimal } from "decimal.js";
 import {
+  ExpenseCategory,
+  ExpenseCostCenter,
+  ExpensePaymentMethod,
+  ExpenseStatus,
   FormulaRoundingMode,
   MaterialType,
   RecipeStatus,
@@ -33,6 +37,9 @@ const ids = {
   wagonOne: "66666666-6666-4666-8666-666666666661",
   wagonTwo: "66666666-6666-4666-8666-666666666662",
   wagonThree: "66666666-6666-4666-8666-666666666663",
+  expenseOne: "77777777-7777-4777-8777-777777777771",
+  expenseTwo: "77777777-7777-4777-8777-777777777772",
+  expenseThree: "77777777-7777-4777-8777-777777777773",
 } as const;
 
 async function main(): Promise<void> {
@@ -148,6 +155,7 @@ async function main(): Promise<void> {
   await seedFormulas();
   await seedBatches();
   await seedWagons();
+  await seedExpenses();
 }
 
 async function upsertUser(id: string, name: string, email: string, role: UserRole) {
@@ -321,6 +329,68 @@ async function seedWagons(): Promise<void> {
         },
       });
     }
+  }
+}
+
+async function seedExpenses(): Promise<void> {
+  const now = new Date();
+  const day = now.toISOString().slice(0, 10).replaceAll("-", "");
+  const expenses = [
+    {
+      id: ids.expenseOne,
+      number: `RSH-${day}-001`,
+      category: ExpenseCategory.LOGISTICS,
+      costCenter: ExpenseCostCenter.LOGISTICS,
+      paymentMethod: ExpensePaymentMethod.BANK_TRANSFER,
+      amount: "185000",
+      description: "Доставка цемента на производственную площадку",
+      counterparty: "ТОО Trans Rail KZ",
+      documentNumber: `ACT-${day}-14`,
+      note: "Автомобильная доставка и разгрузка на складе",
+    },
+    {
+      id: ids.expenseTwo,
+      number: `RSH-${day}-002`,
+      category: ExpenseCategory.UTILITIES,
+      costCenter: ExpenseCostCenter.PRODUCTION,
+      paymentMethod: ExpensePaymentMethod.BANK_TRANSFER,
+      amount: "78000",
+      description: "Электроэнергия производственной смены",
+      counterparty: "АО Алатау Жарық Компаниясы",
+      documentNumber: `INV-${day}-08`,
+      note: null,
+    },
+    {
+      id: ids.expenseThree,
+      number: `RSH-${day}-003`,
+      category: ExpenseCategory.MAINTENANCE,
+      costCenter: ExpenseCostCenter.PRODUCTION,
+      paymentMethod: ExpensePaymentMethod.CORPORATE_CARD,
+      amount: "126500",
+      description: "Обслуживание смесительного узла БСУ №1",
+      counterparty: "ТОО Beton Service",
+      documentNumber: `SRV-${day}-03`,
+      note: "Плановая замена уплотнений и диагностика привода",
+    },
+  ];
+  for (const expense of expenses) {
+    await prisma.expense.upsert({
+      where: { id: expense.id },
+      create: {
+        ...expense,
+        workspaceId: DEFAULT_WORKSPACE_ID,
+        status: ExpenseStatus.RECORDED,
+        incurredAt: now,
+        currency: "KZT",
+        createdById: DEFAULT_ACTOR_ID,
+      },
+      update: {
+        number: expense.number,
+        incurredAt: now,
+        status: ExpenseStatus.RECORDED,
+        amount: expense.amount,
+      },
+    });
   }
 }
 

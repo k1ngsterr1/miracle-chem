@@ -1,5 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import {
+  ExpenseCategory,
+  ExpenseCostCenter,
+  ExpensePaymentMethod,
+  ExpenseStatus,
   FormulaRoundingMode,
   LrtTransferStatus,
   MaterialType,
@@ -47,6 +51,10 @@ export async function registerMetaRoutes(app: FastifyInstance): Promise<void> {
         userRoles: Object.values(UserRole),
         roundingModes: Object.values(FormulaRoundingMode),
         wagonStatuses: Object.values(WagonStatus),
+        expenseCategories: Object.values(ExpenseCategory),
+        expenseCostCenters: Object.values(ExpenseCostCenter),
+        expensePaymentMethods: Object.values(ExpensePaymentMethod),
+        expenseStatuses: Object.values(ExpenseStatus),
       },
     };
   });

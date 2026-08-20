@@ -109,6 +109,40 @@ enum WagonStatus {
   MAINTENANCE
 }
 
+enum ExpenseCategory {
+  RAW_MATERIALS
+  LOGISTICS
+  UTILITIES
+  MAINTENANCE
+  SALARY
+  TAXES
+  RENT
+  LABORATORY
+  OTHER
+}
+
+enum ExpenseCostCenter {
+  PRODUCTION
+  WAREHOUSE
+  LOGISTICS
+  LABORATORY
+  ADMINISTRATION
+  OTHER
+}
+
+enum ExpensePaymentMethod {
+  BANK_TRANSFER
+  CASH
+  CORPORATE_CARD
+  OFFSET
+  OTHER
+}
+
+enum ExpenseStatus {
+  RECORDED
+  CANCELLED
+}
+
 enum QualityCheckStatus {
   PENDING
   PASSED
@@ -143,6 +177,7 @@ enum AuditEntityType {
   PRODUCT_LOT
   LRT_TRANSFER
   WAGON
+  EXPENSE
   QUALITY_CHECK
   ADJUSTMENT
 }
@@ -169,6 +204,7 @@ model Workspace {
   lrtTransfers    LrtTransfer[]
   wagons          Wagon[]
   wagonEvents     WagonLocationEvent[]
+  expenses        Expense[]
   adjustments     AdjustmentDocument[]
   auditLogs       AuditLog[]
   idempotency     IdempotencyRecord[]
@@ -194,6 +230,8 @@ model User {
   createdAdjustments  AdjustmentDocument[] @relation("AdjustmentCreator")
   auditLogs           AuditLog[]
   wagonLocationEvents WagonLocationEvent[]
+  createdExpenses     Expense[]            @relation("ExpenseCreator")
+  cancelledExpenses   Expense[]            @relation("ExpenseCanceller")
 
   @@unique([workspaceId, email])
   @@index([workspaceId, role, active])
@@ -713,6 +751,38 @@ model WagonLocationEvent {
   @@index([workspaceId, occurredAt])
   @@index([wagonId, occurredAt])
   @@map("wagon_location_events")
+}
+
+model Expense {
+  id                 String               @id @default(uuid()) @db.Uuid
+  workspaceId        String               @db.Uuid
+  workspace          Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  number             String
+  category           ExpenseCategory
+  costCenter         ExpenseCostCenter
+  paymentMethod      ExpensePaymentMethod
+  status             ExpenseStatus        @default(RECORDED)
+  incurredAt         DateTime
+  amount             Decimal              @db.Decimal(20, 2)
+  currency           String               @default("KZT") @db.VarChar(3)
+  description        String
+  counterparty       String?
+  documentNumber     String?
+  note               String?              @db.Text
+  createdById        String               @db.Uuid
+  createdBy          User                 @relation("ExpenseCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  cancelledAt        DateTime?
+  cancelledById      String?              @db.Uuid
+  cancelledBy        User?                @relation("ExpenseCanceller", fields: [cancelledById], references: [id], onDelete: SetNull)
+  cancellationReason String?              @db.Text
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  @@unique([workspaceId, number])
+  @@index([workspaceId, incurredAt])
+  @@index([workspaceId, status, category, incurredAt])
+  @@index([workspaceId, costCenter, incurredAt])
+  @@map("expenses")
 }
 
 model ProductMovement {

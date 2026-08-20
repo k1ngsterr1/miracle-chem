@@ -9,6 +9,7 @@ import {
   RefreshCw,
   Scale,
   Truck,
+  WalletCards,
 } from "lucide-react";
 import { reportExportUrl } from "../api.js";
 import { DateTimePicker } from "../components/DateTimePicker.js";
@@ -16,7 +17,7 @@ import { useApi } from "../hooks/use-api.js";
 import { formatNumber } from "../lib/format.js";
 import { ErrorState, LoadingState, PageHeader, Panel, PanelHeader } from "../components/ui.js";
 
-type ReportType = "production" | "materials" | "balance" | "recipe-efficiency" | "lrt";
+type ReportType = "production" | "materials" | "balance" | "recipe-efficiency" | "lrt" | "expenses";
 
 const REPORTS = {
   production: {
@@ -48,6 +49,12 @@ const REPORTS = {
     description: "Отправлено, принято, отклонено и возвращено по документам.",
     icon: Truck,
     path: "/reports/lrt",
+  },
+  expenses: {
+    title: "Операционные расходы",
+    description: "Затраты по категориям, центрам ответственности и контрагентам.",
+    icon: WalletCards,
+    path: "/reports/expenses",
   },
 } as const;
 
@@ -134,6 +141,17 @@ const LABELS: Record<string, string> = {
   rejected: "Отклонено",
   receiver: "Получатель",
   sender: "Отправитель",
+  expenseNumber: "Расход",
+  incurredAt: "Дата расхода",
+  category: "Категория",
+  costCenter: "Центр затрат",
+  paymentMethod: "Оплата",
+  description: "Назначение",
+  counterparty: "Контрагент",
+  documentNumber: "Документ",
+  amount: "Сумма",
+  createdBy: "Создал",
+  cancellationReason: "Причина отмены",
 };
 
 function columnLabel(value: string): string {

@@ -22,6 +22,7 @@ const dashboard = {
     criticalStockCount: 0,
     deviationBatchCount: 0,
     productionCost: "100000",
+    operatingExpenses: [{ amount: "42000", currency: "KZT" }],
   },
   criticalMaterials: [],
   deviations: [],
@@ -50,5 +51,6 @@ describe("Miracle Chem app shell", () => {
     expect(screen.getByRole("button", { name: /Склад/u })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Отгрузки/u })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Дислокация/u })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Расходы/u })).toBeInTheDocument();
   });
 });

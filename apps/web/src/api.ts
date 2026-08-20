@@ -50,7 +50,7 @@ export async function apiMutation<T>(
 }
 
 export function reportExportUrl(
-  type: "production" | "materials" | "balance" | "recipe-efficiency" | "lrt",
+  type: "production" | "materials" | "balance" | "recipe-efficiency" | "lrt" | "expenses",
   format: "csv" | "xlsx",
   from: string,
   to: string,

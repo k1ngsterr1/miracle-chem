@@ -630,6 +630,41 @@ h1, h2, h3, p { margin: 0; }
 .wagon-timeline p { margin-top: 5px; color: #71786b; font-size: 8px; }
 .wagon-timeline > div > span:last-child { text-align: right; }
 
+.expense-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.expense-summary .panel { min-width: 0; display: flex; align-items: center; gap: 11px; padding: 14px; }
+.expense-summary .panel > span { width: 35px; height: 35px; flex: 0 0 auto; display: grid; place-items: center; color: #69822f; background: #eff6e5; border-radius: 10px; }
+.expense-summary .blue { color: #586fbd !important; background: #eef1ff !important; }
+.expense-summary .amber { color: #a17422 !important; background: #fff4dc !important; }
+.expense-summary .green { color: #4c8c56 !important; background: #eaf7ec !important; }
+.expense-summary strong, .expense-summary small { display: block; }
+.expense-summary strong { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.expense-summary small { margin-top: 3px; color: #8e9487; font-size: 8px; }
+.expense-filter-panel { margin-bottom: 14px; padding: 14px; }
+.expense-filters { display: grid; grid-template-columns: 150px 150px minmax(180px, .8fr) minmax(150px, .7fr) minmax(220px, 1.2fr); align-items: end; gap: 10px; }
+.expense-search { display: grid; gap: 6px; color: #646a5e; font-size: 9px; font-weight: 700; }
+.expense-search > span:last-child { min-height: 37px; display: flex; align-items: center; gap: 7px; padding: 0 10px; color: #93998d; background: #fbfcf9; border: 1px solid #dce1d4; border-radius: 8px; }
+.expense-search input { min-width: 0; width: 100%; border: 0; outline: 0; color: #2c3028; background: transparent; font-size: 10px; }
+.expense-count { padding: 5px 8px; color: #6b763e; background: #f0f6e7; border-radius: 99px; font-size: 8px; font-weight: 750; }
+.expense-table td:first-child { max-width: 260px; }
+.expense-table td:first-child small { overflow: hidden; text-overflow: ellipsis; }
+.expense-category { display: inline-flex; padding: 5px 7px; color: #586b32; background: #f0f6e7; border-radius: 7px; font-size: 8px; font-weight: 700; }
+.expense-category-logistics { color: #566cb7; background: #edf1ff; }
+.expense-category-utilities, .expense-category-rent { color: #9a711b; background: #fff5dd; }
+.expense-category-maintenance { color: #a85b36; background: #fff0e7; }
+.expense-category-salary, .expense-category-taxes { color: #7557a5; background: #f3edff; }
+.expense-category-laboratory { color: #397c79; background: #e8f7f5; }
+.expense-detail-hero { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 20px; background: linear-gradient(135deg, #f8faf4, #fff); border-bottom: 1px solid var(--line); }
+.expense-detail-hero h3 { margin-top: 10px; font-size: 18px; }
+.expense-detail-hero p { margin-top: 5px; color: #7c8276; font-size: 9px; }
+.expense-detail-hero > strong { flex: 0 0 auto; font-size: 22px; }
+.expense-detail-facts { grid-template-columns: repeat(5, 1fr); margin: 16px 18px 0; border: 1px solid var(--line); border-radius: 11px; }
+.expense-note, .expense-cancelled, .expense-warning { display: flex; align-items: flex-start; gap: 10px; margin: 14px 18px; padding: 12px; color: #6f7668; background: #f8faf5; border: 1px solid #e5e9df; border-radius: 10px; }
+.expense-note strong, .expense-cancelled strong { color: #343a30; font-size: 9px; }
+.expense-note p, .expense-cancelled p, .expense-warning p { margin-top: 4px; font-size: 8px; line-height: 1.5; }
+.expense-cancelled, .expense-warning { color: #a05045; background: #fff4f1; border-color: #f0d7d1; }
+.expense-detail-actions { padding: 16px 18px; }
+.expense-warning { margin: 0; }
+
 @media (max-width: 1280px) {
   .kpi-grid { grid-template-columns: repeat(3, 1fr); }
   .recipe-grid, .transfer-cards { grid-template-columns: repeat(2, 1fr); }
@@ -637,12 +672,13 @@ h1, h2, h3, p { margin: 0; }
   .formula-result { grid-column: 1 / -1; min-height: 360px; }
   .wagon-grid { grid-template-columns: repeat(2, 1fr); }
   .calculator-controls { grid-template-columns: 1fr 1fr; }
+  .expense-filters { grid-template-columns: repeat(3, 1fr); }
 }
 
 @media (max-width: 980px) {
   .sidebar { position: fixed; inset: auto 0 0; width: 100%; height: 64px; flex-direction: row; align-items: center; padding: 7px 10px; border: 0; border-top: 1px solid #2b2e28; }
   .brand, .plant-select, .sidebar-footer, .nav-label { display: none; }
-  .sidebar nav { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; width: 100%; }
+  .sidebar nav { display: grid; grid-template-columns: repeat(9, 1fr); gap: 2px; width: 100%; }
   .sidebar nav button { display: flex; flex-direction: column; gap: 3px; justify-content: center; padding: 7px 2px; font-size: 7px; text-align: center; }
   .sidebar nav button.active { box-shadow: inset 0 -2px var(--lime); }
   .sidebar nav em { display: none; }
@@ -658,6 +694,8 @@ h1, h2, h3, p { margin: 0; }
   .stock-health { grid-column: 1 / -1; }
   .warehouse-history-grid { grid-template-columns: 1fr; }
   .warehouse-movements { grid-column: auto; }
+  .expense-summary { grid-template-columns: repeat(2, 1fr); }
+  .expense-filters { grid-template-columns: repeat(2, 1fr); }
 }
 
 @media (max-width: 680px) {
@@ -683,7 +721,9 @@ h1, h2, h3, p { margin: 0; }
   .component-row { grid-template-columns: auto 1fr 80px; }
   .component-row > span:nth-of-type(n+3), .component-row label { display: none; }
   .completion-inline { grid-template-columns: 1fr 1fr; }
-  .recipe-summary, .transfer-summary, .recipe-grid, .transfer-cards, .report-cards, .report-footnotes, .stock-overview, .wagon-summary, .wagon-grid { grid-template-columns: 1fr; }
+  .recipe-summary, .transfer-summary, .recipe-grid, .transfer-cards, .report-cards, .report-footnotes, .stock-overview, .wagon-summary, .wagon-grid, .expense-summary, .expense-filters { grid-template-columns: 1fr; }
+  .expense-detail-hero { align-items: flex-start; flex-direction: column; }
+  .expense-detail-facts { grid-template-columns: repeat(2, 1fr); }
   .stock-health { grid-column: auto; }
   .formula-layout { grid-template-columns: 1fr; }
   .formula-library, .formula-editor, .formula-result { min-height: auto; }

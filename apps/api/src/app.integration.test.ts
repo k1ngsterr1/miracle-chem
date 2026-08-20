@@ -2,6 +2,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import {
   AdjustmentTargetType,
+  ExpenseCategory,
+  ExpenseCostCenter,
+  ExpensePaymentMethod,
+  ExpenseStatus,
   MaterialType,
   ProductMovementType,
   ProductionBatchStatus,
@@ -460,6 +464,67 @@ describe("Miracle Chem API integration", () => {
     expect(await prisma.wagonLocationEvent.count({ where: { wagonId } })).toBe(2);
   });
 
+  it("records financial expenses idempotently and keeps cancelled entries in history", async () => {
+    const payload = {
+      category: ExpenseCategory.MAINTENANCE,
+      costCenter: ExpenseCostCenter.PRODUCTION,
+      paymentMethod: ExpensePaymentMethod.BANK_TRANSFER,
+      incurredAt: new Date().toISOString(),
+      amount: "42000",
+      description: "Integration mixer maintenance",
+      counterparty: "Integration Service",
+      documentNumber: "TEST-ACT-42",
+    };
+    const headers = { ...contextHeaders, "idempotency-key": "expense-create-once" };
+    const created = await app.inject({ method: "POST", url: "/api/expenses", headers, payload });
+    const retried = await app.inject({ method: "POST", url: "/api/expenses", headers, payload });
+    expect(created.statusCode).toBe(201);
+    expect(retried.statusCode).toBe(201);
+    expect(retried.json()).toEqual(created.json());
+    expect(await prisma.expense.count({ where: { workspaceId: testIds.workspace } })).toBe(1);
+
+    const expenseId = created.json().id as string;
+    const cancelHeaders = { ...contextHeaders, "idempotency-key": "expense-cancel-once" };
+    const cancelled = await app.inject({
+      method: "POST",
+      url: `/api/expenses/${expenseId}/cancel`,
+      headers: cancelHeaders,
+      payload: { reason: "Integration cancellation" },
+    });
+    const cancelRetry = await app.inject({
+      method: "POST",
+      url: `/api/expenses/${expenseId}/cancel`,
+      headers: cancelHeaders,
+      payload: { reason: "Integration cancellation" },
+    });
+    expect(cancelled.statusCode).toBe(200);
+    expect(cancelRetry.json()).toEqual(cancelled.json());
+    expect((await prisma.expense.findUniqueOrThrow({ where: { id: expenseId } })).status).toBe(ExpenseStatus.CANCELLED);
+
+    const listing = await app.inject({
+      method: "GET",
+      url: "/api/expenses?from=2020-01-01&to=2030-01-01",
+      headers: contextHeaders,
+    });
+    expect(listing.statusCode).toBe(200);
+    expect(listing.json()).toMatchObject({
+      summary: { recordedCount: 0, cancelledCount: 1, totals: [] },
+    });
+    expect(listing.json().items).toHaveLength(1);
+
+    const report = await app.inject({
+      method: "GET",
+      url: "/api/reports/expenses?from=2020-01-01&to=2030-01-01",
+      headers: contextHeaders,
+    });
+    expect(report.statusCode).toBe(200);
+    expect(report.json().items[0]).toMatchObject({
+      expenseNumber: created.json().number,
+      status: ExpenseStatus.CANCELLED,
+      amount: "42000",
+    });
+  });
+
   it("links attachment metadata to scoped records and exports valid XLSX", async () => {
     const attachment = await app.inject({
       method: "POST",
@@ -508,6 +573,7 @@ async function cleanupTestWorkspace(): Promise<void> {
   const workspaceId = testIds.workspace;
   if ((await prisma.workspace.count({ where: { id: workspaceId } })) === 0) return;
   await prisma.$transaction(async (tx) => {
+    await tx.expense.deleteMany({ where: { workspaceId } });
     await tx.wagonLocationEvent.deleteMany({ where: { workspaceId } });
     await tx.wagon.deleteMany({ where: { workspaceId } });
     await tx.productMovement.deleteMany({ where: { workspaceId } });

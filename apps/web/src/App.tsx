@@ -12,6 +12,7 @@ import {
   Search,
   TrainFront,
   Truck,
+  WalletCards,
 } from "lucide-react";
 import { useApi } from "./hooks/use-api.js";
 import type { MetaData } from "./types.js";
@@ -23,9 +24,10 @@ const RecipesPage = lazy(() => import("./pages/RecipesPage.js").then((module) =>
 const FormulaPage = lazy(() => import("./pages/FormulaPage.js").then((module) => ({ default: module.FormulaPage })));
 const TransfersPage = lazy(() => import("./pages/TransfersPage.js").then((module) => ({ default: module.TransfersPage })));
 const WagonsPage = lazy(() => import("./pages/WagonsPage.js").then((module) => ({ default: module.WagonsPage })));
+const ExpensesPage = lazy(() => import("./pages/ExpensesPage.js").then((module) => ({ default: module.ExpensesPage })));
 const ReportsPage = lazy(() => import("./pages/ReportsPage.js").then((module) => ({ default: module.ReportsPage })));
 
-type ViewId = "dashboard" | "batches" | "materials" | "recipes" | "formulas" | "transfers" | "wagons" | "reports";
+type ViewId = "dashboard" | "batches" | "materials" | "recipes" | "formulas" | "transfers" | "wagons" | "expenses" | "reports";
 
 const NAVIGATION = [
   { id: "dashboard" as const, label: "Обзор", icon: LayoutDashboard },
@@ -35,6 +37,7 @@ const NAVIGATION = [
   { id: "formulas" as const, label: "Калькулятор", icon: FlaskConical },
   { id: "transfers" as const, label: "Отгрузки", icon: Truck },
   { id: "wagons" as const, label: "Дислокация", icon: TrainFront },
+  { id: "expenses" as const, label: "Расходы", icon: WalletCards },
   { id: "reports" as const, label: "Отчёты", icon: BarChart3 },
 ];
 
@@ -62,6 +65,8 @@ export function App() {
         return <TransfersPage meta={meta} />;
       case "wagons":
         return <WagonsPage />;
+      case "expenses":
+        return <ExpensesPage />;
       case "reports":
         return <ReportsPage />;
       case "dashboard":
@@ -115,7 +120,7 @@ export function App() {
 
       <main className="main-area">
         <header className="topbar">
-          <div className="search-box"><Search size={17} /><input placeholder="Найти замес, складскую позицию или вагон…" /><kbd>⌘ K</kbd></div>
+          <div className="search-box"><Search size={17} /><input placeholder="Найти замес, складскую позицию, вагон или расход…" /><kbd>⌘ K</kbd></div>
           <div className="topbar-meta">
             <span className="shift-pill"><ClipboardList size={15} /> Смена №2 · 08:00–20:00</span>
             <span className="live-pill"><i /> Онлайн</span>

@@ -79,10 +79,11 @@ const STATUS_LABELS: Record<string, string> = {
   UNLOADING: "Под выгрузкой",
   RETURNING: "Возвращается",
   MAINTENANCE: "Обслуживание",
+  RECORDED: "Учтён",
 };
 
 export function StatusBadge({ status }: { status: string }) {
-  const style = ["COMPLETED", "ACTIVE", "ACCEPTED", "AVAILABLE", "EMPTY", "AT_DESTINATION"].includes(status)
+  const style = ["COMPLETED", "ACTIVE", "ACCEPTED", "AVAILABLE", "EMPTY", "AT_DESTINATION", "RECORDED"].includes(status)
     ? "success"
     : ["IN_PROGRESS", "PARTIALLY_TRANSFERRED", "PARTIALLY_ACCEPTED", "SENT", "IN_TRANSIT", "RETURNING", "LOADING", "UNLOADING", "LOADED"].includes(status)
       ? "progress"
