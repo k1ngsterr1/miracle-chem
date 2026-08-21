@@ -77,8 +77,8 @@ export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" |
                 <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "#7d8375", fontSize: 12 }} />
                 <YAxis axisLine={false} tickLine={false} tick={{ fill: "#9ba092", fontSize: 11 }} />
                 <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e0e4d8", boxShadow: "0 12px 32px rgba(24,29,17,.12)" }} />
-                <Area type="monotone" dataKey="produced" stroke="#7daa27" strokeWidth={2.5} fill="url(#producedFill)" />
-                <Area type="monotone" dataKey="sent" stroke="#6375ca" strokeWidth={2} fill="url(#sentFill)" />
+                <Area type="monotone" dataKey="produced" name="Создано" stroke="#7daa27" strokeWidth={2.5} fill="url(#producedFill)" />
+                <Area type="monotone" dataKey="sent" name="Отправлено" stroke="#6375ca" strokeWidth={2} fill="url(#sentFill)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
