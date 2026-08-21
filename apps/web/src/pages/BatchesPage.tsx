@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  ArrowRight,
+  ChevronRight,
   Check,
   CircleGauge,
   Factory,
@@ -182,7 +182,7 @@ function CreateBatchModal({
         <div className="form-field span-2"><span>Оператор</span><CustomSelect ariaLabel="Оператор" value={form.operatorId} onChange={(operatorId) => setForm({ ...form, operatorId })} options={(meta?.users ?? []).filter((user) => ["OPERATOR", "ADMIN"].includes(user.role)).map((user) => ({ value: user.id, label: user.name, description: user.role === "ADMIN" ? "Администратор" : "Оператор" }))} /></div>
         <label className="span-2"><span>Комментарий</span><textarea rows={3} value={form.comments} onChange={(event) => setForm({ ...form, comments: event.target.value })} placeholder="Задание смены, особенности выпуска…" /></label>
         {error === null ? null : <div className="form-error span-2">{error}</div>}
-        <div className="modal-actions span-2"><button type="button" className="button ghost" onClick={onClose}>Отмена</button><button className="button primary" disabled={saving}>{saving ? "Сохраняем…" : "Создать замес"}<ArrowRight size={16} /></button></div>
+        <div className="modal-actions span-2"><button type="button" className="button ghost" onClick={onClose}>Отмена</button><button className="button primary" disabled={saving}>{saving ? "Сохраняем…" : "Создать замес"}<ChevronRight size={16} /></button></div>
       </form>
     </Modal>
   );

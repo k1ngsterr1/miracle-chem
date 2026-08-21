@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
 import {
   AlertTriangle,
-  ArrowDownToLine,
-  ArrowUpFromLine,
+  ChevronDown,
+  ChevronUp,
   Boxes,
   CheckCircle2,
   Coins,
@@ -94,10 +94,10 @@ export function MaterialsPage() {
         actions={(
           <>
             <button className="button ghost" disabled={all.length === 0} onClick={() => setConsumptionMaterial(all[0] ?? null)}>
-              <ArrowUpFromLine size={17} /> Расход
+              <ChevronUp size={17} /> Расход
             </button>
             <button className="button ghost" disabled={all.length === 0} onClick={() => setReceiptMaterial(all[0] ?? null)}>
-              <ArrowDownToLine size={17} /> Приход
+              <ChevronDown size={17} /> Приход
             </button>
             <button className="button primary" onClick={() => setCreateOpen(true)}>
               <PackagePlus size={17} /> Новая позиция
@@ -186,8 +186,8 @@ function MaterialDetail({
         <div className="detail-volume"><strong>{formatNumber(detail.currentStock)} {unitLabel[detail.baseUnit]}</strong><span>на складе</span></div>
       </div>
       <div className="warehouse-detail-actions">
-        <button className="button ghost small" onClick={onConsumption}><ArrowUpFromLine size={15} /> Оформить расход</button>
-        <button className="button primary small" onClick={onReceipt}><ArrowDownToLine size={15} /> Оформить приход</button>
+        <button className="button ghost small" onClick={onConsumption}><ChevronUp size={15} /> Оформить расход</button>
+        <button className="button primary small" onClick={onReceipt}><ChevronDown size={15} /> Оформить приход</button>
       </div>
       {history.loading ? <LoadingState /> : history.error !== null ? <ErrorState message={history.error} retry={history.reload} /> : (
         <div className="warehouse-history-grid">
@@ -296,7 +296,7 @@ function ReceiptModal({ materials, initial, onClose, onCreated }: { materials: M
         <label><span>Цена единицы</span><input type="number" min="0" step="0.01" required value={form.unitCost} onChange={(event) => setForm({ ...form, unitCost: event.target.value })} /></label>
         <label className="span-2"><span>Сертификат</span><input value={form.certificateNumber} onChange={(event) => setForm({ ...form, certificateNumber: event.target.value })} /></label>
         {error === null ? null : <div className="form-error span-2">{error}</div>}
-        <div className="modal-actions span-2"><button type="button" className="button ghost" onClick={onClose}>Отмена</button><button className="button primary"><ArrowDownToLine size={16} /> Оприходовать</button></div>
+        <div className="modal-actions span-2"><button type="button" className="button ghost" onClick={onClose}>Отмена</button><button className="button primary"><ChevronDown size={16} /> Оприходовать</button></div>
       </form>
     </Modal>
   );
@@ -327,7 +327,7 @@ function ConsumptionModal({ materials, initial, onClose, onCreated }: { material
         <label><span>Документ / заявка</span><input value={form.reference} onChange={(event) => setForm({ ...form, reference: event.target.value })} placeholder="Необязательно" /></label>
         <div className="consumption-warning span-2"><ShieldCheck size={17} /><span>Расход спишется по FEFO-партиям. Зарезервированный под замесы объём останется защищён.</span></div>
         {error === null ? null : <div className="form-error span-2">{error}</div>}
-        <div className="modal-actions span-2"><button type="button" className="button ghost" onClick={onClose}>Отмена</button><button className="button primary"><ArrowUpFromLine size={16} /> Провести расход</button></div>
+        <div className="modal-actions span-2"><button type="button" className="button ghost" onClick={onClose}>Отмена</button><button className="button primary"><ChevronUp size={16} /> Провести расход</button></div>
       </form>
     </Modal>
   );

@@ -1,6 +1,6 @@
 import {
   AlertTriangle,
-  ArrowRight,
+  ChevronRight,
   Boxes,
   CircleGauge,
   Factory,
@@ -95,13 +95,13 @@ export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" |
             <div><span>Стоимость выпуска</span><strong>{formatMoney(data.metrics.productionCost)}</strong></div>
             <div><span>Операционные расходы</span><strong>{formatExpenseTotals(data.metrics.operatingExpenses)}</strong></div>
           </div>
-          <button className="text-button" onClick={() => onNavigate("expenses")}>Открыть расходы <ArrowRight size={15} /></button>
+          <button className="text-button" onClick={() => onNavigate("expenses")}>Открыть расходы <ChevronRight size={15} /></button>
         </Panel>
       </div>
 
       <div className="dashboard-lower-grid">
         <Panel>
-          <PanelHeader title="Текущая очередь" description="Ближайшие и активные производственные замесы" action={<button className="text-button" onClick={() => onNavigate("batches")}>Все замесы <ArrowRight size={15} /></button>} />
+          <PanelHeader title="Текущая очередь" description="Ближайшие и активные производственные замесы" action={<button className="text-button" onClick={() => onNavigate("batches")}>Все замесы <ChevronRight size={15} /></button>} />
           <div className="batch-cards">
             {active.slice(0, 4).map((batch) => (
               <article className="batch-mini-card" key={batch.id}>
@@ -120,10 +120,10 @@ export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" |
           ) : (
             <div className="risk-list">
               {data.criticalMaterials.map((material) => (
-                <button key={material.id} onClick={() => onNavigate("materials")}><span className="risk-icon"><AlertTriangle size={17} /></span><span><strong>{material.name}</strong><small>Остаток {formatNumber(material.currentStock)} {unitLabel[material.baseUnit]}</small></span><ArrowRight size={15} /></button>
+                <button key={material.id} onClick={() => onNavigate("materials")}><span className="risk-icon"><AlertTriangle size={17} /></span><span><strong>{material.name}</strong><small>Остаток {formatNumber(material.currentStock)} {unitLabel[material.baseUnit]}</small></span><ChevronRight size={15} /></button>
               ))}
               {data.deviations.map((component) => (
-                <button key={component.id} onClick={() => onNavigate("batches")}><span className="risk-icon red"><CircleGauge size={17} /></span><span><strong>{component.materialNameSnapshot}</strong><small>Отклонение {formatNumber(component.deviationPercent)}%</small></span><ArrowRight size={15} /></button>
+                <button key={component.id} onClick={() => onNavigate("batches")}><span className="risk-icon red"><CircleGauge size={17} /></span><span><strong>{component.materialNameSnapshot}</strong><small>Отклонение {formatNumber(component.deviationPercent)}%</small></span><ChevronRight size={15} /></button>
               ))}
             </div>
           )}

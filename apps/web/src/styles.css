@@ -297,6 +297,8 @@ h1, h2, h3, p { margin: 0; }
 .detail-hero { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 20px; background: linear-gradient(135deg, #f8faF4, #f0f5e8); border-bottom: 1px solid var(--line); }
 .detail-hero h3 { margin-top: 9px; font-size: 18px; }
 .detail-hero p { margin-top: 5px; color: #737a6c; font-size: 9px; }
+.detail-hero .transfer-direction { display: flex; align-items: center; gap: 4px; }
+.transfer-direction svg { flex: 0 0 auto; }
 .detail-volume { text-align: right; }
 .detail-volume strong, .detail-volume span { display: block; }
 .detail-volume strong { font-size: 22px; }
