@@ -176,8 +176,12 @@ h1, h2, h3, p { margin: 0; }
 .status-badge.danger { color: #ad4b40; background: #fff0ed; }
 .status-badge.danger > span { background: #d55c4e; }
 .state-card { min-height: 240px; display: flex; align-items: center; justify-content: center; gap: 10px; color: #72786c; background: #fff; border: 1px solid var(--line); border-radius: 14px; font-size: 11px; }
-.spin { animation: spin 1s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
+.data-loading { min-height: 180px; display: grid; padding: 24px; place-items: center; opacity: 0; animation: data-loading-reveal .01s .22s forwards; }
+.data-loading > div { width: min(100%, 440px); display: grid; gap: 9px; }
+.data-loading-line { width: 72%; height: 10px; border-radius: 99px; }
+.data-loading-line.long { width: 100%; height: 13px; }
+.data-loading-line.short { width: 46%; }
+@keyframes data-loading-reveal { to { opacity: 1; } }
 .error-state { min-height: 160px; padding: 24px; color: #a04a40; }
 .error-state div { flex: 1; }
 .error-state p { margin-top: 4px; color: #8b706c; }

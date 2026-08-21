@@ -48,6 +48,7 @@ describe("Miracle Chem app shell", () => {
     expect(screen.getByText("MIRACLE CHEM")).toBeInTheDocument();
     expect(screen.getByRole("status", { name: "Загрузка раздела" })).toBeInTheDocument();
     expect(screen.queryByText("Загрузка модуля…")).not.toBeInTheDocument();
+    expect(screen.queryByText("Загружаем производственные данные…")).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("Произведено сегодня")).toBeInTheDocument());
     expect(screen.getByRole("button", { name: /Производство/u })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Склад/u })).toBeInTheDocument();

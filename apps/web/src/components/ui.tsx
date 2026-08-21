@@ -1,5 +1,5 @@
 import type { PropsWithChildren, ReactNode } from "react";
-import { AlertTriangle, CheckCircle2, LoaderCircle, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, X } from "lucide-react";
 
 export function PageHeader({
   eyebrow,
@@ -117,9 +117,12 @@ export function StatusBadge({ status }: { status: string }) {
 
 export function LoadingState() {
   return (
-    <div className="state-card">
-      <LoaderCircle className="spin" size={22} />
-      <span>Загружаем производственные данные…</span>
+    <div className="data-loading" role="status" aria-label="Загрузка данных">
+      <div aria-hidden="true">
+        <span className="skeleton-block data-loading-line long" />
+        <span className="skeleton-block data-loading-line" />
+        <span className="skeleton-block data-loading-line short" />
+      </div>
     </div>
   );
 }
