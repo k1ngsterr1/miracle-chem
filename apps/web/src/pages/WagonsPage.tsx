@@ -3,7 +3,7 @@ import {
   Clock3,
   History,
   MapPin,
-  Navigation,
+  MapPinned,
   Package,
   Plus,
   Route,
@@ -78,15 +78,14 @@ export function WagonsPage() {
         <div className="wagon-grid">
           {items.map((wagon) => (
             <article key={wagon.id} className="wagon-card" onClick={() => setSelected(wagon)}>
-              <div className="wagon-visual"><span className="wagon-body"><TrainFront size={25} /><strong>{wagon.number}</strong></span><i /><i /></div>
-              <div className="wagon-card-head"><div><small>{wagon.type}</small><h2>Вагон {wagon.number}</h2></div><StatusBadge status={wagon.status} /></div>
-              <div className="wagon-location"><MapPin size={17} /><div><small>Текущая дислокация</small><strong>{wagon.currentLocation}</strong></div></div>
-              <div className="wagon-facts">
-                <span><small>Груз</small><strong>{wagon.cargoDescription ?? "Порожний"}</strong></span>
-                <span><small>Количество</small><strong>{formatNumber(wagon.cargoQuantity)} {unitLabel[wagon.cargoUnit]}</strong></span>
-                <span><small>Отгрузка</small><strong>{wagon.shipmentNumber ?? "—"}</strong></span>
+              <div className="wagon-card-head"><div className="wagon-card-title"><span>{wagon.type}</span><h2><small>№</small>{wagon.number}</h2></div><StatusBadge status={wagon.status} /></div>
+              <div className="wagon-location"><span className="wagon-location-icon"><MapPin size={18} /></span><div><small>Текущая дислокация</small><strong>{wagon.currentLocation}</strong></div></div>
+              <div className="wagon-cargo">
+                <div className="wagon-cargo-main"><span><Package size={18} /></span><div><small>Груз</small><strong>{wagon.cargoDescription ?? "Порожний"}</strong></div></div>
+                <div><small>Количество</small><strong>{formatNumber(wagon.cargoQuantity)} {unitLabel[wagon.cargoUnit]}</strong></div>
+                <div><small>Отгрузка</small><strong>{wagon.shipmentNumber ?? "Не назначена"}</strong></div>
               </div>
-              <div className="wagon-card-foot"><span><Clock3 size={13} /> {formatDate(wagon.lastReportedAt, true)}</span><button className="text-button" onClick={(event) => { event.stopPropagation(); setMoveWagon(wagon); }}><Navigation size={14} /> Обновить позицию</button></div>
+              <div className="wagon-card-foot"><span><Clock3 size={13} /><span>Обновлено</span><strong>{formatDate(wagon.lastReportedAt, true)}</strong></span><button className="button ghost small" onClick={(event) => { event.stopPropagation(); setMoveWagon(wagon); }}><MapPinned size={14} /> Обновить</button></div>
             </article>
           ))}
         </div>
@@ -103,7 +102,7 @@ function WagonDetail({ wagon, onClose, onMove }: { wagon: Wagon; onClose: () => 
   return (
     <Modal title={`Вагон ${wagon.number}`} onClose={onClose} wide>
       <div className="detail-hero"><div><StatusBadge status={wagon.status} /><h3>{wagon.currentLocation}</h3><p>{wagon.type} · вместимость {formatNumber(wagon.capacity)} {unitLabel[wagon.capacityUnit]}</p></div><div className="detail-volume"><strong>{formatNumber(wagon.cargoQuantity)} {unitLabel[wagon.cargoUnit]}</strong><span>{wagon.cargoDescription ?? "без груза"}</span></div></div>
-      <div className="warehouse-detail-actions"><button className="button primary small" onClick={onMove}><Navigation size={15} /> Новая отметка</button></div>
+      <div className="warehouse-detail-actions"><button className="button primary small" onClick={onMove}><MapPinned size={15} /> Новая отметка</button></div>
       <div className="section-title"><h3>История дислокации</h3><span><History size={14} /> {wagon.locationEvents.length}</span></div>
       <div className="wagon-timeline">
         {wagon.locationEvents.map((event) => (
@@ -173,7 +172,7 @@ function WagonLocationModal({ wagon, onClose, onCreated }: { wagon: Wagon; onClo
         <div className="form-field"><span>Единица груза</span><CustomSelect ariaLabel="Единица груза при отметке" value={form.cargoUnit} onChange={(cargoUnit) => setForm({ ...form, cargoUnit: cargoUnit as Unit })} options={CARGO_UNIT_OPTIONS} /></div>
         <label className="span-2"><span>Комментарий диспетчера</span><textarea rows={3} value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} /></label>
         {error === null ? null : <div className="form-error span-2">{error}</div>}
-        <div className="modal-actions span-2"><button type="button" className="button ghost" onClick={onClose}>Отмена</button><button className="button primary"><Navigation size={16} /> Зафиксировать</button></div>
+        <div className="modal-actions span-2"><button type="button" className="button ghost" onClick={onClose}>Отмена</button><button className="button primary"><MapPinned size={16} /> Зафиксировать</button></div>
       </form>
     </Modal>
   );
