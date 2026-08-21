@@ -78,7 +78,21 @@ h1, h2, h3, p { margin: 0; }
 .shift-pill, .live-pill { display: flex; align-items: center; gap: 6px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 9px; color: #666c60; background: #fff; font-size: 10px; }
 .live-pill i { width: 6px; height: 6px; border-radius: 50%; background: #83bf2d; box-shadow: 0 0 0 3px rgba(131, 191, 45, .12); }
 .page-content { max-width: 1560px; margin: 0 auto; padding: 28px; }
-.page-loading { display: grid; min-height: 45vh; place-items: center; color: var(--muted); font-size: .9rem; }
+.page-skeleton { display: grid; gap: 13px; }
+.skeleton-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 11px; }
+.skeleton-heading > div { flex: 1; }
+.skeleton-block { position: relative; display: block; overflow: hidden; background: #e7eae2; }
+.skeleton-block::after { position: absolute; inset: 0; content: ""; background: linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, .72) 50%, transparent 80%); transform: translateX(-100%); animation: skeleton-shimmer 1.35s ease-in-out infinite; }
+.skeleton-eyebrow { width: 105px; height: 9px; margin-bottom: 9px; border-radius: 99px; }
+.skeleton-title { width: min(360px, 65%); height: 35px; border-radius: 9px; }
+.skeleton-copy { width: min(560px, 85%); height: 12px; margin-top: 10px; border-radius: 99px; }
+.skeleton-action { width: 142px; height: 37px; border-radius: 9px; }
+.skeleton-cards { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 11px; }
+.skeleton-card { height: 148px; border: 1px solid #e2e5dc; border-radius: 13px; }
+.skeleton-panels { display: grid; grid-template-columns: minmax(0, 2fr) minmax(270px, .8fr); gap: 13px; }
+.skeleton-panel { height: 330px; border: 1px solid #e2e5dc; border-radius: 14px; }
+@keyframes skeleton-shimmer { to { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) { .skeleton-block::after { animation: none; } }
 
 .page-header, .dashboard-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
 .eyebrow { display: block; margin-bottom: 7px; color: #7a842e; font-size: 9px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
@@ -669,6 +683,7 @@ h1, h2, h3, p { margin: 0; }
 
 @media (max-width: 1280px) {
   .kpi-grid { grid-template-columns: repeat(3, 1fr); }
+  .skeleton-cards { grid-template-columns: repeat(3, 1fr); }
   .recipe-grid, .transfer-cards { grid-template-columns: repeat(2, 1fr); }
   .formula-layout { grid-template-columns: 210px 1fr; }
   .formula-result { grid-column: 1 / -1; min-height: 360px; }
@@ -689,6 +704,7 @@ h1, h2, h3, p { margin: 0; }
   .shift-pill { display: none; }
   .page-content { padding: 21px 18px; }
   .dashboard-grid, .dashboard-lower-grid { grid-template-columns: 1fr; }
+  .skeleton-panels { grid-template-columns: 1fr; }
   .summary-strip { grid-template-columns: repeat(2, 1fr); }
   .summary-item:nth-child(2) { border-right: 0; }
   .summary-item:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
@@ -706,6 +722,9 @@ h1, h2, h3, p { margin: 0; }
   .search-box kbd, .topbar-meta { display: none; }
   .page-content { padding: 17px 12px; }
   .page-header, .dashboard-heading { align-items: flex-start; flex-direction: column; }
+  .skeleton-heading { align-items: flex-start; flex-direction: column; }
+  .skeleton-action { width: 100%; }
+  .skeleton-cards { grid-template-columns: repeat(2, 1fr); }
   .page-actions, .export-actions { width: 100%; }
   .page-actions .button, .export-actions .button { flex: 1; }
   .kpi-grid { grid-template-columns: repeat(2, 1fr); }

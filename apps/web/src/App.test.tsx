@@ -46,6 +46,8 @@ describe("Miracle Chem app shell", () => {
   it("loads the dashboard and keeps production modules visible", async () => {
     render(<App />);
     expect(screen.getByText("MIRACLE CHEM")).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "Загрузка раздела" })).toBeInTheDocument();
+    expect(screen.queryByText("Загрузка модуля…")).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("Произведено сегодня")).toBeInTheDocument());
     expect(screen.getByRole("button", { name: /Производство/u })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Склад/u })).toBeInTheDocument();

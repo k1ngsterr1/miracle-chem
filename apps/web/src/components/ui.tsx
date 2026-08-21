@@ -51,6 +51,28 @@ export function PanelHeader({
   );
 }
 
+export function PageSkeleton() {
+  return (
+    <div className="page-skeleton" role="status" aria-label="Загрузка раздела">
+      <div className="skeleton-heading" aria-hidden="true">
+        <div>
+          <span className="skeleton-block skeleton-eyebrow" />
+          <span className="skeleton-block skeleton-title" />
+          <span className="skeleton-block skeleton-copy" />
+        </div>
+        <span className="skeleton-block skeleton-action" />
+      </div>
+      <div className="skeleton-cards" aria-hidden="true">
+        {Array.from({ length: 6 }, (_, index) => <span className="skeleton-block skeleton-card" key={index} />)}
+      </div>
+      <div className="skeleton-panels" aria-hidden="true">
+        <span className="skeleton-block skeleton-panel skeleton-panel-wide" />
+        <span className="skeleton-block skeleton-panel" />
+      </div>
+    </div>
+  );
+}
+
 const STATUS_LABELS: Record<string, string> = {
   PLANNED: "Запланирован",
   PREPARATION: "Подготовка",

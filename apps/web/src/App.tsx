@@ -16,16 +16,52 @@ import {
 } from "lucide-react";
 import { useApi } from "./hooks/use-api.js";
 import type { MetaData } from "./types.js";
+import { PageSkeleton } from "./components/ui.js";
 
-const DashboardPage = lazy(() => import("./pages/DashboardPage.js").then((module) => ({ default: module.DashboardPage })));
-const BatchesPage = lazy(() => import("./pages/BatchesPage.js").then((module) => ({ default: module.BatchesPage })));
-const MaterialsPage = lazy(() => import("./pages/MaterialsPage.js").then((module) => ({ default: module.MaterialsPage })));
-const RecipesPage = lazy(() => import("./pages/RecipesPage.js").then((module) => ({ default: module.RecipesPage })));
-const FormulaPage = lazy(() => import("./pages/FormulaPage.js").then((module) => ({ default: module.FormulaPage })));
-const TransfersPage = lazy(() => import("./pages/TransfersPage.js").then((module) => ({ default: module.TransfersPage })));
-const WagonsPage = lazy(() => import("./pages/WagonsPage.js").then((module) => ({ default: module.WagonsPage })));
-const ExpensesPage = lazy(() => import("./pages/ExpensesPage.js").then((module) => ({ default: module.ExpensesPage })));
-const ReportsPage = lazy(() => import("./pages/ReportsPage.js").then((module) => ({ default: module.ReportsPage })));
+function cachePageLoader<T>(load: () => Promise<T>): () => Promise<T> {
+  let promise: Promise<T> | undefined;
+  return () => {
+    if (promise === undefined) {
+      promise = load().catch((error: unknown) => {
+        promise = undefined;
+        throw error;
+      });
+    }
+    return promise;
+  };
+}
+
+const loadDashboardPage = cachePageLoader(() => import("./pages/DashboardPage.js").then((module) => ({ default: module.DashboardPage })));
+const loadBatchesPage = cachePageLoader(() => import("./pages/BatchesPage.js").then((module) => ({ default: module.BatchesPage })));
+const loadMaterialsPage = cachePageLoader(() => import("./pages/MaterialsPage.js").then((module) => ({ default: module.MaterialsPage })));
+const loadRecipesPage = cachePageLoader(() => import("./pages/RecipesPage.js").then((module) => ({ default: module.RecipesPage })));
+const loadFormulaPage = cachePageLoader(() => import("./pages/FormulaPage.js").then((module) => ({ default: module.FormulaPage })));
+const loadTransfersPage = cachePageLoader(() => import("./pages/TransfersPage.js").then((module) => ({ default: module.TransfersPage })));
+const loadWagonsPage = cachePageLoader(() => import("./pages/WagonsPage.js").then((module) => ({ default: module.WagonsPage })));
+const loadExpensesPage = cachePageLoader(() => import("./pages/ExpensesPage.js").then((module) => ({ default: module.ExpensesPage })));
+const loadReportsPage = cachePageLoader(() => import("./pages/ReportsPage.js").then((module) => ({ default: module.ReportsPage })));
+
+const PAGE_LOADERS = [
+  loadDashboardPage,
+  loadBatchesPage,
+  loadMaterialsPage,
+  loadRecipesPage,
+  loadFormulaPage,
+  loadTransfersPage,
+  loadWagonsPage,
+  loadExpensesPage,
+  loadReportsPage,
+];
+
+const DashboardPage = lazy(loadDashboardPage);
+const BatchesPage = lazy(loadBatchesPage);
+const MaterialsPage = lazy(loadMaterialsPage);
+const RecipesPage = lazy(loadRecipesPage);
+const FormulaPage = lazy(loadFormulaPage);
+const TransfersPage = lazy(loadTransfersPage);
+const WagonsPage = lazy(loadWagonsPage);
+const ExpensesPage = lazy(loadExpensesPage);
+const ReportsPage = lazy(loadReportsPage);
 
 type ViewId = "dashboard" | "batches" | "materials" | "recipes" | "formulas" | "transfers" | "wagons" | "expenses" | "reports";
 
@@ -49,6 +85,13 @@ export function App() {
     const onHashChange = () => setView(readHash());
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
+  useEffect(() => {
+    const preloadTimer = window.setTimeout(() => {
+      void Promise.allSettled(PAGE_LOADERS.map((loadPage) => loadPage()));
+    }, 200);
+    return () => window.clearTimeout(preloadTimer);
   }, []);
 
   const page = useMemo(() => {
@@ -127,7 +170,7 @@ export function App() {
           </div>
         </header>
         <div className="page-content">
-          <Suspense fallback={<div className="page-loading" role="status">Загрузка модуля…</div>}>
+          <Suspense fallback={<PageSkeleton />}>
             {page}
           </Suspense>
         </div>
