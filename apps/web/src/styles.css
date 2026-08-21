@@ -57,12 +57,6 @@ h1, h2, h3, p { margin: 0; }
 .sidebar nav button.active { color: #fff; background: #282c25; box-shadow: inset 3px 0 var(--lime); }
 .sidebar nav button.active svg { color: var(--lime); }
 .sidebar nav em { min-width: 20px; padding: 2px 5px; border-radius: 99px; color: #171915; background: var(--lime); font-size: 9px; font-style: normal; font-weight: 800; text-align: center; }
-.sidebar-footer { display: grid; gap: 10px; }
-.system-status { display: flex; align-items: center; gap: 9px; padding: 10px 11px; color: #9ba093; background: #1d201b; border-radius: 10px; }
-.system-status > span { width: 7px; height: 7px; border-radius: 50%; background: var(--lime); box-shadow: 0 0 0 4px rgba(182, 238, 72, .08); }
-.system-status strong, .system-status small { display: block; }
-.system-status strong { color: #cbd0c5; font-size: 10px; }
-.system-status small { margin-top: 2px; font-size: 8px; }
 .profile-card { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 9px; padding: 10px 7px 2px; border-top: 1px solid #2a2d27; }
 .avatar { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 10px; color: #28300f; background: #c6e987; font-size: 10px; font-weight: 800; }
 .profile-card strong, .profile-card small { display: block; }

@@ -152,7 +152,6 @@ export function App() {
         </nav>
 
         <div className="sidebar-footer">
-          <div className="system-status"><span /><div><strong>Система в норме</strong><small>API и база доступны</small></div></div>
           <div className="profile-card">
             <span className="avatar">{initials(meta?.actor.name ?? "Admin")}</span>
             <span><strong>{meta?.actor.name ?? "Администратор"}</strong><small>{roleName(meta?.actor.role)}</small></span>
