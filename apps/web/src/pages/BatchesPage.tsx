@@ -173,7 +173,7 @@ function CreateBatchModal({
 
   return (
     <Modal title="Новый производственный замес" onClose={onClose} wide>
-      <form className="form-grid" onSubmit={(event) => void submit(event)}>
+      <form className="form-grid batch-create-form" onSubmit={(event) => void submit(event)}>
         <label><span>Номер замеса</span><input required value={form.number} onChange={(event) => setForm({ ...form, number: event.target.value })} /></label>
         <div className="form-field"><span>Дата и время</span><DateTimePicker ariaLabel="Дата и время замеса" value={form.scheduledAt} onChange={(scheduledAt) => setForm({ ...form, scheduledAt })} /></div>
         <div className="form-field span-2"><span>Рецептура</span><CustomSelect ariaLabel="Рецептура" value={form.recipeVersionId} onChange={(recipeVersionId) => setForm({ ...form, recipeVersionId })} options={activeRecipes.map((recipe) => ({ value: recipe.versions[0]?.id ?? "", label: recipe.name, description: `v${recipe.versions[0]?.version} · ${recipe.versions[0]?.concreteGrade}` })).filter((option) => option.value !== "")} /></div>

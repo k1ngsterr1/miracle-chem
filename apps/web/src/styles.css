@@ -583,6 +583,12 @@ h1, h2, h3, p { margin: 0; }
 .modal-inline-error { margin: 0 18px 10px; }
 .modal > form > .modal-actions { padding: 0 18px 18px; }
 
+.batch-create-form { align-items: start; column-gap: 16px; row-gap: 14px; }
+.batch-create-form > label, .batch-create-form > .form-field { min-width: 0; }
+.batch-create-form input, .batch-create-form textarea, .batch-create-form .custom-select-trigger, .batch-create-form .date-picker-trigger { min-height: 38px; }
+.batch-create-form textarea { min-height: 72px; resize: vertical; }
+.modal > form.batch-create-form > .modal-actions { align-items: center; padding: 2px 0 0; }
+
 .recipe-calculator-panel { margin-bottom: 22px; overflow: visible; }
 .calculator-heading { display: flex; align-items: center; gap: 11px; padding: 17px 18px 4px; }
 .calculator-heading > span { width: 38px; height: 38px; display: grid; place-items: center; color: #637f2c; background: #eff6e3; border-radius: 10px; }
@@ -753,6 +759,8 @@ h1, h2, h3, p { margin: 0; }
   .modal-actions, .workflow-actions, .warehouse-detail-actions { flex-wrap: wrap; }
   .form-grid { grid-template-columns: 1fr; }
   .span-2 { grid-column: span 1; }
+  .modal > form.batch-create-form > .modal-actions { display: grid; grid-template-columns: 1fr 1fr; }
+  .batch-create-form .modal-actions .button { min-width: 0; width: 100%; }
   .detail-hero { align-items: flex-start; }
   .detail-facts, .transfer-document { grid-template-columns: repeat(2, 1fr); }
   .detail-facts > span:nth-child(2), .transfer-document > div:nth-child(2) { border-right: 0; }
