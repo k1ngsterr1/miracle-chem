@@ -1,4 +1,14 @@
-import type { FastifyInstance } from "fastify";
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
+  Query,
+  Req,
+} from "@nestjs/common";
 import { z } from "zod";
 import {
   AuditEntityType,
@@ -13,6 +23,7 @@ import { getRequestContext } from "../lib/request-context.js";
 import { nonNegativeDecimalString, parseBody, positiveDecimalString } from "../lib/validation.js";
 import { ApiError } from "../lib/api-error.js";
 import { writeAudit } from "../lib/audit.js";
+import { requireIdempotencyKey, type ApiRequest } from "../lib/http.js";
 import {
   completeBatch,
   cancelBatch,
@@ -74,10 +85,14 @@ const qualitySchema = z.object({
 
 const cancelSchema = z.object({ reason: z.string().trim().min(3).max(1000) });
 
-export async function registerBatchRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/batches", async (request) => {
+@Controller("batches")
+export class BatchController {
+  @Get()
+  async list(
+    @Req() request: ApiRequest,
+    @Query() query: { status?: string; from?: string; to?: string },
+  ) {
     const { workspaceId } = await getRequestContext(request, prisma);
-    const query = request.query as { status?: string; from?: string; to?: string };
     const status = query.status !== undefined && Object.values(ProductionBatchStatus).includes(query.status as ProductionBatchStatus)
       ? (query.status as ProductionBatchStatus)
       : undefined;
@@ -104,12 +119,13 @@ export async function registerBatchRoutes(app: FastifyInstance): Promise<void> {
       take: 500,
     });
     return { items };
-  });
+  }
 
-  app.get<{ Params: { id: string } }>("/batches/:id", async (request, reply) => {
+  @Get(":id")
+  async detail(@Req() request: ApiRequest, @Param("id") id: string) {
     const { workspaceId } = await getRequestContext(request, prisma);
     const batch = await prisma.productionBatch.findFirst({
-      where: { id: request.params.id, workspaceId },
+      where: { id, workspaceId },
       include: {
         operator: true,
         productionLine: true,
@@ -125,24 +141,28 @@ export async function registerBatchRoutes(app: FastifyInstance): Promise<void> {
         materialMovements: { include: { materialLot: true }, orderBy: { occurredAt: "desc" } },
       },
     });
-    if (batch === null) return reply.status(404).send({ error: { code: "BATCH_NOT_FOUND" } });
+    if (batch === null) throw new ApiError(404, "BATCH_NOT_FOUND", "Замес не найден");
     return batch;
-  });
+  }
 
-  app.post("/batches", async (request, reply) => {
+  @Post()
+  async create(@Req() request: ApiRequest, @Body() body: unknown) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
-    const batch = await createBatch(workspaceId, actor.id, parseBody(createSchema, request.body));
-    return reply.status(201).send(batch);
-  });
+    return createBatch(workspaceId, actor.id, parseBody(createSchema, body));
+  }
 
-  app.post<{ Params: { id: string } }>("/batches/:id/start", async (request) => {
+  @Post(":id/start")
+  @HttpCode(HttpStatus.OK)
+  async start(@Req() request: ApiRequest, @Param("id") id: string) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
-    return startBatch(workspaceId, actor.id, request.params.id, requireIdempotencyKey(request.headers));
-  });
+    return startBatch(workspaceId, actor.id, id, requireIdempotencyKey(request.headers));
+  }
 
-  app.post<{ Params: { id: string } }>("/batches/:id/consumption", async (request) => {
+  @Post(":id/consumption")
+  @HttpCode(HttpStatus.OK)
+  async confirmConsumption(@Req() request: ApiRequest, @Param("id") id: string, @Body() body: unknown) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
-    const input = parseBody(consumptionSchema, request.body);
+    const input = parseBody(consumptionSchema, body);
     if (input.allowNegativeStock === true && actor.role !== UserRole.ADMIN) {
       throw new ApiError(403, "NEGATIVE_STOCK_FORBIDDEN", "Отрицательный остаток может разрешить только администратор");
     }
@@ -152,43 +172,48 @@ export async function registerBatchRoutes(app: FastifyInstance): Promise<void> {
     return confirmBatchConsumption(
       workspaceId,
       actor.id,
-      request.params.id,
+      id,
       requireIdempotencyKey(request.headers),
       input,
     );
-  });
+  }
 
-  app.post<{ Params: { id: string } }>("/batches/:id/complete", async (request) => {
+  @Post(":id/complete")
+  @HttpCode(HttpStatus.OK)
+  async complete(@Req() request: ApiRequest, @Param("id") id: string, @Body() body: unknown) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
-    const parsed = parseBody(completeSchema, request.body);
+    const parsed = parseBody(completeSchema, body);
     return completeBatch(
       workspaceId,
       actor.id,
-      request.params.id,
+      id,
       requireIdempotencyKey(request.headers),
       {
         ...parsed,
         qualitySummary: parsed.qualitySummary as Prisma.InputJsonValue | undefined,
       },
     );
-  });
+  }
 
-  app.post<{ Params: { id: string } }>("/batches/:id/cancel", async (request) => {
+  @Post(":id/cancel")
+  @HttpCode(HttpStatus.OK)
+  async cancel(@Req() request: ApiRequest, @Param("id") id: string, @Body() body: unknown) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
-    const input = parseBody(cancelSchema, request.body);
+    const input = parseBody(cancelSchema, body);
     return cancelBatch(
       workspaceId,
       actor.id,
-      request.params.id,
+      id,
       requireIdempotencyKey(request.headers),
       input.reason,
     );
-  });
+  }
 
-  app.post<{ Params: { id: string } }>("/batches/:id/quality-checks", async (request, reply) => {
+  @Post(":id/quality-checks")
+  async addQualityCheck(@Req() request: ApiRequest, @Param("id") id: string, @Body() body: unknown) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
-    const input = parseBody(qualitySchema, request.body);
-    const batch = await prisma.productionBatch.findFirst({ where: { id: request.params.id, workspaceId } });
+    const input = parseBody(qualitySchema, body);
+    const batch = await prisma.productionBatch.findFirst({ where: { id, workspaceId } });
     if (batch === null) throw new ApiError(404, "BATCH_NOT_FOUND", "Замес не найден");
     const performer = await prisma.user.findFirst({ where: { id: input.performedById, workspaceId, active: true } });
     if (performer === null) throw new ApiError(422, "QUALITY_PERFORMER_NOT_FOUND", "Ответственный за контроль не найден");
@@ -225,14 +250,6 @@ export async function registerBatchRoutes(app: FastifyInstance): Promise<void> {
       });
       return created;
     });
-    return reply.status(201).send(check);
-  });
-}
-
-function requireIdempotencyKey(headers: Record<string, unknown>): string {
-  const value = headers["idempotency-key"];
-  if (typeof value !== "string") {
-    throw new ApiError(400, "IDEMPOTENCY_KEY_REQUIRED", "Добавьте заголовок Idempotency-Key");
+    return check;
   }
-  return value;
 }

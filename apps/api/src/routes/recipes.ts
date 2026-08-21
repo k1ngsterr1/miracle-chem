@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import { Body, Controller, Get, Param, Patch, Post, Req } from "@nestjs/common";
 import { z } from "zod";
 import { RecipeStatus, Unit } from "../generated/prisma/index.js";
 import { prisma } from "../lib/prisma.js";
@@ -9,6 +9,8 @@ import {
   createRecipe,
   createRecipeVersion,
 } from "../services/recipe-service.js";
+import { ApiError } from "../lib/api-error.js";
+import type { ApiRequest } from "../lib/http.js";
 
 const componentSchema = z.object({
   materialId: z.string().uuid(),
@@ -40,8 +42,10 @@ const createSchema = z.object({
   version: versionSchema,
 });
 
-export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/recipes", async (request) => {
+@Controller("recipes")
+export class RecipeController {
+  @Get()
+  async list(@Req() request: ApiRequest) {
     const { workspaceId } = await getRequestContext(request, prisma);
     const items = await prisma.recipe.findMany({
       where: { workspaceId },
@@ -55,12 +59,13 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
       orderBy: [{ status: "asc" }, { name: "asc" }],
     });
     return { items };
-  });
+  }
 
-  app.get<{ Params: { id: string } }>("/recipes/:id", async (request, reply) => {
+  @Get(":id")
+  async detail(@Req() request: ApiRequest, @Param("id") id: string) {
     const { workspaceId } = await getRequestContext(request, prisma);
     const recipe = await prisma.recipe.findFirst({
-      where: { id: request.params.id, workspaceId },
+      where: { id, workspaceId },
       include: {
         versions: {
           include: { components: { include: { material: true }, orderBy: { position: "asc" } } },
@@ -68,30 +73,31 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
         },
       },
     });
-    if (recipe === null) return reply.status(404).send({ error: { code: "RECIPE_NOT_FOUND" } });
+    if (recipe === null) throw new ApiError(404, "RECIPE_NOT_FOUND", "Рецептура не найдена");
     return recipe;
-  });
+  }
 
-  app.post("/recipes", async (request, reply) => {
+  @Post()
+  async create(@Req() request: ApiRequest, @Body() body: unknown) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
-    const result = await createRecipe(workspaceId, actor.id, parseBody(createSchema, request.body));
-    return reply.status(201).send(result);
-  });
+    return createRecipe(workspaceId, actor.id, parseBody(createSchema, body));
+  }
 
-  app.post<{ Params: { id: string } }>("/recipes/:id/versions", async (request, reply) => {
+  @Post(":id/versions")
+  async createVersion(@Req() request: ApiRequest, @Param("id") id: string, @Body() body: unknown) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
-    const result = await createRecipeVersion(
+    return createRecipeVersion(
       workspaceId,
       actor.id,
-      request.params.id,
-      parseBody(versionSchema, request.body),
+      id,
+      parseBody(versionSchema, body),
     );
-    return reply.status(201).send(result);
-  });
+  }
 
-  app.patch<{ Params: { id: string } }>("/recipes/:id/status", async (request) => {
+  @Patch(":id/status")
+  async changeStatus(@Req() request: ApiRequest, @Param("id") id: string, @Body() body: unknown) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
-    const body = parseBody(z.object({ status: z.nativeEnum(RecipeStatus) }), request.body);
-    return changeRecipeStatus(workspaceId, actor.id, request.params.id, body.status);
-  });
+    const input = parseBody(z.object({ status: z.nativeEnum(RecipeStatus) }), body);
+    return changeRecipeStatus(workspaceId, actor.id, id, input.status);
+  }
 }

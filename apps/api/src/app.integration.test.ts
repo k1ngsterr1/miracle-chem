@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { FastifyInstance } from "fastify";
+import type { INestApplication } from "@nestjs/common";
+import supertest from "supertest";
 import {
   AdjustmentTargetType,
   ExpenseCategory,
@@ -28,7 +29,23 @@ const testIds = {
   recipeVersion: "99999999-9999-4999-8999-999999999997",
 } as const;
 
-let app: FastifyInstance;
+interface InjectOptions {
+  method: "GET" | "POST" | "PATCH";
+  url: string;
+  headers?: Record<string, string>;
+  payload?: unknown;
+}
+
+interface InjectResponse {
+  statusCode: number;
+  headers: Record<string, string | string[] | undefined>;
+  payload: string;
+  rawPayload: Buffer;
+  json: () => any;
+}
+
+let nestApp: INestApplication;
+let app: { inject: (options: InjectOptions) => Promise<InjectResponse>; close: () => Promise<void> };
 let batchId: string;
 let productLotId: string;
 let transferId: string;
@@ -129,20 +146,42 @@ beforeAll(async () => {
       },
     },
   });
-  app = await buildApp();
-  await app.ready();
+  nestApp = await buildApp();
+  app = createTestClient(nestApp);
 }, 30_000);
+
+function createTestClient(application: INestApplication) {
+  return {
+    async inject(options: InjectOptions): Promise<InjectResponse> {
+      const method = options.method.toLocaleLowerCase("en-US") as "get" | "post" | "patch";
+      let testRequest = supertest(application.getHttpServer())[method](options.url);
+      for (const [name, value] of Object.entries(options.headers ?? {})) {
+        testRequest = testRequest.set(name, value);
+      }
+      if (options.payload !== undefined) testRequest = testRequest.send(options.payload);
+      const response = await testRequest;
+      return {
+        statusCode: response.status,
+        headers: response.headers,
+        payload: response.text,
+        rawPayload: Buffer.isBuffer(response.body) ? response.body : Buffer.from(response.text),
+        json: () => response.body,
+      };
+    },
+    close: () => application.close(),
+  };
+}
 
 afterAll(async () => {
   await cleanupTestWorkspace();
   await app.close();
 }, 30_000);
 
-describe("Miracle Chem API integration", () => {
+describe("Miracle Chem NestJS API integration", () => {
   it("responds to health and evaluates formulas on the backend", async () => {
     const health = await app.inject({ method: "GET", url: "/health" });
     expect(health.statusCode).toBe(200);
-    expect(health.json()).toMatchObject({ status: "ok", service: "miracle-chem-api" });
+    expect(health.json()).toMatchObject({ status: "ok", service: "miracle-chem-api", framework: "nestjs" });
 
     const calculation = await app.inject({
       method: "POST",

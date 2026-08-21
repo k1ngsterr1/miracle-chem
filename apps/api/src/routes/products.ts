@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Req } from "@nestjs/common";
 import { z } from "zod";
 import { Prisma, ProductMovementType, Unit } from "../generated/prisma/index.js";
 import { ApiError } from "../lib/api-error.js";
@@ -6,6 +6,7 @@ import { prisma } from "../lib/prisma.js";
 import { getRequestContext } from "../lib/request-context.js";
 import { parseBody, positiveDecimalString } from "../lib/validation.js";
 import { recordProductMovement } from "../services/product-service.js";
+import { requireIdempotencyKey, type ApiRequest } from "../lib/http.js";
 
 const movementSchema = z.object({
   type: z.enum([
@@ -19,8 +20,10 @@ const movementSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
-export async function registerProductRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/product-lots", async (request) => {
+@Controller("product-lots")
+export class ProductController {
+  @Get()
+  async list(@Req() request: ApiRequest) {
     const { workspaceId } = await getRequestContext(request, prisma);
     return {
       items: await prisma.productLot.findMany({
@@ -33,12 +36,13 @@ export async function registerProductRoutes(app: FastifyInstance): Promise<void>
         take: 500,
       }),
     };
-  });
+  }
 
-  app.get<{ Params: { id: string } }>("/product-lots/:id", async (request) => {
+  @Get(":id")
+  async detail(@Req() request: ApiRequest, @Param("id") id: string) {
     const { workspaceId } = await getRequestContext(request, prisma);
     const lot = await prisma.productLot.findFirst({
-      where: { id: request.params.id, workspaceId },
+      where: { id, workspaceId },
       include: {
         batch: true,
         movements: { orderBy: { occurredAt: "desc" } },
@@ -53,28 +57,22 @@ export async function registerProductRoutes(app: FastifyInstance): Promise<void>
     });
     if (lot === null) throw new ApiError(404, "PRODUCT_LOT_NOT_FOUND", "Партия готовой продукции не найдена");
     return lot;
-  });
+  }
 
-  app.post<{ Params: { id: string } }>("/product-lots/:id/movements", async (request) => {
+  @Post(":id/movements")
+  @HttpCode(HttpStatus.OK)
+  async addMovement(@Req() request: ApiRequest, @Param("id") id: string, @Body() body: unknown) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
-    const parsed = parseBody(movementSchema, request.body);
+    const parsed = parseBody(movementSchema, body);
     return recordProductMovement(
       workspaceId,
       actor.id,
-      request.params.id,
+      id,
       requireIdempotencyKey(request.headers),
       {
         ...parsed,
         metadata: parsed.metadata as Prisma.InputJsonValue | undefined,
       },
     );
-  });
-}
-
-function requireIdempotencyKey(headers: Record<string, unknown>): string {
-  const value = headers["idempotency-key"];
-  if (typeof value !== "string" || value.trim() === "") {
-    throw new ApiError(400, "IDEMPOTENCY_KEY_REQUIRED", "Добавьте заголовок Idempotency-Key");
   }
-  return value;
 }

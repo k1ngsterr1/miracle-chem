@@ -3,6 +3,9 @@
   "compilerOptions": {
     "rootDir": ".",
     "outDir": "dist",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "useDefineForClassFields": false,
     "exactOptionalPropertyTypes": false,
     "types": ["node", "vitest/globals"]
   },

@@ -1,10 +1,11 @@
-import type { FastifyInstance } from "fastify";
+import { Body, Controller, Get, Param, Post, Req } from "@nestjs/common";
 import { z } from "zod";
 import { Unit, WagonStatus } from "../generated/prisma/index.js";
 import { prisma } from "../lib/prisma.js";
 import { getRequestContext } from "../lib/request-context.js";
 import { nonNegativeDecimalString, parseBody, positiveDecimalString } from "../lib/validation.js";
 import { createWagon, recordWagonLocation } from "../services/wagon-service.js";
+import type { ApiRequest } from "../lib/http.js";
 
 const locationFields = {
   status: z.nativeEnum(WagonStatus),
@@ -31,8 +32,10 @@ const locationSchema = z.object({
   occurredAt: z.coerce.date(),
 });
 
-export async function registerWagonRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/wagons", async (request) => {
+@Controller("wagons")
+export class WagonController {
+  @Get()
+  async list(@Req() request: ApiRequest) {
     const { workspaceId } = await getRequestContext(request, prisma);
     return {
       items: await prisma.wagon.findMany({
@@ -47,22 +50,22 @@ export async function registerWagonRoutes(app: FastifyInstance): Promise<void> {
         orderBy: [{ status: "asc" }, { number: "asc" }],
       }),
     };
-  });
+  }
 
-  app.post("/wagons", async (request, reply) => {
+  @Post()
+  async create(@Req() request: ApiRequest, @Body() body: unknown) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
-    const wagon = await createWagon(workspaceId, actor.id, parseBody(createSchema, request.body));
-    return reply.status(201).send(wagon);
-  });
+    return createWagon(workspaceId, actor.id, parseBody(createSchema, body));
+  }
 
-  app.post<{ Params: { id: string } }>("/wagons/:id/location", async (request, reply) => {
+  @Post(":id/location")
+  async recordLocation(@Req() request: ApiRequest, @Param("id") id: string, @Body() body: unknown) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
-    const wagon = await recordWagonLocation(
+    return recordWagonLocation(
       workspaceId,
       actor.id,
-      request.params.id,
-      parseBody(locationSchema, request.body),
+      id,
+      parseBody(locationSchema, body),
     );
-    return reply.status(201).send(wagon);
-  });
+  }
 }

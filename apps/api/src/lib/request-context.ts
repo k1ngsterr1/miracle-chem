@@ -1,8 +1,8 @@
-import type { FastifyRequest } from "fastify";
 import { timingSafeEqual } from "node:crypto";
 import type { PrismaClient, User } from "../generated/prisma/index.js";
 import { config, DEFAULT_ACTOR_ID, DEFAULT_WORKSPACE_ID } from "../config.js";
 import { ApiError } from "./api-error.js";
+import type { ApiRequest } from "./http.js";
 
 export interface RequestContext {
   workspaceId: string;
@@ -10,7 +10,7 @@ export interface RequestContext {
 }
 
 export async function getRequestContext(
-  request: FastifyRequest,
+  request: ApiRequest,
   client: PrismaClient,
 ): Promise<RequestContext> {
   const workspaceHeader = request.headers["x-workspace-id"];

@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query, Req } from "@nestjs/common";
 import { z } from "zod";
 import { LrtTransferStatus, Unit } from "../generated/prisma/index.js";
 import { prisma } from "../lib/prisma.js";
@@ -13,6 +13,7 @@ import {
   returnTransferProduct,
   sendTransfer,
 } from "../services/transfer-service.js";
+import { requireIdempotencyKey, type ApiRequest } from "../lib/http.js";
 
 const createSchema = z.object({
   number: z.string().trim().min(1).max(80),
@@ -55,10 +56,11 @@ const returnSchema = z.object({
 
 const cancelSchema = z.object({ reason: z.string().trim().min(3).max(1000) });
 
-export async function registerTransferRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/transfers", async (request) => {
+@Controller("transfers")
+export class TransferController {
+  @Get()
+  async list(@Req() request: ApiRequest, @Query() query: { status?: string }) {
     const { workspaceId } = await getRequestContext(request, prisma);
-    const query = request.query as { status?: string };
     const status = query.status !== undefined && Object.values(LrtTransferStatus).includes(query.status as LrtTransferStatus)
       ? (query.status as LrtTransferStatus)
       : undefined;
@@ -74,12 +76,13 @@ export async function registerTransferRoutes(app: FastifyInstance): Promise<void
         take: 500,
       }),
     };
-  });
+  }
 
-  app.get<{ Params: { id: string } }>("/transfers/:id", async (request, reply) => {
+  @Get(":id")
+  async detail(@Req() request: ApiRequest, @Param("id") id: string) {
     const { workspaceId } = await getRequestContext(request, prisma);
     const transfer = await prisma.lrtTransfer.findFirst({
-      where: { id: request.params.id, workspaceId },
+      where: { id, workspaceId },
       include: {
         sender: true,
         receiver: true,
@@ -92,70 +95,72 @@ export async function registerTransferRoutes(app: FastifyInstance): Promise<void
         attachments: true,
       },
     });
-    if (transfer === null) return reply.status(404).send({ error: { code: "TRANSFER_NOT_FOUND" } });
+    if (transfer === null) throw new ApiError(404, "TRANSFER_NOT_FOUND", "Отгрузка не найдена");
     return transfer;
-  });
+  }
 
-  app.post("/transfers", async (request, reply) => {
+  @Post()
+  async create(@Req() request: ApiRequest, @Body() body: unknown) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
-    const transfer = await createTransfer(workspaceId, actor.id, parseBody(createSchema, request.body));
-    return reply.status(201).send(transfer);
-  });
+    return createTransfer(workspaceId, actor.id, parseBody(createSchema, body));
+  }
 
-  app.post<{ Params: { id: string } }>("/transfers/:id/prepare", async (request) => {
+  @Post(":id/prepare")
+  @HttpCode(HttpStatus.OK)
+  async prepare(@Req() request: ApiRequest, @Param("id") id: string) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
-    return prepareTransfer(workspaceId, actor.id, request.params.id);
-  });
+    return prepareTransfer(workspaceId, actor.id, id);
+  }
 
-  app.post<{ Params: { id: string } }>("/transfers/:id/send", async (request) => {
+  @Post(":id/send")
+  @HttpCode(HttpStatus.OK)
+  async send(@Req() request: ApiRequest, @Param("id") id: string) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
     return sendTransfer(
       workspaceId,
       actor.id,
-      request.params.id,
+      id,
       requireIdempotencyKey(request.headers),
     );
-  });
+  }
 
-  app.post<{ Params: { id: string } }>("/transfers/:id/cancel", async (request) => {
+  @Post(":id/cancel")
+  @HttpCode(HttpStatus.OK)
+  async cancel(@Req() request: ApiRequest, @Param("id") id: string, @Body() body: unknown) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
-    const input = parseBody(cancelSchema, request.body);
+    const input = parseBody(cancelSchema, body);
     return cancelTransfer(
       workspaceId,
       actor.id,
-      request.params.id,
+      id,
       requireIdempotencyKey(request.headers),
       input.reason,
     );
-  });
+  }
 
-  app.post<{ Params: { id: string } }>("/transfers/:id/accept", async (request) => {
+  @Post(":id/accept")
+  @HttpCode(HttpStatus.OK)
+  async accept(@Req() request: ApiRequest, @Param("id") id: string, @Body() body: unknown) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
     return acceptTransfer(
       workspaceId,
       actor.id,
-      request.params.id,
+      id,
       requireIdempotencyKey(request.headers),
-      parseBody(acceptSchema, request.body),
+      parseBody(acceptSchema, body),
     );
-  });
+  }
 
-  app.post<{ Params: { id: string } }>("/transfers/:id/return", async (request) => {
+  @Post(":id/return")
+  @HttpCode(HttpStatus.OK)
+  async returnProduct(@Req() request: ApiRequest, @Param("id") id: string, @Body() body: unknown) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
     return returnTransferProduct(
       workspaceId,
       actor.id,
-      request.params.id,
+      id,
       requireIdempotencyKey(request.headers),
-      parseBody(returnSchema, request.body),
+      parseBody(returnSchema, body),
     );
-  });
-}
-
-function requireIdempotencyKey(headers: Record<string, unknown>): string {
-  const value = headers["idempotency-key"];
-  if (typeof value !== "string") {
-    throw new ApiError(400, "IDEMPOTENCY_KEY_REQUIRED", "Добавьте заголовок Idempotency-Key");
   }
-  return value;
 }

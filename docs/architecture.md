@@ -1,5 +1,9 @@
 # Архитектура Miracle Chem
 
+## HTTP-платформа
+
+API построен на NestJS 11 со стандартным Express-адаптером. `AppModule` подключает отдельные controllers для склада, рецептур, формул, замесов, готового продукта, отгрузок, вагонов, расходов, корректировок, вложений и отчётов. Глобальный prefix `/api` сохраняет контракт frontend; `/health` вынесен из prefix для оркестратора. Единый exception filter переводит доменные, Prisma и HTTP-ошибки в стабильный `{ error, requestId }`-формат.
+
 ## Границы модулей
 
 1. **Warehouse** — складские позиции, приходные партии, FEFO-расход, остатки, резервы, движения и история цен.
@@ -56,7 +60,7 @@
 
 - в `production` по умолчанию включён `trusted-gateway`; без корректного server-side ключа и identity headers бизнес-API возвращает `401/503`;
 - `/health` остаётся публичным для оркестратора;
-- Fastify ограничивает body до 1 MiB, включает security headers и rate limit;
+- NestJS ограничивает body до 1 MiB; Express middleware включают Helmet security headers, CORS и rate limit;
 - `IdempotencyRecord` связывает ключ, scope и hash тела: повтор с другим payload возвращает конфликт;
 - секреты и PostgreSQL не входят в образы и передаются только через окружение;
 - бинарные вложения хранятся внешним object storage, API сохраняет проверенную связь и metadata.

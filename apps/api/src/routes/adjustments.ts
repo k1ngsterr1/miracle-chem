@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query, Req } from "@nestjs/common";
 import { z } from "zod";
 import {
   AdjustmentStatus,
@@ -15,6 +15,7 @@ import {
   approveAdjustment,
   createAdjustment,
 } from "../services/adjustment-service.js";
+import { requireIdempotencyKey, type ApiRequest } from "../lib/http.js";
 
 const createSchema = z.object({
   number: z.string().trim().min(1).max(80).optional(),
@@ -26,10 +27,14 @@ const createSchema = z.object({
 
 const privilegedRoles: UserRole[] = [UserRole.ADMIN, UserRole.TECHNOLOGIST];
 
-export async function registerAdjustmentRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/adjustments", async (request) => {
+@Controller("adjustments")
+export class AdjustmentController {
+  @Get()
+  async list(
+    @Req() request: ApiRequest,
+    @Query() query: { status?: string; targetType?: string; targetId?: string },
+  ) {
     const { workspaceId } = await getRequestContext(request, prisma);
-    const query = request.query as { status?: string; targetType?: string; targetId?: string };
     const status = Object.values(AdjustmentStatus).includes(query.status as AdjustmentStatus)
       ? (query.status as AdjustmentStatus)
       : undefined;
@@ -52,56 +57,53 @@ export async function registerAdjustmentRoutes(app: FastifyInstance): Promise<vo
         take: 500,
       }),
     };
-  });
+  }
 
-  app.get<{ Params: { id: string } }>("/adjustments/:id", async (request) => {
+  @Get(":id")
+  async detail(@Req() request: ApiRequest, @Param("id") id: string) {
     const { workspaceId } = await getRequestContext(request, prisma);
     const row = await prisma.adjustmentDocument.findFirst({
-      where: { id: request.params.id, workspaceId },
+      where: { id, workspaceId },
       include: { createdBy: true, approvedBy: true },
     });
     if (row === null) throw new ApiError(404, "ADJUSTMENT_NOT_FOUND", "Документ корректировки не найден");
     return row;
-  });
+  }
 
-  app.post("/adjustments", async (request, reply) => {
+  @Post()
+  async create(@Req() request: ApiRequest, @Body() body: unknown) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
-    const input = parseBody(createSchema, request.body);
-    const result = await createAdjustment(workspaceId, actor.id, {
+    const input = parseBody(createSchema, body);
+    return createAdjustment(workspaceId, actor.id, {
       ...input,
       changes: input.changes as Prisma.InputJsonObject,
     });
-    return reply.status(201).send(result);
-  });
+  }
 
-  app.post<{ Params: { id: string } }>("/adjustments/:id/approve", async (request) => {
+  @Post(":id/approve")
+  @HttpCode(HttpStatus.OK)
+  async approve(@Req() request: ApiRequest, @Param("id") id: string) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
     assertPrivileged(actor.role);
-    return approveAdjustment(workspaceId, actor.id, request.params.id);
-  });
+    return approveAdjustment(workspaceId, actor.id, id);
+  }
 
-  app.post<{ Params: { id: string } }>("/adjustments/:id/apply", async (request) => {
+  @Post(":id/apply")
+  @HttpCode(HttpStatus.OK)
+  async apply(@Req() request: ApiRequest, @Param("id") id: string) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
     assertPrivileged(actor.role);
     return applyAdjustment(
       workspaceId,
       actor.id,
-      request.params.id,
+      id,
       requireIdempotencyKey(request.headers),
     );
-  });
+  }
 }
 
 function assertPrivileged(role: UserRole): void {
   if (!privilegedRoles.includes(role)) {
     throw new ApiError(403, "ADJUSTMENT_FORBIDDEN", "Согласование и применение доступны администратору или технологу");
   }
-}
-
-function requireIdempotencyKey(headers: Record<string, unknown>): string {
-  const value = headers["idempotency-key"];
-  if (typeof value !== "string" || value.trim() === "") {
-    throw new ApiError(400, "IDEMPOTENCY_KEY_REQUIRED", "Добавьте заголовок Idempotency-Key");
-  }
-  return value;
 }

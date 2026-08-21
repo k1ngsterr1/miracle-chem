@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import { Body, Controller, Get, Param, Post, Req } from "@nestjs/common";
 import { z } from "zod";
 import { MaterialType, Prisma, Unit } from "../generated/prisma/index.js";
 import { prisma } from "../lib/prisma.js";
@@ -10,6 +10,7 @@ import {
 } from "../lib/validation.js";
 import { consumeMaterial, createMaterial, receiveMaterial } from "../services/material-service.js";
 import { ApiError } from "../lib/api-error.js";
+import { requireIdempotencyKey, type ApiRequest } from "../lib/http.js";
 
 const createMaterialSchema = z.object({
   code: z.string().trim().min(1).max(40),
@@ -48,8 +49,10 @@ const consumptionSchema = z.object({
   reference: z.string().trim().max(200).optional(),
 });
 
-export async function registerMaterialRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/materials", async (request) => {
+@Controller("materials")
+export class MaterialController {
+  @Get()
+  async list(@Req() request: ApiRequest) {
     const { workspaceId } = await getRequestContext(request, prisma);
     const materials = await prisma.material.findMany({
       where: { workspaceId },
@@ -71,49 +74,41 @@ export async function registerMaterialRoutes(app: FastifyInstance): Promise<void
         freeStock: material.currentStock.sub(material.reservedStock),
       })),
     };
-  });
+  }
 
-  app.post("/materials", async (request, reply) => {
+  @Post()
+  async create(@Req() request: ApiRequest, @Body() body: unknown) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
-    const input = parseBody(createMaterialSchema, request.body);
-    const material = await createMaterial(workspaceId, actor.id, input);
-    return reply.status(201).send(material);
-  });
+    return createMaterial(workspaceId, actor.id, parseBody(createMaterialSchema, body));
+  }
 
-  app.post("/materials/receipts", async (request, reply) => {
+  @Post("receipts")
+  async receive(@Req() request: ApiRequest, @Body() body: unknown) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
-    const idempotencyKey = request.headers["idempotency-key"];
-    if (typeof idempotencyKey !== "string") {
-      throw new ApiError(400, "IDEMPOTENCY_KEY_REQUIRED", "Добавьте заголовок Idempotency-Key");
-    }
-    const parsed = parseBody(receiptSchema, request.body);
+    const parsed = parseBody(receiptSchema, body);
     const input = {
       ...parsed,
       qualitySnapshot: parsed.qualitySnapshot as Prisma.InputJsonValue | undefined,
     };
-    const result = await receiveMaterial(workspaceId, actor.id, idempotencyKey, input);
-    return reply.status(201).send(result);
-  });
+    return receiveMaterial(workspaceId, actor.id, requireIdempotencyKey(request.headers), input);
+  }
 
-  app.post("/materials/consumptions", async (request, reply) => {
+  @Post("consumptions")
+  async consume(@Req() request: ApiRequest, @Body() body: unknown) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
-    const idempotencyKey = request.headers["idempotency-key"];
-    if (typeof idempotencyKey !== "string") {
-      throw new ApiError(400, "IDEMPOTENCY_KEY_REQUIRED", "Добавьте заголовок Idempotency-Key");
-    }
-    const result = await consumeMaterial(
+    return consumeMaterial(
       workspaceId,
       actor.id,
-      idempotencyKey,
-      parseBody(consumptionSchema, request.body),
+      requireIdempotencyKey(request.headers),
+      parseBody(consumptionSchema, body),
     );
-    return reply.status(201).send(result);
-  });
+  }
 
-  app.get<{ Params: { id: string } }>("/materials/:id/history", async (request) => {
+  @Get(":id/history")
+  async history(@Req() request: ApiRequest, @Param("id") id: string) {
     const { workspaceId } = await getRequestContext(request, prisma);
     const material = await prisma.material.findFirst({
-      where: { id: request.params.id, workspaceId },
+      where: { id, workspaceId },
       include: {
         lots: {
           include: { supplier: { select: { name: true } } },
@@ -134,12 +129,13 @@ export async function registerMaterialRoutes(app: FastifyInstance): Promise<void
       take: 500,
     });
     return { material, movements };
-  });
+  }
 
-  app.get<{ Params: { id: string } }>("/materials/:id/movements", async (request) => {
+  @Get(":id/movements")
+  async movements(@Req() request: ApiRequest, @Param("id") id: string) {
     const { workspaceId } = await getRequestContext(request, prisma);
     const material = await prisma.material.findFirst({
-      where: { id: request.params.id, workspaceId },
+      where: { id, workspaceId },
     });
     if (material === null) throw new ApiError(404, "MATERIAL_NOT_FOUND", "Материал не найден");
     const movements = await prisma.materialMovement.findMany({
@@ -149,5 +145,5 @@ export async function registerMaterialRoutes(app: FastifyInstance): Promise<void
       take: 500,
     });
     return { material, movements };
-  });
+  }
 }

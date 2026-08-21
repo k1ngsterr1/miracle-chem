@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import { Controller, Get, Req } from "@nestjs/common";
 import {
   ExpenseCategory,
   ExpenseCostCenter,
@@ -15,9 +15,12 @@ import {
 } from "../generated/prisma/index.js";
 import { prisma } from "../lib/prisma.js";
 import { getRequestContext } from "../lib/request-context.js";
+import type { ApiRequest } from "../lib/http.js";
 
-export async function registerMetaRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/meta", async (request) => {
+@Controller("meta")
+export class MetaController {
+  @Get()
+  async meta(@Req() request: ApiRequest) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
     const [workspace, users, productionLines, productLots] = await Promise.all([
       prisma.workspace.findUniqueOrThrow({ where: { id: workspaceId } }),
@@ -57,5 +60,5 @@ export async function registerMetaRoutes(app: FastifyInstance): Promise<void> {
         expenseStatuses: Object.values(ExpenseStatus),
       },
     };
-  });
+  }
 }

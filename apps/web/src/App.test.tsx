@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App.js";
 
@@ -55,5 +55,21 @@ describe("Miracle Chem app shell", () => {
     expect(screen.getByRole("button", { name: /Отгрузки/u })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Дислокация/u })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Расходы/u })).toBeInTheDocument();
+  });
+
+  it("opens modules through the global search", async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText("Произведено сегодня")).toBeInTheDocument());
+
+    const search = screen.getByPlaceholderText("Найти раздел CRM…");
+    fireEvent.focus(search);
+    fireEvent.change(search, { target: { value: "вагон" } });
+
+    const results = screen.getByRole("listbox", { name: "Разделы CRM" });
+    const destination = within(results).getByRole("option", { name: /Дислокация/u });
+    fireEvent.click(destination);
+
+    await waitFor(() => expect(window.location.hash).toBe("#wagons"));
+    expect(screen.queryByRole("listbox", { name: "Разделы CRM" })).not.toBeInTheDocument();
   });
 });

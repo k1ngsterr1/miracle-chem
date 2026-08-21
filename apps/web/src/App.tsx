@@ -1,10 +1,10 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   BarChart3,
   Beaker,
   Blocks,
   Boxes,
-  ChevronDown,
+  ChevronRight,
   ClipboardList,
   Factory,
   FlaskConical,
@@ -66,19 +66,23 @@ const ReportsPage = lazy(loadReportsPage);
 type ViewId = "dashboard" | "batches" | "materials" | "recipes" | "formulas" | "transfers" | "wagons" | "expenses" | "reports";
 
 const NAVIGATION = [
-  { id: "dashboard" as const, label: "Обзор", icon: LayoutDashboard },
-  { id: "batches" as const, label: "Производство", icon: Factory },
-  { id: "materials" as const, label: "Склад", icon: Boxes },
-  { id: "recipes" as const, label: "Рецептуры", icon: Beaker },
-  { id: "formulas" as const, label: "Калькулятор", icon: FlaskConical },
-  { id: "transfers" as const, label: "Отгрузки", icon: Truck },
-  { id: "wagons" as const, label: "Дислокация", icon: TrainFront },
-  { id: "expenses" as const, label: "Расходы", icon: WalletCards },
-  { id: "reports" as const, label: "Отчёты", icon: BarChart3 },
+  { id: "dashboard" as const, label: "Обзор", icon: LayoutDashboard, keywords: "главная сводка показатели" },
+  { id: "batches" as const, label: "Производство", icon: Factory, keywords: "замес выпуск бетон" },
+  { id: "materials" as const, label: "Склад", icon: Boxes, keywords: "материал позиция остаток приход расход" },
+  { id: "recipes" as const, label: "Рецептуры", icon: Beaker, keywords: "рецепт состав технология" },
+  { id: "formulas" as const, label: "Калькулятор", icon: FlaskConical, keywords: "формула расчёт себестоимость" },
+  { id: "transfers" as const, label: "Отгрузки", icon: Truck, keywords: "отправка лрт документ" },
+  { id: "wagons" as const, label: "Дислокация", icon: TrainFront, keywords: "вагон железная дорога местоположение" },
+  { id: "expenses" as const, label: "Расходы", icon: WalletCards, keywords: "затраты деньги финансы" },
+  { id: "reports" as const, label: "Отчёты", icon: BarChart3, keywords: "аналитика экспорт csv xlsx" },
 ];
 
 export function App() {
   const [view, setView] = useState<ViewId>(() => readHash());
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const activeNavRef = useRef<HTMLButtonElement>(null);
   const { data: meta } = useApi<MetaData>("/meta");
 
   useEffect(() => {
@@ -93,6 +97,30 @@ export function App() {
     }, 200);
     return () => window.clearTimeout(preloadTimer);
   }, []);
+
+  useEffect(() => {
+    const openSearch = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase("ru") === "k") {
+        event.preventDefault();
+        setSearchOpen(true);
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", openSearch);
+    return () => window.removeEventListener("keydown", openSearch);
+  }, []);
+
+  useEffect(() => {
+    if (window.innerWidth <= 680) {
+      activeNavRef.current?.scrollIntoView?.({ behavior: "auto", block: "nearest", inline: "center" });
+    }
+  }, [view]);
+
+  const searchResults = useMemo(() => {
+    const normalized = searchQuery.trim().toLocaleLowerCase("ru");
+    if (normalized === "") return NAVIGATION;
+    return NAVIGATION.filter((item) => `${item.label} ${item.keywords}`.toLocaleLowerCase("ru").includes(normalized));
+  }, [searchQuery]);
 
   const page = useMemo(() => {
     switch (view) {
@@ -120,6 +148,8 @@ export function App() {
   function navigate(target: ViewId): void {
     window.location.hash = target;
     setView(target);
+    setSearchOpen(false);
+    setSearchQuery("");
   }
 
   return (
@@ -133,7 +163,6 @@ export function App() {
         <div className="plant-select">
           <span className="plant-icon"><Factory size={16} /></span>
           <span><small>Площадка</small><strong>{meta?.workspace.name ?? "Загрузка…"}</strong></span>
-          <ChevronDown size={15} />
         </div>
 
         <nav>
@@ -141,6 +170,7 @@ export function App() {
           {NAVIGATION.map((item) => (
             <button
               key={item.id}
+              ref={view === item.id ? activeNavRef : undefined}
               className={view === item.id ? "active" : ""}
               onClick={() => navigate(item.id)}
             >
@@ -155,14 +185,50 @@ export function App() {
           <div className="profile-card">
             <span className="avatar">{initials(meta?.actor.name ?? "Admin")}</span>
             <span><strong>{meta?.actor.name ?? "Администратор"}</strong><small>{roleName(meta?.actor.role)}</small></span>
-            <ChevronDown size={15} />
           </div>
         </div>
       </aside>
 
       <main className="main-area">
         <header className="topbar">
-          <div className="search-box"><Search size={17} /><input placeholder="Найти замес, складскую позицию, вагон или расход…" /><kbd>⌘ K</kbd></div>
+          <div
+            className={`search-box ${searchOpen ? "open" : ""}`}
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget)) setSearchOpen(false);
+            }}
+          >
+            <Search size={17} />
+            <input
+              ref={searchInputRef}
+              value={searchQuery}
+              role="combobox"
+              aria-autocomplete="list"
+              aria-expanded={searchOpen}
+              aria-controls="global-search-results"
+              placeholder="Найти раздел CRM…"
+              onFocus={() => setSearchOpen(true)}
+              onChange={(event) => { setSearchQuery(event.target.value); setSearchOpen(true); }}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setSearchOpen(false);
+                  event.currentTarget.blur();
+                }
+                if (event.key === "Enter" && searchResults[0] !== undefined) navigate(searchResults[0].id);
+              }}
+            />
+            <button type="button" className="search-shortcut" aria-label="Открыть поиск" onClick={() => { setSearchOpen(true); searchInputRef.current?.focus(); }}>⌘ K</button>
+            {searchOpen ? (
+              <div className="global-search-results" id="global-search-results" role="listbox" aria-label="Разделы CRM">
+                {searchResults.length === 0 ? <span>Совпадений нет</span> : searchResults.map((item) => (
+                  <button type="button" role="option" aria-selected={view === item.id} key={item.id} onClick={() => navigate(item.id)}>
+                    <item.icon size={17} />
+                    <span><strong>{item.label}</strong><small>{item.keywords.split(" ").slice(0, 3).join(" · ")}</small></span>
+                    <ChevronRight size={15} />
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
           <div className="topbar-meta">
             <span className="shift-pill"><ClipboardList size={15} /> Смена №2 · 08:00–20:00</span>
             <span className="live-pill"><i /> Онлайн</span>

@@ -69,16 +69,18 @@ interface WarehouseHistory {
 export function MaterialsPage() {
   const materials = useApi<{ items: Material[] }>("/materials");
   const [query, setQuery] = useState("");
+  const [criticalOnly, setCriticalOnly] = useState(false);
   const [selected, setSelected] = useState<Material | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [receiptMaterial, setReceiptMaterial] = useState<Material | null>(null);
   const [consumptionMaterial, setConsumptionMaterial] = useState<Material | null>(null);
   const filtered = useMemo(
-    () => (materials.data?.items ?? []).filter((material) =>
-      [material.name, material.code, MATERIAL_LABELS[material.type] ?? material.type]
-        .some((value) => value.toLocaleLowerCase("ru").includes(query.toLocaleLowerCase("ru"))),
-    ),
-    [materials.data, query],
+    () => (materials.data?.items ?? []).filter((material) => {
+      const matchesQuery = [material.name, material.code, MATERIAL_LABELS[material.type] ?? material.type]
+        .some((value) => value.toLocaleLowerCase("ru").includes(query.toLocaleLowerCase("ru")));
+      return matchesQuery && (!criticalOnly || material.isCritical);
+    }),
+    [criticalOnly, materials.data, query],
   );
 
   if (materials.loading) return <LoadingState />;
@@ -124,7 +126,15 @@ export function MaterialsPage() {
           <div><h2>Складской журнал</h2><p>Остатки приведены к базовой единице каждой позиции</p></div>
           <div className="toolbar-actions">
             <label className="inline-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Позиция или код" /></label>
-            <button className="icon-button" aria-label="Фильтры"><Filter size={17} /></button>
+            <button
+              type="button"
+              className={`icon-button ${criticalOnly ? "active" : ""}`}
+              aria-label={criticalOnly ? "Показать все позиции" : "Показать только критические позиции"}
+              aria-pressed={criticalOnly}
+              onClick={() => setCriticalOnly((value) => !value)}
+            >
+              <Filter size={17} />
+            </button>
           </div>
         </div>
         <div className="data-table-wrap">
@@ -146,6 +156,7 @@ export function MaterialsPage() {
                   </tr>
                 );
               })}
+              {filtered.length === 0 ? <tr className="table-empty-row"><td colSpan={8}>{criticalOnly ? "Критических позиций нет." : "По запросу ничего не найдено."}</td></tr> : null}
             </tbody>
           </table>
         </div>

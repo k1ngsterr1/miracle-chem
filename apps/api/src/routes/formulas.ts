@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Req } from "@nestjs/common";
 import { z } from "zod";
 import { FormulaRoundingMode, Unit } from "../generated/prisma/index.js";
 import { prisma } from "../lib/prisma.js";
@@ -10,6 +10,7 @@ import {
   evaluateAndLogFormula,
 } from "../services/formula-service.js";
 import { ApiError } from "../lib/api-error.js";
+import type { ApiRequest } from "../lib/http.js";
 
 const versionSchema = z.object({
   expression: z.string().trim().min(1).max(4096),
@@ -43,8 +44,10 @@ const evaluateSchema = z.object({
   }
 });
 
-export async function registerFormulaRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/formulas", async (request) => {
+@Controller("formulas")
+export class FormulaController {
+  @Get()
+  async list(@Req() request: ApiRequest) {
     const { workspaceId } = await getRequestContext(request, prisma);
     return {
       items: await prisma.formula.findMany({
@@ -53,28 +56,30 @@ export async function registerFormulaRoutes(app: FastifyInstance): Promise<void>
         orderBy: { name: "asc" },
       }),
     };
-  });
+  }
 
-  app.post("/formulas", async (request, reply) => {
+  @Post()
+  async create(@Req() request: ApiRequest, @Body() body: unknown) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
-    const result = await createFormula(workspaceId, actor.id, parseBody(createSchema, request.body));
-    return reply.status(201).send(result);
-  });
+    return createFormula(workspaceId, actor.id, parseBody(createSchema, body));
+  }
 
-  app.post<{ Params: { id: string } }>("/formulas/:id/versions", async (request, reply) => {
+  @Post(":id/versions")
+  async createVersion(@Req() request: ApiRequest, @Param("id") id: string, @Body() body: unknown) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
-    const result = await createFormulaVersion(
+    return createFormulaVersion(
       workspaceId,
       actor.id,
-      request.params.id,
-      parseBody(versionSchema, request.body),
+      id,
+      parseBody(versionSchema, body),
     );
-    return reply.status(201).send(result);
-  });
+  }
 
-  app.post("/formulas/evaluate", async (request) => {
+  @Post("evaluate")
+  @HttpCode(HttpStatus.OK)
+  async evaluate(@Req() request: ApiRequest, @Body() requestBody: unknown) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
-    const body = parseBody(evaluateSchema, request.body);
+    const body = parseBody(evaluateSchema, requestBody);
     if (body.formulaVersionId !== undefined) {
       const stored = await prisma.formulaVersion.findFirst({
         where: { id: body.formulaVersionId, workspaceId },
@@ -106,5 +111,5 @@ export async function registerFormulaRoutes(app: FastifyInstance): Promise<void>
       roundingMode: body.roundingMode ?? FormulaRoundingMode.HALF_UP,
       variables: body.variables,
     });
-  });
+  }
 }

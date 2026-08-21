@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query, Req } from "@nestjs/common";
 import { z } from "zod";
 import {
   ExpenseCategory,
@@ -8,10 +8,10 @@ import {
   Prisma,
 } from "../generated/prisma/index.js";
 import { prisma } from "../lib/prisma.js";
-import { ApiError } from "../lib/api-error.js";
 import { getRequestContext } from "../lib/request-context.js";
 import { parseBody, positiveDecimalString } from "../lib/validation.js";
 import { cancelExpense, createExpense } from "../services/expense-service.js";
+import { requireIdempotencyKey, type ApiRequest } from "../lib/http.js";
 
 const createSchema = z.object({
   category: z.nativeEnum(ExpenseCategory),
@@ -36,10 +36,12 @@ const querySchema = z.object({
   search: z.string().trim().max(200).optional(),
 });
 
-export async function registerExpenseRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/expenses", async (request) => {
+@Controller("expenses")
+export class ExpenseController {
+  @Get()
+  async list(@Req() request: ApiRequest, @Query() queryValue: unknown) {
     const { workspaceId } = await getRequestContext(request, prisma);
-    const query = parseBody(querySchema, request.query);
+    const query = parseBody(querySchema, queryValue);
     const baseWhere: Prisma.ExpenseWhereInput = {
       workspaceId,
       ...(query.from === undefined && query.to === undefined ? {} : {
@@ -100,30 +102,24 @@ export async function registerExpenseRoutes(app: FastifyInstance): Promise<void>
         cancelledCount,
       },
     };
-  });
+  }
 
-  app.post("/expenses", async (request, reply) => {
+  @Post()
+  async create(@Req() request: ApiRequest, @Body() body: unknown) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
-    const idempotencyKey = request.headers["idempotency-key"];
-    if (typeof idempotencyKey !== "string") {
-      throw new ApiError(400, "IDEMPOTENCY_KEY_REQUIRED", "Добавьте заголовок Idempotency-Key");
-    }
-    const expense = await createExpense(
+    return createExpense(
       workspaceId,
       actor.id,
-      idempotencyKey,
-      parseBody(createSchema, request.body),
+      requireIdempotencyKey(request.headers),
+      parseBody(createSchema, body),
     );
-    return reply.status(201).send(expense);
-  });
+  }
 
-  app.post<{ Params: { id: string } }>("/expenses/:id/cancel", async (request) => {
+  @Post(":id/cancel")
+  @HttpCode(HttpStatus.OK)
+  async cancel(@Req() request: ApiRequest, @Param("id") id: string, @Body() body: unknown) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
-    const idempotencyKey = request.headers["idempotency-key"];
-    if (typeof idempotencyKey !== "string") {
-      throw new ApiError(400, "IDEMPOTENCY_KEY_REQUIRED", "Добавьте заголовок Idempotency-Key");
-    }
-    const input = parseBody(cancelSchema, request.body);
-    return cancelExpense(workspaceId, actor.id, idempotencyKey, request.params.id, input.reason);
-  });
+    const input = parseBody(cancelSchema, body);
+    return cancelExpense(workspaceId, actor.id, requireIdempotencyKey(request.headers), id, input.reason);
+  }
 }

@@ -1,4 +1,5 @@
-import type { FastifyInstance } from "fastify";
+import { Controller, Get, Param, Query, Req, Res } from "@nestjs/common";
+import type { Response } from "express";
 import { prisma } from "../lib/prisma.js";
 import { getRequestContext } from "../lib/request-context.js";
 import { ApiError } from "../lib/api-error.js";
@@ -18,71 +19,85 @@ import {
   type Period,
   type ProductionGroupBy,
 } from "../services/report-service.js";
+import type { ApiRequest } from "../lib/http.js";
 
 const productionGroups: ProductionGroupBy[] = ["day", "week", "month", "shift", "grade", "line", "operator"];
 const balanceGroups: BalanceGroupBy[] = ["productLot", "batch", "grade", "line", "operator"];
 
-export async function registerReportRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/dashboard", async (request) => {
+@Controller()
+export class ReportController {
+  @Get("dashboard")
+  async dashboard(@Req() request: ApiRequest) {
     const { workspaceId } = await getRequestContext(request, prisma);
     const workspace = await prisma.workspace.findUniqueOrThrow({ where: { id: workspaceId } });
     return getDashboard(workspaceId, workspace.timezone);
-  });
+  }
 
-  app.get("/reports/production", async (request) => {
+  @Get("reports/production")
+  async production(@Req() request: ApiRequest, @Query() query: unknown) {
     const { workspaceId } = await getRequestContext(request, prisma);
-    return { items: await getProductionReport(workspaceId, parsePeriod(request.query)) };
-  });
+    return { items: await getProductionReport(workspaceId, parsePeriod(query)) };
+  }
 
-  app.get("/reports/expenses", async (request) => {
+  @Get("reports/expenses")
+  async expenses(@Req() request: ApiRequest, @Query() query: unknown) {
     const { workspaceId } = await getRequestContext(request, prisma);
-    return { items: await getExpenseReport(workspaceId, parsePeriod(request.query)) };
-  });
+    return { items: await getExpenseReport(workspaceId, parsePeriod(query)) };
+  }
 
-  app.get("/reports/production-summary", async (request) => {
+  @Get("reports/production-summary")
+  async productionSummary(@Req() request: ApiRequest, @Query() query: { groupBy?: string; from?: string; to?: string }) {
     const { workspaceId } = await getRequestContext(request, prisma);
-    const query = request.query as { groupBy?: string };
     const groupBy = parseGroupBy(query.groupBy);
-    return { groupBy, items: await getProductionSummary(workspaceId, parsePeriod(request.query), groupBy) };
-  });
+    return { groupBy, items: await getProductionSummary(workspaceId, parsePeriod(query), groupBy) };
+  }
 
-  app.get("/reports/material-consumption", async (request) => {
+  @Get("reports/material-consumption")
+  async materialConsumption(@Req() request: ApiRequest, @Query() query: unknown) {
     const { workspaceId } = await getRequestContext(request, prisma);
-    return { items: await getMaterialConsumptionReport(workspaceId, parsePeriod(request.query)) };
-  });
+    return { items: await getMaterialConsumptionReport(workspaceId, parsePeriod(query)) };
+  }
 
-  app.get("/reports/product-balance", async (request) => {
+  @Get("reports/product-balance")
+  async productBalance(@Req() request: ApiRequest, @Query() query: unknown) {
     const { workspaceId } = await getRequestContext(request, prisma);
-    return { items: await getProductBalanceReport(workspaceId, parsePeriod(request.query)) };
-  });
+    return { items: await getProductBalanceReport(workspaceId, parsePeriod(query)) };
+  }
 
-  app.get("/reports/product-balance-summary", async (request) => {
+  @Get("reports/product-balance-summary")
+  async productBalanceSummary(@Req() request: ApiRequest, @Query() query: { groupBy?: string; from?: string; to?: string }) {
     const { workspaceId } = await getRequestContext(request, prisma);
-    const query = request.query as { groupBy?: string };
     const groupBy = parseBalanceGroupBy(query.groupBy);
-    return { groupBy, items: await getProductBalanceSummary(workspaceId, parsePeriod(request.query), groupBy) };
-  });
+    return { groupBy, items: await getProductBalanceSummary(workspaceId, parsePeriod(query), groupBy) };
+  }
 
-  app.get("/reports/recipe-efficiency", async (request) => {
+  @Get("reports/recipe-efficiency")
+  async recipeEfficiency(@Req() request: ApiRequest, @Query() query: unknown) {
     const { workspaceId } = await getRequestContext(request, prisma);
-    return { items: await getRecipeEfficiencyReport(workspaceId, parsePeriod(request.query)) };
-  });
+    return { items: await getRecipeEfficiencyReport(workspaceId, parsePeriod(query)) };
+  }
 
-  app.get("/reports/lrt", async (request) => {
+  @Get("reports/lrt")
+  async lrt(@Req() request: ApiRequest, @Query() query: unknown) {
     const { workspaceId } = await getRequestContext(request, prisma);
-    return { items: await getLrtTransferReport(workspaceId, parsePeriod(request.query)) };
-  });
+    return { items: await getLrtTransferReport(workspaceId, parsePeriod(query)) };
+  }
 
-  app.get<{ Params: { id: string } }>("/reports/product-trace/:id", async (request) => {
+  @Get("reports/product-trace/:id")
+  async productTrace(@Req() request: ApiRequest, @Param("id") id: string) {
     const { workspaceId } = await getRequestContext(request, prisma);
-    const result = await getProductLotTrace(workspaceId, request.params.id);
+    const result = await getProductLotTrace(workspaceId, id);
     if (result === null) throw new ApiError(404, "PRODUCT_LOT_NOT_FOUND", "Партия продукта не найдена");
     return result;
-  });
+  }
 
-  app.get("/reports/export", async (request, reply) => {
+  @Get("reports/export")
+  async export(
+    @Req() request: ApiRequest,
+    @Query() query: { type?: string; format?: string; from?: string; to?: string; groupBy?: string },
+    @Res() response: Response,
+  ): Promise<void> {
     const { workspaceId } = await getRequestContext(request, prisma);
-    const query = request.query as { type?: string; format?: string; from?: string; to?: string; groupBy?: string };
     const period = parsePeriod(query);
     const type = query.type ?? "production";
     const rows = type === "expenses"
@@ -105,17 +120,18 @@ export async function registerReportRoutes(app: FastifyInstance): Promise<void> 
       .slice(0, 10)}`;
     if (query.format === "xlsx") {
       const output = createXlsx(rows, "Miracle Chem report");
-      return reply
-        .header("content-type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        .header("content-disposition", `attachment; filename="${basename}.xlsx"`)
-        .send(output);
+      response
+        .type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        .setHeader("content-disposition", `attachment; filename="${basename}.xlsx"`)
+        .send(Buffer.from(output));
+      return;
     }
     const csv = toCsv(rows);
-    return reply
-      .header("content-type", "text/csv; charset=utf-8")
-      .header("content-disposition", `attachment; filename="${basename}.csv"`)
+    response
+      .type("text/csv; charset=utf-8")
+      .setHeader("content-disposition", `attachment; filename="${basename}.csv"`)
       .send(`\uFEFF${csv}`);
-  });
+  }
 }
 
 function parseGroupBy(value: string | undefined): ProductionGroupBy {

@@ -4,7 +4,6 @@ import {
   Check,
   CircleGauge,
   Factory,
-  Filter,
   FlaskConical,
   MoreHorizontal,
   Play,
@@ -76,9 +75,9 @@ export function BatchesPage({ meta }: { meta: MetaData | null }) {
       <Panel className="table-panel">
         <div className="table-toolbar">
           <div className="segmented-control">
-            {FILTERS.map(([id, label]) => <button key={id} className={filter === id ? "active" : ""} onClick={() => setFilter(id)}>{label}</button>)}
+            {FILTERS.map(([id, label]) => <button type="button" key={id} className={filter === id ? "active" : ""} onClick={() => setFilter(id)}>{label}</button>)}
           </div>
-          <div className="toolbar-actions"><label className="inline-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по замесам" /></label><button className="icon-button"><Filter size={17} /></button></div>
+          <div className="toolbar-actions"><label className="inline-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по замесам" /></label></div>
         </div>
         <div className="data-table-wrap">
           <table className="data-table batches-table">
@@ -95,10 +94,11 @@ export function BatchesPage({ meta }: { meta: MetaData | null }) {
                     <td><strong>{formatNumber(batch.plannedVolume)} {unitLabel[batch.plannedVolumeUnit]}</strong><small>план</small></td>
                     <td><div className="table-progress"><span>{progress}%</span><ProgressBar value={progress} /></div></td>
                     <td><StatusBadge status={batch.status} /></td>
-                    <td><button className="row-action" onClick={(event) => { event.stopPropagation(); setSelectedId(batch.id); }}><MoreHorizontal size={18} /></button></td>
+                    <td><button type="button" className="row-action" aria-label={`Открыть замес ${batch.number}`} onClick={(event) => { event.stopPropagation(); setSelectedId(batch.id); }}><MoreHorizontal size={18} /></button></td>
                   </tr>
                 );
               })}
+              {filtered.length === 0 ? <tr className="table-empty-row"><td colSpan={8}>По выбранным фильтрам замесов нет.</td></tr> : null}
             </tbody>
           </table>
         </div>

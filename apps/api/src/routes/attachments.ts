@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import { Body, Controller, Get, Post, Query, Req } from "@nestjs/common";
 import { z } from "zod";
 import { AuditEntityType } from "../generated/prisma/index.js";
 import { ApiError } from "../lib/api-error.js";
@@ -6,6 +6,7 @@ import { writeAudit } from "../lib/audit.js";
 import { prisma } from "../lib/prisma.js";
 import { getRequestContext } from "../lib/request-context.js";
 import { parseBody } from "../lib/validation.js";
+import type { ApiRequest } from "../lib/http.js";
 
 const targetTypes = ["MATERIAL_LOT", "LRT_TRANSFER", "QUALITY_CHECK"] as const;
 type AttachmentTargetType = (typeof targetTypes)[number];
@@ -20,10 +21,11 @@ const createSchema = z.object({
   url: z.string().url().optional(),
 });
 
-export async function registerAttachmentRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/attachments", async (request) => {
+@Controller("attachments")
+export class AttachmentController {
+  @Get()
+  async list(@Req() request: ApiRequest, @Query() query: { targetType?: string; targetId?: string }) {
     const { workspaceId } = await getRequestContext(request, prisma);
-    const query = request.query as { targetType?: string; targetId?: string };
     if (!targetTypes.includes(query.targetType as AttachmentTargetType) || query.targetId === undefined) {
       throw new ApiError(400, "ATTACHMENT_TARGET_REQUIRED", "Укажите targetType и targetId");
     }
@@ -34,11 +36,12 @@ export async function registerAttachmentRoutes(app: FastifyInstance): Promise<vo
         orderBy: { createdAt: "desc" },
       }),
     };
-  });
+  }
 
-  app.post("/attachments", async (request, reply) => {
+  @Post()
+  async create(@Req() request: ApiRequest, @Body() body: unknown) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
-    const input = parseBody(createSchema, request.body);
+    const input = parseBody(createSchema, body);
     const auditEntityType = await assertTarget(workspaceId, input.targetType, input.targetId);
     const attachment = await prisma.$transaction(async (tx) => {
       const created = await tx.attachment.create({
@@ -67,8 +70,8 @@ export async function registerAttachmentRoutes(app: FastifyInstance): Promise<vo
       });
       return created;
     });
-    return reply.status(201).send(attachment);
-  });
+    return attachment;
+  }
 }
 
 async function assertTarget(

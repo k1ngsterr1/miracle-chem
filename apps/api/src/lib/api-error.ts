@@ -1,6 +1,14 @@
-import type { FastifyInstance } from "fastify";
+import {
+  ArgumentsHost,
+  Catch,
+  type ExceptionFilter,
+  HttpException,
+  Logger,
+} from "@nestjs/common";
 import { DomainError } from "@betonflow/domain";
+import type { Response } from "express";
 import { Prisma } from "../generated/prisma/index.js";
+import type { ApiRequest } from "./http.js";
 
 export class ApiError extends Error {
   constructor(
@@ -14,43 +22,48 @@ export class ApiError extends Error {
   }
 }
 
-export function registerErrorHandler(app: FastifyInstance): void {
-  app.setErrorHandler((error, request, reply) => {
-    if (error instanceof ApiError) {
-      return reply.status(error.statusCode).send({
-        error: { code: error.code, message: error.message, details: error.details },
-        requestId: request.id,
-      });
-    }
-    if (error instanceof DomainError) {
-      return reply.status(422).send({
-        error: { code: error.code, message: error.message, details: error.details },
-        requestId: request.id,
-      });
-    }
-    if (error instanceof Prisma.PrismaClientKnownRequestError) {
-      if (error.code === "P2002") {
-        return reply.status(409).send({
-          error: { code: "CONFLICT", message: "Запись с такими уникальными данными уже существует" },
-          requestId: request.id,
-        });
-      }
-      if (error.code === "P2025") {
-        return reply.status(404).send({
-          error: { code: "NOT_FOUND", message: "Запись не найдена" },
-          requestId: request.id,
-        });
-      }
-    }
+@Catch()
+export class ApiExceptionFilter implements ExceptionFilter {
+  private readonly logger = new Logger(ApiExceptionFilter.name);
 
-    request.log.error({ error }, "Unhandled request error");
-    return reply.status(500).send({
-      error: {
-        code: "INTERNAL_ERROR",
-        message: "Внутренняя ошибка сервера",
-      },
-      requestId: request.id,
-    });
-  });
+  catch(exception: unknown, host: ArgumentsHost): void {
+    const http = host.switchToHttp();
+    const request = http.getRequest<ApiRequest>();
+    const response = http.getResponse<Response>();
+    const requestId = request.requestId ?? "unknown";
+    if (exception instanceof ApiError) {
+      response.status(exception.statusCode).json({
+        error: { code: exception.code, message: exception.message, details: exception.details },
+        requestId,
+      });
+      return;
+    }
+    if (exception instanceof DomainError) {
+      response.status(422).json({
+        error: { code: exception.code, message: exception.message, details: exception.details },
+        requestId,
+      });
+      return;
+    }
+    if (exception instanceof Prisma.PrismaClientKnownRequestError) {
+      if (exception.code === "P2002") {
+        response.status(409).json({ error: { code: "CONFLICT", message: "Запись с такими уникальными данными уже существует" }, requestId });
+        return;
+      }
+      if (exception.code === "P2025") {
+        response.status(404).json({ error: { code: "NOT_FOUND", message: "Запись не найдена" }, requestId });
+        return;
+      }
+    }
+    if (exception instanceof HttpException) {
+      const body = exception.getResponse();
+      response.status(exception.getStatus()).json({
+        error: { code: "HTTP_ERROR", message: typeof body === "string" ? body : exception.message },
+        requestId,
+      });
+      return;
+    }
+    this.logger.error("Unhandled request error", exception instanceof Error ? exception.stack : String(exception));
+    response.status(500).json({ error: { code: "INTERNAL_ERROR", message: "Внутренняя ошибка сервера" }, requestId });
+  }
 }
-

@@ -71,7 +71,7 @@ export function RecipesPage() {
                 <div className="recipe-specs"><span><small>Версия</small><strong>v{version.version}</strong></span><span><small>В/Ц</small><strong>{version.waterCementRatio ?? "—"}</strong></span><span><small>Выход</small><strong>{formatNumber(version.plannedYield)} {unitLabel[version.yieldUnit]}</strong></span></div>
                 <div className="component-dots">{version.components.slice(0, 8).map((component) => <i key={component.id} title={component.material.name} />)}<span>{version.components.length} компонентов</span></div>
                 <small className="recipe-effective">Действует с {version.publishedAt === null ? "черновик" : formatDate(version.publishedAt, true)}</small>
-                <button className="card-link">Открыть технологическую карту <ChevronRight size={16} /></button>
+                <button type="button" className="card-link" onClick={(event) => { event.stopPropagation(); setSelected(recipe); }}>Открыть технологическую карту <ChevronRight size={16} /></button>
               </article>
             );
           })}
