@@ -5,10 +5,10 @@ import {
   Blocks,
   Boxes,
   ChevronRight,
-  ClipboardList,
   Factory,
   FlaskConical,
   LayoutDashboard,
+  Landmark,
   Search,
   TrainFront,
   Truck,
@@ -39,6 +39,7 @@ const loadFormulaPage = cachePageLoader(() => import("./pages/FormulaPage.js").t
 const loadTransfersPage = cachePageLoader(() => import("./pages/TransfersPage.js").then((module) => ({ default: module.TransfersPage })));
 const loadWagonsPage = cachePageLoader(() => import("./pages/WagonsPage.js").then((module) => ({ default: module.WagonsPage })));
 const loadExpensesPage = cachePageLoader(() => import("./pages/ExpensesPage.js").then((module) => ({ default: module.ExpensesPage })));
+const loadAccountingPage = cachePageLoader(() => import("./pages/AccountingPage.js").then((module) => ({ default: module.AccountingPage })));
 const loadReportsPage = cachePageLoader(() => import("./pages/ReportsPage.js").then((module) => ({ default: module.ReportsPage })));
 
 const PAGE_LOADERS = [
@@ -50,6 +51,7 @@ const PAGE_LOADERS = [
   loadTransfersPage,
   loadWagonsPage,
   loadExpensesPage,
+  loadAccountingPage,
   loadReportsPage,
 ];
 
@@ -61,9 +63,10 @@ const FormulaPage = lazy(loadFormulaPage);
 const TransfersPage = lazy(loadTransfersPage);
 const WagonsPage = lazy(loadWagonsPage);
 const ExpensesPage = lazy(loadExpensesPage);
+const AccountingPage = lazy(loadAccountingPage);
 const ReportsPage = lazy(loadReportsPage);
 
-type ViewId = "dashboard" | "batches" | "materials" | "recipes" | "formulas" | "transfers" | "wagons" | "expenses" | "reports";
+type ViewId = "dashboard" | "batches" | "materials" | "recipes" | "formulas" | "transfers" | "wagons" | "expenses" | "accounting" | "reports";
 
 const NAVIGATION = [
   { id: "dashboard" as const, label: "Обзор", icon: LayoutDashboard, keywords: "главная сводка показатели" },
@@ -74,6 +77,7 @@ const NAVIGATION = [
   { id: "transfers" as const, label: "Отгрузки", icon: Truck, keywords: "отправка лрт документ" },
   { id: "wagons" as const, label: "Дислокация", icon: TrainFront, keywords: "вагон железная дорога местоположение" },
   { id: "expenses" as const, label: "Расходы", icon: WalletCards, keywords: "затраты деньги финансы" },
+  { id: "accounting" as const, label: "Бухгалтерия", icon: Landmark, keywords: "накладная счет оплата акт документы" },
   { id: "reports" as const, label: "Отчёты", icon: BarChart3, keywords: "аналитика экспорт csv xlsx" },
 ];
 
@@ -138,6 +142,8 @@ export function App() {
         return <WagonsPage />;
       case "expenses":
         return <ExpensesPage />;
+      case "accounting":
+        return <AccountingPage />;
       case "reports":
         return <ReportsPage />;
       case "dashboard":
@@ -191,47 +197,45 @@ export function App() {
 
       <main className="main-area">
         <header className="topbar">
-          <div
-            className={`search-box ${searchOpen ? "open" : ""}`}
-            onBlur={(event) => {
-              if (!event.currentTarget.contains(event.relatedTarget)) setSearchOpen(false);
-            }}
-          >
-            <Search size={17} />
-            <input
-              ref={searchInputRef}
-              value={searchQuery}
-              role="combobox"
-              aria-autocomplete="list"
-              aria-expanded={searchOpen}
-              aria-controls="global-search-results"
-              placeholder="Найти раздел CRM…"
-              onFocus={() => setSearchOpen(true)}
-              onChange={(event) => { setSearchQuery(event.target.value); setSearchOpen(true); }}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  setSearchOpen(false);
-                  event.currentTarget.blur();
-                }
-                if (event.key === "Enter" && searchResults[0] !== undefined) navigate(searchResults[0].id);
+          <div className="topbar-inner">
+            <div
+              className={`search-box ${searchOpen ? "open" : ""}`}
+              onBlur={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget)) setSearchOpen(false);
               }}
-            />
-            <button type="button" className="search-shortcut" aria-label="Открыть поиск" onClick={() => { setSearchOpen(true); searchInputRef.current?.focus(); }}>⌘ K</button>
-            {searchOpen ? (
-              <div className="global-search-results" id="global-search-results" role="listbox" aria-label="Разделы CRM">
-                {searchResults.length === 0 ? <span>Совпадений нет</span> : searchResults.map((item) => (
-                  <button type="button" role="option" aria-selected={view === item.id} key={item.id} onClick={() => navigate(item.id)}>
-                    <item.icon size={17} />
-                    <span><strong>{item.label}</strong><small>{item.keywords.split(" ").slice(0, 3).join(" · ")}</small></span>
-                    <ChevronRight size={15} />
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-          <div className="topbar-meta">
-            <span className="shift-pill"><ClipboardList size={15} /> Смена №2 · 08:00–20:00</span>
-            <span className="live-pill"><i /> Онлайн</span>
+            >
+              <Search size={17} />
+              <input
+                ref={searchInputRef}
+                value={searchQuery}
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded={searchOpen}
+                aria-controls="global-search-results"
+                placeholder="Найти раздел CRM…"
+                onFocus={() => setSearchOpen(true)}
+                onChange={(event) => { setSearchQuery(event.target.value); setSearchOpen(true); }}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    setSearchOpen(false);
+                    event.currentTarget.blur();
+                  }
+                  if (event.key === "Enter" && searchResults[0] !== undefined) navigate(searchResults[0].id);
+                }}
+              />
+              <button type="button" className="search-shortcut" aria-label="Открыть поиск" onClick={() => { setSearchOpen(true); searchInputRef.current?.focus(); }}>⌘ K</button>
+              {searchOpen ? (
+                <div className="global-search-results" id="global-search-results" role="listbox" aria-label="Разделы CRM">
+                  {searchResults.length === 0 ? <span>Совпадений нет</span> : searchResults.map((item) => (
+                    <button type="button" role="option" aria-selected={view === item.id} key={item.id} onClick={() => navigate(item.id)}>
+                      <item.icon size={17} />
+                      <span><strong>{item.label}</strong><small>{item.keywords.split(" ").slice(0, 3).join(" · ")}</small></span>
+                      <ChevronRight size={15} />
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           </div>
         </header>
         <div className="page-content">
@@ -245,7 +249,7 @@ export function App() {
 }
 
 function readHash(): ViewId {
-  const hash = window.location.hash.replace("#", "") as ViewId;
+  const hash = window.location.hash.replace(/^#/u, "").split("/")[0] as ViewId;
   return NAVIGATION.some((item) => item.id === hash) ? hash : "dashboard";
 }
 

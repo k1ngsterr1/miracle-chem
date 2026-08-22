@@ -118,10 +118,11 @@ function WagonDetail({ wagon, onClose, onMove }: { wagon: Wagon; onClose: () => 
 }
 
 function CreateWagonModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => Promise<void> }) {
-  const [form, setForm] = useState({ number: "", type: "Полувагон", capacity: "70", capacityUnit: "T" as Unit, tareWeightT: "24", status: "EMPTY" as WagonStatus, location: "Станция отправления", cargoDescription: "", cargoQuantity: "0", cargoUnit: "T" as Unit, shipmentNumber: "", lastReportedAt: localDateTime(), note: "" });
+  const [form, setForm] = useState({ number: "", type: "", capacity: "", capacityUnit: "" as Unit | "", tareWeightT: "", status: "" as WagonStatus | "", location: "", cargoDescription: "", cargoQuantity: "", cargoUnit: "" as Unit | "", shipmentNumber: "", lastReportedAt: "", note: "" });
   const [error, setError] = useState<string | null>(null);
   async function submit(event: React.FormEvent): Promise<void> {
     event.preventDefault();
+    if (form.number === "" || form.type === "" || form.capacity === "" || form.capacityUnit === "" || form.status === "" || form.location === "" || form.cargoQuantity === "" || form.cargoUnit === "" || form.lastReportedAt === "") { setError("Заполните обязательные поля вагона"); return; }
     try {
       await apiMutation("/wagons", { ...form, lastReportedAt: new Date(form.lastReportedAt).toISOString(), tareWeightT: form.tareWeightT || undefined, cargoDescription: form.cargoDescription || undefined, shipmentNumber: form.shipmentNumber || undefined, note: form.note || undefined });
       await onCreated();
@@ -151,10 +152,11 @@ function CreateWagonModal({ onClose, onCreated }: { onClose: () => void; onCreat
 }
 
 function WagonLocationModal({ wagon, onClose, onCreated }: { wagon: Wagon; onClose: () => void; onCreated: () => Promise<void> }) {
-  const [form, setForm] = useState({ status: wagon.status, location: wagon.currentLocation, cargoDescription: wagon.cargoDescription ?? "", cargoQuantity: wagon.cargoQuantity, cargoUnit: wagon.cargoUnit, shipmentNumber: wagon.shipmentNumber ?? "", occurredAt: localDateTime(), note: "" });
+  const [form, setForm] = useState({ status: "" as WagonStatus | "", location: "", cargoDescription: "", cargoQuantity: "", cargoUnit: "" as Unit | "", shipmentNumber: "", occurredAt: "", note: "" });
   const [error, setError] = useState<string | null>(null);
   async function submit(event: React.FormEvent): Promise<void> {
     event.preventDefault();
+    if (form.status === "" || form.location === "" || form.cargoQuantity === "" || form.cargoUnit === "" || form.occurredAt === "") { setError("Заполните обязательные поля отметки"); return; }
     try {
       await apiMutation(`/wagons/${wagon.id}/location`, { ...form, occurredAt: new Date(form.occurredAt).toISOString(), cargoDescription: form.cargoDescription || undefined, shipmentNumber: form.shipmentNumber || undefined, note: form.note || undefined });
       await onCreated();
@@ -176,9 +178,4 @@ function WagonLocationModal({ wagon, onClose, onCreated }: { wagon: Wagon; onClo
       </form>
     </Modal>
   );
-}
-
-function localDateTime(date = new Date()): string {
-  const offset = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 }

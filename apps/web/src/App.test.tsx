@@ -27,6 +27,7 @@ const dashboard = {
   criticalMaterials: [],
   deviations: [],
   productionTrend: [],
+  analytics: { productionByLine: [], batchStatuses: [], expenseTrend: [] },
 };
 
 describe("Miracle Chem app shell", () => {
@@ -36,6 +37,8 @@ describe("Miracle Chem app shell", () => {
       const url = String(input);
       const payload = url.endsWith("/meta")
         ? meta
+        : url.includes("/reports/production?")
+          ? { items: [{ batchNumber: "ZM-TEST-1", status: "COMPLETED", actualOutput: "5", outputUnit: "M3" }] }
         : url.endsWith("/dashboard")
           ? dashboard
           : { items: [] };
@@ -55,6 +58,7 @@ describe("Miracle Chem app shell", () => {
     expect(screen.getByRole("button", { name: /Отгрузки/u })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Дислокация/u })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Расходы/u })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Бухгалтерия/u })).toBeInTheDocument();
   });
 
   it("opens modules through the global search", async () => {
@@ -71,5 +75,20 @@ describe("Miracle Chem app shell", () => {
 
     await waitFor(() => expect(window.location.hash).toBe("#wagons"));
     expect(screen.queryByRole("listbox", { name: "Разделы CRM" })).not.toBeInTheDocument();
+  });
+
+  it("opens reports and rows as dedicated pages", async () => {
+    window.location.hash = "reports";
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByText("Производственные отчёты")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /Выпуск продукции/u }));
+    await waitFor(() => expect(window.location.hash).toBe("#reports/production"));
+    await waitFor(() => expect(screen.getByText("ZM-TEST-1")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("ZM-TEST-1"));
+    await waitFor(() => expect(window.location.hash).toBe("#reports/production/0"));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "ZM-TEST-1", level: 1 })).toBeInTheDocument();
+    expect(screen.getByText("Все поля выбранной строки показаны полностью на отдельной странице.")).toBeInTheDocument();
   });
 });

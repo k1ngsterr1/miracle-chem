@@ -2,6 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { INestApplication } from "@nestjs/common";
 import supertest from "supertest";
 import {
+  AccountingDocumentStatus,
+  AccountingDocumentType,
   AdjustmentTargetType,
   ExpenseCategory,
   ExpenseCostCenter,
@@ -265,6 +267,51 @@ describe("Miracle Chem NestJS API integration", () => {
     expect(await prisma.materialMovement.count({
       where: { workspaceId: testIds.workspace, idempotencyKey: "warehouse-consumption-once" },
     })).toBe(1);
+  });
+
+  it("accepts recipe versions with more than five distinct reagents", async () => {
+    await prisma.material.createMany({
+      data: Array.from({ length: 6 }, (_, index) => ({
+        workspaceId: testIds.workspace,
+        code: `TEST-REAGENT-${index + 1}`,
+        name: `Integration reagent ${index + 1}`,
+        type: MaterialType.REAGENT,
+        baseUnit: Unit.KG,
+        costPerBaseUnit: "1",
+      })),
+    });
+    const reagents = await prisma.material.findMany({
+      where: { workspaceId: testIds.workspace, code: { startsWith: "TEST-REAGENT-" } },
+      orderBy: { code: "asc" },
+    });
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/recipes",
+      headers: contextHeaders,
+      payload: {
+        code: "TEST-MULTI-REAGENT",
+        name: "Integration multi reagent recipe",
+        status: RecipeStatus.ACTIVE,
+        version: {
+          concreteGrade: "B35",
+          baseBatchVolume: "1",
+          volumeUnit: Unit.M3,
+          plannedYield: "1",
+          yieldUnit: Unit.M3,
+          technologyInstructions: "Integration test with six reagents",
+          publish: true,
+          components: reagents.map((material, index) => ({
+            materialId: material.id,
+            normPerM3: String(index + 1),
+            unit: Unit.KG,
+            allowedDeviationPercent: "1",
+            position: index,
+          })),
+        },
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json().version.components).toHaveLength(6);
   });
 
   it("rolls every reservation back when any material is insufficient", async () => {
@@ -564,6 +611,59 @@ describe("Miracle Chem NestJS API integration", () => {
     });
   });
 
+  it("calculates accounting documents on the server and applies their workflow idempotently", async () => {
+    const payload = {
+      type: AccountingDocumentType.PAYMENT_INVOICE,
+      documentAt: new Date().toISOString(),
+      dueAt: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+      counterparty: "Integration Buyer",
+      counterpartyTaxId: "123456789012",
+      basis: "Concrete supply integration test",
+      vatRate: "12",
+      currency: "KZT",
+      items: [
+        { description: "Concrete B30", quantity: "2", unit: "M3", unitPrice: "100" },
+        { description: "Delivery", quantity: "1", unit: "SERVICE", unitPrice: "50" },
+      ],
+    };
+    const createHeaders = { ...contextHeaders, "idempotency-key": "accounting-create-once" };
+    const created = await app.inject({ method: "POST", url: "/api/accounting", headers: createHeaders, payload });
+    const retried = await app.inject({ method: "POST", url: "/api/accounting", headers: createHeaders, payload });
+    expect(created.statusCode).toBe(201);
+    expect(retried.json()).toEqual(created.json());
+    expect(created.json()).toMatchObject({
+      type: AccountingDocumentType.PAYMENT_INVOICE,
+      status: AccountingDocumentStatus.DRAFT,
+      subtotal: "250",
+      vatAmount: "30",
+      totalAmount: "280",
+    });
+    expect(created.json().items).toHaveLength(2);
+    expect(await prisma.accountingDocument.count({ where: { workspaceId: testIds.workspace } })).toBe(1);
+
+    const documentId = created.json().id as string;
+    const issueHeaders = { ...contextHeaders, "idempotency-key": "accounting-issue-once" };
+    const issued = await app.inject({ method: "POST", url: `/api/accounting/${documentId}/issue`, headers: issueHeaders });
+    const issueRetry = await app.inject({ method: "POST", url: `/api/accounting/${documentId}/issue`, headers: issueHeaders });
+    expect(issued.statusCode).toBe(200);
+    expect(issueRetry.json()).toEqual(issued.json());
+    expect(issued.json().status).toBe(AccountingDocumentStatus.ISSUED);
+
+    const paid = await app.inject({
+      method: "POST",
+      url: `/api/accounting/${documentId}/pay`,
+      headers: { ...contextHeaders, "idempotency-key": "accounting-pay-once" },
+    });
+    expect(paid.statusCode).toBe(200);
+    expect(paid.json().status).toBe(AccountingDocumentStatus.PAID);
+
+    const detail = await app.inject({ method: "GET", url: `/api/accounting/${documentId}`, headers: contextHeaders });
+    const listing = await app.inject({ method: "GET", url: "/api/accounting?from=2020-01-01&to=2030-01-01", headers: contextHeaders });
+    expect(detail.statusCode).toBe(200);
+    expect(listing.statusCode).toBe(200);
+    expect(listing.json().summary.totals).toContainEqual({ currency: "KZT", amount: "280" });
+  });
+
   it("links attachment metadata to scoped records and exports valid XLSX", async () => {
     const attachment = await app.inject({
       method: "POST",
@@ -612,6 +712,7 @@ async function cleanupTestWorkspace(): Promise<void> {
   const workspaceId = testIds.workspace;
   if ((await prisma.workspace.count({ where: { id: workspaceId } })) === 0) return;
   await prisma.$transaction(async (tx) => {
+    await tx.accountingDocument.deleteMany({ where: { workspaceId } });
     await tx.expense.deleteMany({ where: { workspaceId } });
     await tx.wagonLocationEvent.deleteMany({ where: { workspaceId } });
     await tx.wagon.deleteMany({ where: { workspaceId } });

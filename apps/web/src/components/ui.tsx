@@ -1,5 +1,19 @@
-import type { PropsWithChildren, ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
+import type { FormEvent, PropsWithChildren, ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { AlertTriangle, CheckCircle2, X } from "lucide-react";
+
+interface ModalRegistration {
+  token: symbol;
+  update: (index: number, isTop: boolean) => void;
+}
+
+const modalStack: ModalRegistration[] = [];
+let bodyOverflowBeforeModal = "";
+
+function updateModalStack(): void {
+  modalStack.forEach((registration, index) => registration.update(index, index === modalStack.length - 1));
+}
 
 export function PageHeader({
   eyebrow,
@@ -102,12 +116,14 @@ const STATUS_LABELS: Record<string, string> = {
   RETURNING: "Возвращается",
   MAINTENANCE: "Обслуживание",
   RECORDED: "Учтён",
+  ISSUED: "Выставлен",
+  PAID: "Оплачен",
 };
 
 export function StatusBadge({ status }: { status: string }) {
-  const style = ["COMPLETED", "ACTIVE", "ACCEPTED", "AVAILABLE", "EMPTY", "AT_DESTINATION", "RECORDED"].includes(status)
+  const style = ["COMPLETED", "ACTIVE", "ACCEPTED", "AVAILABLE", "EMPTY", "AT_DESTINATION", "RECORDED", "PAID"].includes(status)
     ? "success"
-    : ["IN_PROGRESS", "PARTIALLY_TRANSFERRED", "PARTIALLY_ACCEPTED", "SENT", "IN_TRANSIT", "RETURNING", "LOADING", "UNLOADING", "LOADED"].includes(status)
+    : ["IN_PROGRESS", "PARTIALLY_TRANSFERRED", "PARTIALLY_ACCEPTED", "SENT", "IN_TRANSIT", "RETURNING", "LOADING", "UNLOADING", "LOADED", "ISSUED"].includes(status)
       ? "progress"
       : ["REJECTED", "CANCELLED", "BLOCKED", "MAINTENANCE"].includes(status)
         ? "danger"
@@ -153,20 +169,121 @@ export function Modal({
   onClose,
   wide = false,
 }: PropsWithChildren<{ title: string; onClose: () => void; wide?: boolean }>) {
-  return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  const registrationToken = useRef(Symbol("modal"));
+  const previouslyFocused = useRef<HTMLElement | null>(null);
+  const titleId = useId();
+  const [layer, setLayer] = useState({ index: 0, isTop: true });
+  const [validationError, setValidationError] = useState<string | null>(null);
+  onCloseRef.current = onClose;
+
+  useLayoutEffect(() => {
+    if (typeof document === "undefined") return undefined;
+    const token = registrationToken.current;
+    const registration: ModalRegistration = { token, update: (index, isTop) => setLayer({ index, isTop }) };
+    previouslyFocused.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (modalStack.length === 0) {
+      bodyOverflowBeforeModal = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+    }
+    modalStack.push(registration);
+    updateModalStack();
+
+    const frame = window.requestAnimationFrame(() => {
+      const dialog = dialogRef.current;
+      const firstField = dialog?.querySelector<HTMLElement>("[data-autofocus], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [role=\"combobox\"]:not([aria-disabled=\"true\"])");
+      (firstField ?? dialog)?.focus({ preventScroll: true });
+    });
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (modalStack.at(-1)?.token !== token) return;
+      if (event.key === "Escape") {
+        if (document.querySelector(".custom-select-menu, .date-picker-popover") !== null) return;
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab" || document.activeElement?.closest(".custom-select-menu, .date-picker-popover") !== null) return;
+      const focusable = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex=\"-1\"])") ?? []);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", onKeyDown);
+      const registrationIndex = modalStack.findIndex((item) => item.token === token);
+      if (registrationIndex >= 0) modalStack.splice(registrationIndex, 1);
+      updateModalStack();
+      if (modalStack.length === 0) document.body.style.overflow = bodyOverflowBeforeModal;
+      previouslyFocused.current?.focus({ preventScroll: true });
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    dialogRef.current?.querySelectorAll("form").forEach((form) => { form.noValidate = true; });
+  });
+
+  function handleSubmitCapture(event: FormEvent<HTMLDivElement>): void {
+    if (!(event.target instanceof HTMLFormElement) || !event.currentTarget.contains(event.target)) return;
+    const invalidField = Array.from(event.target.elements).find((element): element is HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement => (
+      element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement
+    ) && !element.validity.valid);
+    if (invalidField === undefined) {
+      setValidationError(null);
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    invalidField.setAttribute("aria-invalid", "true");
+    const fieldName = invalidField.closest("label")?.querySelector("span")?.textContent?.trim() || invalidField.getAttribute("aria-label") || "обязательное поле";
+    setValidationError(invalidField.validity.valueMissing ? `Заполните поле «${fieldName}».` : `Проверьте значение поля «${fieldName}».`);
+    window.requestAnimationFrame(() => invalidField.focus({ preventScroll: false }));
+  }
+
+  const modal = (
+    <div
+      className={`modal-backdrop${layer.isTop ? "" : " underlay"}`}
+      role="presentation"
+      data-modal-root="true"
+      style={{ zIndex: 100 + layer.index * 10 }}
+      onMouseDown={() => { if (layer.isTop) onCloseRef.current(); }}
+    >
       <div
+        ref={dialogRef}
         className={`modal ${wide ? "wide" : ""}`}
         role="dialog"
-        aria-modal="true"
-        aria-label={title}
+        aria-modal={layer.isTop ? "true" : undefined}
+        aria-labelledby={titleId}
+        aria-hidden={layer.isTop ? undefined : "true"}
+        tabIndex={-1}
         onMouseDown={(event) => event.stopPropagation()}
+        onSubmitCapture={handleSubmitCapture}
+        onInputCapture={(event) => {
+          if (event.currentTarget.contains(event.target as Node) && (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement)) {
+            event.target.removeAttribute("aria-invalid");
+            setValidationError(null);
+          }
+        }}
       >
-        <div className="modal-header"><h2>{title}</h2><button aria-label="Закрыть" onClick={onClose}><X size={20} /></button></div>
+        <div className="modal-header"><h2 id={titleId}>{title}</h2><button type="button" aria-label="Закрыть" onClick={() => onCloseRef.current()}><X size={20} /></button></div>
+        {validationError === null ? null : <div className="modal-validation-error" role="alert"><AlertTriangle size={16} /><span>{validationError}</span></div>}
         {children}
       </div>
     </div>
   );
+
+  return typeof document === "undefined" ? null : createPortal(modal, document.body);
 }
 
 export function ProgressBar({ value, tone = "lime" }: { value: number; tone?: "lime" | "amber" | "red" }) {

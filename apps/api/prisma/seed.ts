@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { Decimal } from "decimal.js";
 import {
+  AccountingDocumentStatus,
+  AccountingDocumentType,
   ExpenseCategory,
   ExpenseCostCenter,
   ExpensePaymentMethod,
@@ -32,6 +34,10 @@ const ids = {
   sand: "44444444-4444-4444-8444-444444444443",
   aggregate: "44444444-4444-4444-8444-444444444444",
   additive: "44444444-4444-4444-8444-444444444445",
+  microsilica: "44444444-4444-4444-8444-444444444446",
+  retarder: "44444444-4444-4444-8444-444444444447",
+  accelerator: "44444444-4444-4444-8444-444444444448",
+  fiber: "44444444-4444-4444-8444-444444444449",
   recipe: "55555555-5555-4555-8555-555555555551",
   recipeVersion: "55555555-5555-4555-8555-555555555552",
   wagonOne: "66666666-6666-4666-8666-666666666661",
@@ -40,6 +46,9 @@ const ids = {
   expenseOne: "77777777-7777-4777-8777-777777777771",
   expenseTwo: "77777777-7777-4777-8777-777777777772",
   expenseThree: "77777777-7777-4777-8777-777777777773",
+  accountingWaybill: "88888888-8888-4888-8888-888888888881",
+  accountingInvoice: "88888888-8888-4888-8888-888888888882",
+  accountingAct: "88888888-8888-4888-8888-888888888883",
 } as const;
 
 async function main(): Promise<void> {
@@ -150,12 +159,65 @@ async function main(): Promise<void> {
     quantity: "1500",
     expiresInDays: 180,
   });
+  await seedMaterial({
+    id: ids.microsilica,
+    code: "MICROSILICA-MSF",
+    name: "Микрокремнезём",
+    type: MaterialType.REAGENT,
+    unit: Unit.KG,
+    density: "650",
+    cost: "310",
+    minimum: "150",
+    lot: "MSF-0826-02",
+    quantity: "900",
+    expiresInDays: 240,
+  });
+  await seedMaterial({
+    id: ids.retarder,
+    code: "RETARD-R2",
+    name: "Замедлитель схватывания R2",
+    type: MaterialType.REAGENT,
+    unit: Unit.KG,
+    density: "1120",
+    cost: "890",
+    minimum: "80",
+    lot: "R2-0826-04",
+    quantity: "420",
+    expiresInDays: 180,
+  });
+  await seedMaterial({
+    id: ids.accelerator,
+    code: "ACCEL-A7",
+    name: "Ускоритель твердения A7",
+    type: MaterialType.REAGENT,
+    unit: Unit.KG,
+    density: "1180",
+    cost: "960",
+    minimum: "80",
+    lot: "A7-0826-03",
+    quantity: "460",
+    expiresInDays: 180,
+  });
+  await seedMaterial({
+    id: ids.fiber,
+    code: "FIBER-PP12",
+    name: "Фиброволокно полипропиленовое",
+    type: MaterialType.REAGENT,
+    unit: Unit.KG,
+    density: "910",
+    cost: "1750",
+    minimum: "40",
+    lot: "FBR-0826-01",
+    quantity: "260",
+    expiresInDays: 365,
+  });
 
   await seedRecipe();
   await seedFormulas();
   await seedBatches();
   await seedWagons();
   await seedExpenses();
+  await seedAccountingDocuments();
 }
 
 async function upsertUser(id: string, name: string, email: string, role: UserRole) {
@@ -389,6 +451,84 @@ async function seedExpenses(): Promise<void> {
         incurredAt: now,
         status: ExpenseStatus.RECORDED,
         amount: expense.amount,
+      },
+    });
+  }
+}
+
+async function seedAccountingDocuments(): Promise<void> {
+  const now = new Date();
+  const day = now.toISOString().slice(0, 10).replaceAll("-", "");
+  const documents = [
+    {
+      id: ids.accountingWaybill,
+      number: `NKL-${day}-001`,
+      type: AccountingDocumentType.WAYBILL,
+      status: AccountingDocumentStatus.ISSUED,
+      counterparty: "ТОО Строй Инвест Алматы",
+      basis: "Поставка бетона по договору №MC-18",
+      subtotal: "925000",
+      vatRate: "12",
+      vatAmount: "111000",
+      totalAmount: "1036000",
+      item: { description: "Бетон товарный B30 П4 F200 W8", quantity: "5", unit: Unit.M3, unitPrice: "185000", amount: "925000" },
+    },
+    {
+      id: ids.accountingInvoice,
+      number: `SCH-${day}-002`,
+      type: AccountingDocumentType.PAYMENT_INVOICE,
+      status: AccountingDocumentStatus.PAID,
+      counterparty: "ТОО Almaty Development",
+      basis: "Счёт за поставку готовой продукции",
+      subtotal: "1480000",
+      vatRate: "12",
+      vatAmount: "177600",
+      totalAmount: "1657600",
+      item: { description: "Бетон товарный B25 П3", quantity: "8", unit: Unit.M3, unitPrice: "185000", amount: "1480000" },
+    },
+    {
+      id: ids.accountingAct,
+      number: `AKT-${day}-003`,
+      type: AccountingDocumentType.COMPLETION_ACT,
+      status: AccountingDocumentStatus.DRAFT,
+      counterparty: "ТОО Beton Service",
+      basis: "Услуги производственной лаборатории",
+      subtotal: "145000",
+      vatRate: "12",
+      vatAmount: "17400",
+      totalAmount: "162400",
+      item: { description: "Лабораторный контроль партии", quantity: "1", unit: "SERVICE", unitPrice: "145000", amount: "145000" },
+    },
+  ];
+  for (const document of documents) {
+    await prisma.accountingDocument.upsert({
+      where: { id: document.id },
+      create: {
+        id: document.id,
+        workspaceId: DEFAULT_WORKSPACE_ID,
+        number: document.number,
+        type: document.type,
+        status: document.status,
+        documentAt: now,
+        dueAt: document.type === AccountingDocumentType.PAYMENT_INVOICE
+          ? new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
+          : null,
+        issuedAt: document.status === AccountingDocumentStatus.DRAFT ? null : now,
+        paidAt: document.status === AccountingDocumentStatus.PAID ? now : null,
+        counterparty: document.counterparty,
+        basis: document.basis,
+        subtotal: document.subtotal,
+        vatRate: document.vatRate,
+        vatAmount: document.vatAmount,
+        totalAmount: document.totalAmount,
+        currency: "KZT",
+        createdById: DEFAULT_ACTOR_ID,
+        items: { create: { ...document.item, position: 0 } },
+      },
+      update: {
+        number: document.number,
+        status: document.status,
+        documentAt: now,
       },
     });
   }

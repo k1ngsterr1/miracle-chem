@@ -22,7 +22,8 @@ export async function getDashboard(workspaceId: string, timezone: string) {
     ProductionBatchStatus.PREPARATION,
     ProductionBatchStatus.IN_PROGRESS,
   ];
-  const [consumption, completedBatches, dispatches, availableLots, activeBatches, criticalMaterials, deviations, expenses] =
+  const analyticsFrom = new Date(today.from.getTime() - 29 * 24 * 60 * 60 * 1000);
+  const [consumption, completedBatches, dispatches, availableLots, activeBatches, criticalMaterials, deviations, expenses, analyticsBatches, analyticsExpenses] =
     await Promise.all([
       prisma.materialMovement.findMany({
         where: {
@@ -86,6 +87,24 @@ export async function getDashboard(workspaceId: string, timezone: string) {
         },
         _sum: { amount: true },
       }),
+      prisma.productionBatch.findMany({
+        where: { workspaceId, scheduledAt: { gte: analyticsFrom, lt: today.to } },
+        select: {
+          status: true,
+          actualOutput: true,
+          actualOutputUnit: true,
+          technologicalLoss: true,
+          productionLine: { select: { name: true } },
+        },
+      }),
+      prisma.expense.findMany({
+        where: {
+          workspaceId,
+          status: ExpenseStatus.RECORDED,
+          incurredAt: { gte: new Date(today.from.getTime() - 6 * 24 * 60 * 60 * 1000), lt: today.to },
+        },
+        select: { incurredAt: true, amount: true, currency: true },
+      }),
     ]);
 
   const outputTotal = sumDecimals(completedBatches.map((batch) => batch.actualOutput?.toString() ?? "0"));
@@ -118,6 +137,11 @@ export async function getDashboard(workspaceId: string, timezone: string) {
     criticalMaterials: critical,
     deviations,
     productionTrend: await productionTrend(workspaceId, today.from, timezone),
+    analytics: {
+      batchStatuses: summarizeBatchStatuses(analyticsBatches),
+      productionByLine: summarizeProductionByLine(analyticsBatches),
+      expenseTrend: summarizeExpenseTrend(analyticsExpenses, today.from, timezone),
+    },
   };
 }
 
@@ -562,6 +586,64 @@ async function productionTrend(workspaceId: string, todayStart: Date, timezone: 
     sent: values.sent.toString(),
     loss: values.loss.toString(),
   }));
+}
+
+function summarizeBatchStatuses(rows: Array<{ status: ProductionBatchStatus }>) {
+  const counts = new Map<ProductionBatchStatus, number>();
+  for (const row of rows) counts.set(row.status, (counts.get(row.status) ?? 0) + 1);
+  return [...counts.entries()].map(([status, count]) => ({ status, count }));
+}
+
+function summarizeProductionByLine(rows: Array<{
+  productionLine: { name: string };
+  actualOutput: { toString(): string } | null;
+  actualOutputUnit: string;
+  technologicalLoss: { toString(): string };
+}>) {
+  const lines = new Map<string, { produced: Decimal; loss: Decimal; unit: string }>();
+  for (const row of rows) {
+    const current = lines.get(row.productionLine.name) ?? {
+      produced: new Decimal(0),
+      loss: new Decimal(0),
+      unit: row.actualOutputUnit,
+    };
+    current.produced = current.produced.add(row.actualOutput?.toString() ?? 0);
+    current.loss = current.loss.add(row.technologicalLoss.toString());
+    lines.set(row.productionLine.name, current);
+  }
+  return [...lines.entries()].map(([line, values]) => ({
+    line,
+    produced: values.produced.toString(),
+    loss: values.loss.toString(),
+    unit: values.unit,
+  }));
+}
+
+function summarizeExpenseTrend(
+  rows: Array<{ incurredAt: Date; amount: { toString(): string }; currency: string }>,
+  todayStart: Date,
+  timezone: string,
+) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const days = new Map<string, Map<string, Decimal>>();
+  for (let offset = 6; offset >= 0; offset -= 1) {
+    days.set(formatter.format(new Date(todayStart.getTime() - offset * 24 * 60 * 60 * 1000)), new Map());
+  }
+  for (const row of rows) {
+    const key = formatter.format(row.incurredAt);
+    const currencies = days.get(key);
+    if (currencies === undefined) continue;
+    currencies.set(row.currency, (currencies.get(row.currency) ?? new Decimal(0)).add(row.amount.toString()));
+  }
+  return [...days.entries()].flatMap(([date, currencies]) => {
+    if (currencies.size === 0) return [{ date, amount: "0", currency: "KZT" }];
+    return [...currencies.entries()].map(([currency, amount]) => ({ date, amount: amount.toString(), currency }));
+  });
 }
 
 function productionGroupKey(

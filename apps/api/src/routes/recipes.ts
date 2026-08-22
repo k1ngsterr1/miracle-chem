@@ -30,7 +30,7 @@ const versionSchema = z.object({
   plannedYield: positiveDecimalString,
   yieldUnit: z.nativeEnum(Unit),
   technologyInstructions: z.string().trim().min(1),
-  components: z.array(componentSchema).min(1).max(100),
+  components: z.array(componentSchema).min(1).max(250),
   publish: z.boolean().optional(),
   effectiveAt: z.coerce.date().optional(),
 });

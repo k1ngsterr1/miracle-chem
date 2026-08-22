@@ -8,11 +8,17 @@ import {
   PackageCheck,
   TrendingDown,
   Truck,
+  WalletCards,
 } from "lucide-react";
 import {
   Area,
   AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -38,6 +44,7 @@ export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" |
   if (dashboard.error !== null) return <ErrorState message={dashboard.error} retry={dashboard.reload} />;
   if (dashboard.data === null) return null;
   const data = dashboard.data;
+  const analytics = data.analytics ?? { productionByLine: [], batchStatuses: [], expenseTrend: [] };
   const active = batches.data?.items.filter((batch) => ["PLANNED", "PREPARATION", "IN_PROGRESS"].includes(batch.status)) ?? [];
   const trend = data.productionTrend.map((point) => ({
     ...point,
@@ -46,6 +53,11 @@ export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" |
     loss: Number(point.loss),
     label: new Intl.DateTimeFormat("ru-RU", { weekday: "short" }).format(new Date(`${point.date}T12:00:00`)),
   }));
+  const lineStats = analytics.productionByLine.map((point) => ({ ...point, produced: Number(point.produced), loss: Number(point.loss) }));
+  const statusStats = analytics.batchStatuses.map((point) => ({ ...point, label: BATCH_STATUS_LABELS[point.status] ?? point.status }));
+  const expenseTrend = analytics.expenseTrend
+    .filter((point) => point.currency === data.metrics.operatingExpenses[0]?.currency || point.currency === "KZT")
+    .map((point) => ({ ...point, amount: Number(point.amount), label: new Intl.DateTimeFormat("ru-RU", { weekday: "short" }).format(new Date(`${point.date}T12:00:00`)) }));
 
   return (
     <>
@@ -99,6 +111,22 @@ export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" |
         </Panel>
       </div>
 
+      <div className="dashboard-analytics-grid">
+        <Panel className="mini-chart-panel">
+          <PanelHeader title="Выпуск по линиям" description="Объём и потери за 30 дней" />
+          <div className="mini-chart-wrap"><ResponsiveContainer width="100%" height="100%"><BarChart data={lineStats} margin={{ top: 8, right: 10, left: -22, bottom: 0 }}><CartesianGrid vertical={false} stroke="#e5e8df" strokeDasharray="3 5" /><XAxis dataKey="line" axisLine={false} tickLine={false} tick={{ fill: "#7d8375", fontSize: 10 }} /><YAxis axisLine={false} tickLine={false} tick={{ fill: "#9ba092", fontSize: 10 }} /><Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e0e4d8" }} /><Bar dataKey="produced" name="Выпуск" fill="#91bb36" radius={[6, 6, 0, 0]} /><Bar dataKey="loss" name="Потери" fill="#e7a28f" radius={[6, 6, 0, 0]} /></BarChart></ResponsiveContainer></div>
+        </Panel>
+        <Panel className="mini-chart-panel">
+          <PanelHeader title="Статусы замесов" description="Структура документов за 30 дней" />
+          <div className="mini-chart-wrap"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={statusStats} dataKey="count" nameKey="label" innerRadius={45} outerRadius={76} paddingAngle={3}>{statusStats.map((point, index) => <Cell key={point.status} fill={CHART_COLORS[index % CHART_COLORS.length] ?? "#91bb36"} />)}</Pie><Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e0e4d8" }} /></PieChart></ResponsiveContainer></div>
+          <div className="mini-chart-legend">{statusStats.slice(0, 5).map((point, index) => <span key={point.status}><i style={{ background: CHART_COLORS[index % CHART_COLORS.length] }} />{point.label} <strong>{point.count}</strong></span>)}</div>
+        </Panel>
+        <Panel className="mini-chart-panel">
+          <PanelHeader title="Динамика расходов" description="Операционные затраты за 7 дней" action={<WalletCards size={17} />} />
+          <div className="mini-chart-wrap"><ResponsiveContainer width="100%" height="100%"><BarChart data={expenseTrend} margin={{ top: 8, right: 10, left: -12, bottom: 0 }}><CartesianGrid vertical={false} stroke="#e5e8df" strokeDasharray="3 5" /><XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "#7d8375", fontSize: 10 }} /><YAxis axisLine={false} tickLine={false} tick={{ fill: "#9ba092", fontSize: 10 }} /><Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e0e4d8" }} /><Bar dataKey="amount" name="Расходы" fill="#6375ca" radius={[6, 6, 0, 0]} /></BarChart></ResponsiveContainer></div>
+        </Panel>
+      </div>
+
       <div className="dashboard-lower-grid">
         <Panel>
           <PanelHeader title="Текущая очередь" description="Ближайшие и активные производственные замесы" action={<button className="text-button" onClick={() => onNavigate("batches")}>Все замесы <ChevronRight size={15} /></button>} />
@@ -132,6 +160,18 @@ export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" |
     </>
   );
 }
+
+const CHART_COLORS = ["#91bb36", "#6375ca", "#d39b45", "#55a06a", "#d97161", "#8a6fc2"];
+const BATCH_STATUS_LABELS: Record<string, string> = {
+  PLANNED: "Запланировано",
+  PREPARATION: "Подготовка",
+  IN_PROGRESS: "В работе",
+  COMPLETED: "Завершено",
+  PARTIALLY_TRANSFERRED: "Частично отгружено",
+  FULLY_TRANSFERRED: "Отгружено",
+  CANCELLED: "Отменено",
+  REJECTED: "Брак",
+};
 
 function formatExpenseTotals(values: Array<{ amount: string; currency: string }>): string {
   if (values.length === 0) return formatMoney(0);

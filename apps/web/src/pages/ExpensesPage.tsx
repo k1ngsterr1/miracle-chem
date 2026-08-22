@@ -154,12 +154,12 @@ export function ExpensesPage() {
 
 function CreateExpenseModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => Promise<void> }) {
   const [form, setForm] = useState({
-    category: "LOGISTICS" as ExpenseCategory,
-    costCenter: "LOGISTICS" as ExpenseCostCenter,
-    paymentMethod: "BANK_TRANSFER" as ExpensePaymentMethod,
-    incurredAt: localDateTime(),
+    category: "" as ExpenseCategory | "",
+    costCenter: "" as ExpenseCostCenter | "",
+    paymentMethod: "" as ExpensePaymentMethod | "",
+    incurredAt: "",
     amount: "",
-    currency: "KZT",
+    currency: "",
     description: "",
     counterparty: "",
     documentNumber: "",
@@ -170,6 +170,7 @@ function CreateExpenseModal({ onClose, onCreated }: { onClose: () => void; onCre
 
   async function submit(event: React.FormEvent): Promise<void> {
     event.preventDefault();
+    if (form.category === "" || form.costCenter === "" || form.paymentMethod === "" || form.incurredAt === "" || form.currency.length !== 3) { setError("Заполните обязательные поля расхода"); return; }
     setSaving(true);
     setError(null);
     try {
@@ -261,11 +262,6 @@ function CancelExpenseModal({ expense, onClose, onCancelled }: { expense: Expens
 function localDate(date = new Date()): string {
   const offset = date.getTimezoneOffset() * 60_000;
   return new Date(date.getTime() - offset).toISOString().slice(0, 10);
-}
-
-function localDateTime(date = new Date()): string {
-  const offset = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 }
 
 function monthStart(): string {

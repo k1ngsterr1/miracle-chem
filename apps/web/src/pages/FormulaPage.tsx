@@ -58,24 +58,13 @@ export function FormulaPage() {
   );
   const version = selected?.versions[0];
   const [customExpression, setCustomExpression] = useState("");
-  const [values, setValues] = useState<Record<string, string>>({
-    normPerM3: "390",
-    plannedVolumeM3: "5",
-    waterMass: "875",
-    cementMass: "1950",
-    actual: "1980",
-    planned: "1950",
-    recipeWater: "875",
-    aggregateWater: "210",
-    batchCost: "257774.16",
-    actualOutput: "5",
-  });
+  const [values, setValues] = useState<Record<string, string>>({});
   const [result, setResult] = useState<Evaluation | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [calculationRecipeId, setCalculationRecipeId] = useState("");
-  const [calculationVolume, setCalculationVolume] = useState("5");
-  const [calculatedFor, setCalculatedFor] = useState(localDateTime());
+  const [calculationVolume, setCalculationVolume] = useState("");
+  const [calculatedFor, setCalculatedFor] = useState("");
   const [recipeResult, setRecipeResult] = useState<RecipeCalculation | null>(null);
   const [calculatorBusy, setCalculatorBusy] = useState(false);
   const [calculatorError, setCalculatorError] = useState<string | null>(null);
@@ -89,9 +78,13 @@ export function FormulaPage() {
     label: recipe.name,
     description: `v${recipeVersion.version} · ${recipeVersion.concreteGrade}`,
   })));
-  const activeCalculationRecipeId = calculationRecipeId || recipeOptions[0]?.value || "";
+  const activeCalculationRecipeId = calculationRecipeId;
 
   async function evaluate(): Promise<void> {
+    if (variableNames.some((name) => (values[name] ?? "") === "")) {
+      setError("Заполните все входные значения формулы");
+      return;
+    }
     setBusy(true); setError(null);
     try {
       const evaluation = await apiMutation<Evaluation>("/formulas/evaluate", {
@@ -99,7 +92,7 @@ export function FormulaPage() {
         precision: version?.precision ?? 3,
         roundingMode: version?.roundingMode ?? "HALF_UP",
         formulaVersionId: customExpression === "" ? version?.id : undefined,
-        variables: Object.fromEntries(variableNames.map((name) => [name, { value: values[name] ?? "0" }])),
+        variables: Object.fromEntries(variableNames.map((name) => [name, { value: values[name] ?? "" }])),
       });
       setResult(evaluation);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Формула не выполнена"); }
@@ -107,7 +100,10 @@ export function FormulaPage() {
   }
 
   async function calculateRecipe(): Promise<void> {
-    if (activeCalculationRecipeId === "") return;
+    if (activeCalculationRecipeId === "" || calculationVolume === "" || calculatedFor === "") {
+      setCalculatorError("Выберите рецептуру, укажите объём и дату расчёта");
+      return;
+    }
     setCalculatorBusy(true);
     setCalculatorError(null);
     try {
@@ -129,8 +125,7 @@ export function FormulaPage() {
       <PageHeader
         eyebrow="Расчётное ядро"
         title="Калькулятор производства"
-        description="Backend рассчитывает состав, себестоимость и дефицит склада; ниже доступен инженерный редактор формул с полной трассировкой."
-        actions={<span className="engine-badge"><ShieldCheck size={16} /> Backend verified</span>}
+        description="Рассчитывайте состав, себестоимость и дефицит склада, а также проверяйте инженерные формулы с полной расшифровкой."
       />
       <Panel className="recipe-calculator-panel">
         <div className="calculator-heading"><span><Calculator size={21} /></span><div><span className="eyebrow">Производственный расчёт</span><h2>Расчёт замеса по рецептуре</h2><p>Все количества и цены пересчитываются на сервере в Decimal.</p></div></div>
@@ -138,7 +133,7 @@ export function FormulaPage() {
           <div className="form-field"><span>Рецептура</span><CustomSelect ariaLabel="Рецептура для расчёта" value={activeCalculationRecipeId} onChange={(value) => { setCalculationRecipeId(value); setRecipeResult(null); }} options={recipeOptions} /></div>
           <label><span>Объём, м³</span><input type="number" min="0.001" step="0.001" value={calculationVolume} onChange={(event) => setCalculationVolume(event.target.value)} /></label>
           <div className="form-field"><span>Дата расчёта</span><DateTimePicker ariaLabel="Дата производственного расчёта" value={calculatedFor} onChange={setCalculatedFor} align="right" /></div>
-          <button className="button primary" disabled={calculatorBusy || activeCalculationRecipeId === ""} onClick={() => void calculateRecipe()}><Calculator size={16} /> {calculatorBusy ? "Считаем…" : "Рассчитать на backend"}</button>
+          <button className="button primary" disabled={calculatorBusy} onClick={() => void calculateRecipe()}><Calculator size={16} /> {calculatorBusy ? "Считаем…" : "Рассчитать состав"}</button>
         </div>
         {calculatorError === null ? null : <div className="form-error calculator-error">{calculatorError}</div>}
         {recipeResult === null ? <div className="calculator-empty"><FlaskConical size={27} /><span>Выберите рецептуру и объём — получите план расхода, стоимость и проверку остатков.</span></div> : (
@@ -166,24 +161,19 @@ export function FormulaPage() {
           <div className="formula-editor-head"><div><span className="eyebrow">Редактор выражения</span><h2>{selected?.name ?? "Пользовательская формула"}</h2></div><span className="version-chip">v{version?.version ?? 1}</span></div>
           <label className="code-editor"><span><Braces size={16} /> expression</span><textarea spellCheck={false} value={expression} onChange={(event) => setCustomExpression(event.target.value)} /><small>Доступно: + − × ÷, %, скобки, сравнения, ? :, min, max, round, abs, if, convert.</small></label>
           <div className="variable-heading"><h3>Входные переменные</h3><span>{variableNames.length} значений</span></div>
-          <div className="variable-grid">{variableNames.map((name) => <label key={name}><span>{humanize(name)}</span><div><input type="number" step="0.001" value={values[name] ?? "0"} onChange={(event) => setValues({ ...values, [name]: event.target.value })} /><em>{guessUnit(name)}</em></div><small>{name}</small></label>)}</div>
+          <div className="variable-grid">{variableNames.map((name) => <label key={name}><span>{humanize(name)}</span><div><input type="number" step="0.001" value={values[name] ?? ""} onChange={(event) => setValues({ ...values, [name]: event.target.value })} /><em>{guessUnit(name)}</em></div><small>{name}</small></label>)}</div>
           {error === null ? null : <div className="form-error">{error}</div>}
-          <button className="button primary evaluate-button" disabled={busy} onClick={() => void evaluate()}><Play size={17} /> {busy ? "Вычисляем…" : "Выполнить на backend"}</button>
+          <button className="button primary evaluate-button" disabled={busy} onClick={() => void evaluate()}><Play size={17} /> {busy ? "Вычисляем…" : "Выполнить расчёт"}</button>
         </Panel>
 
         <Panel className="formula-result">
-          <PanelHeader title="Результат" description="Окончательный backend-расчёт" />
+          <PanelHeader title="Результат" description="Итоговое значение и пошаговая расшифровка" />
           {result === null ? <div className="formula-placeholder"><FlaskConical size={34} /><strong>Готово к расчёту</strong><p>Введите исходные значения и запустите формулу.</p></div> : <><div className="result-value"><span><CheckCircle2 size={18} /> Расчёт выполнен</span><strong>{formatNumber(result.value)} {result.unit ?? ""}</strong><small>Точность: {version?.precision ?? 3} знака · HALF_UP</small></div><div className="trace-title"><h3>Расшифровка</h3><span>{result.trace.length} шагов</span></div><div className="trace-list">{result.trace.map((step) => <div key={step.index}><span>{step.index}</span><div><strong>{step.explanation}</strong><code>{step.expression}</code><small>Результат: {formatResult(step.result)}</small></div></div>)}</div></>}
           <div className="formula-help"><CircleHelp size={17} /><span>Входные значения, результат и trace сохраняются в журнале для производственных расчётов.</span></div>
         </Panel>
       </div>
     </>
   );
-}
-
-function localDateTime(date = new Date()): string {
-  const offset = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 }
 
 function extractVariables(expression: string): string[] {

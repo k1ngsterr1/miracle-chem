@@ -99,29 +99,28 @@ function RecipeDetail({ recipe, onClose, onNewVersion }: { recipe: Recipe; onClo
 }
 
 function NewRecipeModal({ materials, onClose, onCreated }: { materials: Material[]; onClose: () => void; onCreated: () => Promise<void> }) {
-  const first = materials[0];
   const [form, setForm] = useState({
-    code: `RCP-${Date.now().toString().slice(-6)}`,
+    code: "",
     name: "",
     concreteGrade: "",
-    baseBatchVolume: "1",
+    baseBatchVolume: "",
     waterCementRatio: "",
-    plannedYield: "1",
-    effectiveAt: localDateTime(),
+    plannedYield: "",
+    effectiveAt: "",
     technologyInstructions: "",
   });
-  const [components, setComponents] = useState<DraftComponent[]>(first === undefined ? [] : [{ key: crypto.randomUUID(), materialId: first.id, normPerM3: "0", allowedDeviationPercent: "2" }]);
+  const [components, setComponents] = useState<DraftComponent[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   function addComponent(): void {
-    const unused = materials.find((material) => !components.some((component) => component.materialId === material.id));
-    if (unused === undefined) return;
-    setComponents([...components, { key: crypto.randomUUID(), materialId: unused.id, normPerM3: "0", allowedDeviationPercent: "2" }]);
+    setComponents([...components, { key: crypto.randomUUID(), materialId: "", normPerM3: "", allowedDeviationPercent: "" }]);
   }
 
   async function submit(event: React.FormEvent): Promise<void> {
     event.preventDefault();
+    if (form.code.trim() === "" || form.name.trim() === "" || form.concreteGrade.trim() === "" || form.baseBatchVolume === "" || form.plannedYield === "" || form.effectiveAt === "" || form.technologyInstructions.trim() === "") { setError("Заполните обязательные поля рецептуры"); return; }
     if (components.length === 0) { setError("Добавьте хотя бы один компонент"); return; }
+    if (components.some((component) => component.materialId === "" || component.normPerM3 === "" || component.allowedDeviationPercent === "")) { setError("Заполните все поля компонентов"); return; }
     try {
       await apiMutation("/recipes", {
         code: form.code,
@@ -173,7 +172,7 @@ function NewRecipeModal({ materials, onClose, onCreated }: { materials: Material
             const material = materials.find((item) => item.id === component.materialId);
             return (
               <div key={component.key}>
-                <div className="form-field"><span>Материал</span><CustomSelect ariaLabel="Компонент рецептуры" value={component.materialId} onChange={(materialId) => setComponents(components.map((item) => item.key === component.key ? { ...item, materialId } : item))} options={materials.filter((candidate) => candidate.id === component.materialId || !components.some((item) => item.materialId === candidate.id)).map((candidate) => ({ value: candidate.id, label: candidate.name, description: `${candidate.code} · ${unitLabel[candidate.baseUnit]}` }))} /></div>
+                <div className="form-field"><span>Материал</span><CustomSelect ariaLabel="Компонент рецептуры" value={component.materialId} onChange={(materialId) => setComponents(components.map((item) => item.key === component.key ? { ...item, materialId } : item))} options={materials.filter((candidate) => candidate.id === component.materialId || !components.some((item) => item.materialId === candidate.id)).map((candidate) => ({ value: candidate.id, label: candidate.name, description: `${candidate.code} · ${unitLabel[candidate.baseUnit]}` }))} placeholder="Выберите реагент" /></div>
                 <label><span>Норма, {unitLabel[material?.baseUnit ?? "KG"]}</span><input required type="number" min="0" step="0.001" value={component.normPerM3} onChange={(event) => setComponents(components.map((item) => item.key === component.key ? { ...item, normPerM3: event.target.value } : item))} /></label>
                 <label><span>Допуск, %</span><input required type="number" min="0" step="0.1" value={component.allowedDeviationPercent} onChange={(event) => setComponents(components.map((item) => item.key === component.key ? { ...item, allowedDeviationPercent: event.target.value } : item))} /></label>
                 <button type="button" className="row-action danger" aria-label="Удалить компонент" onClick={() => setComponents(components.filter((item) => item.key !== component.key))}><Trash2 size={16} /></button>
@@ -193,18 +192,20 @@ function NewVersionModal({ recipe, onClose, onCreated }: { recipe: Recipe; onClo
   const latest = recipe.versions[0];
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({
-    grade: latest?.concreteGrade ?? "",
-    waterCement: latest?.waterCementRatio ?? "",
-    baseBatchVolume: latest?.baseBatchVolume ?? "1",
-    plannedYield: latest?.plannedYield ?? "1",
-    effectiveAt: localDateTime(),
-    instructions: latest?.technologyInstructions ?? "",
+    grade: "",
+    waterCement: "",
+    baseBatchVolume: "",
+    plannedYield: "",
+    effectiveAt: "",
+    instructions: "",
   });
-  const [norms, setNorms] = useState<Record<string, string>>(Object.fromEntries((latest?.components ?? []).map((component) => [component.id, component.normPerM3])));
+  const [norms, setNorms] = useState<Record<string, string>>({});
   if (latest === undefined) return null;
   const source = latest;
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (form.grade.trim() === "" || form.baseBatchVolume === "" || form.plannedYield === "" || form.effectiveAt === "" || form.instructions.trim() === "") { setError("Заполните обязательные поля новой версии"); return; }
+    if (source.components.some((component) => (norms[component.id] ?? "") === "")) { setError("Укажите нормы для всех компонентов"); return; }
     try {
       await apiMutation(`/recipes/${recipe.id}/versions`, {
         concreteGrade: form.grade,
@@ -218,7 +219,7 @@ function NewVersionModal({ recipe, onClose, onCreated }: { recipe: Recipe; onClo
         effectiveAt: new Date(form.effectiveAt).toISOString(),
         components: source.components.map((component, position) => ({
           materialId: component.materialId,
-          normPerM3: norms[component.id] ?? component.normPerM3,
+          normPerM3: norms[component.id] ?? "",
           unit: component.unit,
           allowedDeviationPercent: component.allowedDeviationPercent,
           moisturePercent: component.moisturePercent,
@@ -247,9 +248,4 @@ function NewVersionModal({ recipe, onClose, onCreated }: { recipe: Recipe; onClo
       </form>
     </Modal>
   );
-}
-
-function localDateTime(date = new Date()): string {
-  const offset = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 }

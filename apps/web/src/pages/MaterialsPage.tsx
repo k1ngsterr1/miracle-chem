@@ -250,10 +250,11 @@ function MaterialDetail({
 }
 
 function CreateMaterialModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => Promise<void> }) {
-  const [form, setForm] = useState({ code: "", name: "", type: "CEMENT", baseUnit: "KG" as Unit, densityKgPerM3: "", costPerBaseUnit: "0", minimumStock: "0" });
+  const [form, setForm] = useState({ code: "", name: "", type: "", baseUnit: "" as Unit | "", densityKgPerM3: "", costPerBaseUnit: "", minimumStock: "" });
   const [error, setError] = useState<string | null>(null);
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (form.type === "" || form.baseUnit === "" || form.costPerBaseUnit === "" || form.minimumStock === "") { setError("Заполните обязательные поля складской позиции"); return; }
     try {
       await apiMutation("/materials", { ...form, densityKgPerM3: form.densityKgPerM3 || undefined });
       await onCreated();
@@ -277,18 +278,17 @@ function CreateMaterialModal({ onClose, onCreated }: { onClose: () => void; onCr
 }
 
 function ReceiptModal({ materials, initial, onClose, onCreated }: { materials: Material[]; initial: Material; onClose: () => void; onCreated: () => Promise<void> }) {
-  const defaultExpiry = new Date();
-  defaultExpiry.setFullYear(defaultExpiry.getFullYear() + 1);
-  const [form, setForm] = useState({ materialId: initial.id, lotNumber: `${initial.code}-${Date.now().toString().slice(-5)}`, supplierName: "", quantity: "1000", unit: initial.baseUnit, unitCost: initial.costPerBaseUnit, receivedAt: localDateTime(), expiresAt: localDate(defaultExpiry), certificateNumber: "" });
+  const [form, setForm] = useState({ materialId: "", lotNumber: "", supplierName: "", quantity: "", unit: "" as Unit | "", unitCost: "", receivedAt: "", expiresAt: "", certificateNumber: "" });
   const [error, setError] = useState<string | null>(null);
   const material = materials.find((item) => item.id === form.materialId) ?? initial;
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (form.materialId === "" || form.lotNumber === "" || form.quantity === "" || form.unit === "" || form.unitCost === "" || form.receivedAt === "") { setError("Заполните обязательные поля прихода"); return; }
     try {
       await apiMutation("/materials/receipts", {
         ...form,
         receivedAt: new Date(form.receivedAt).toISOString(),
-        expiresAt: new Date(form.expiresAt).toISOString(),
+        expiresAt: form.expiresAt === "" ? undefined : new Date(form.expiresAt).toISOString(),
         supplierName: form.supplierName || undefined,
         certificateNumber: form.certificateNumber || undefined,
       }, { idempotent: true });
@@ -298,7 +298,7 @@ function ReceiptModal({ materials, initial, onClose, onCreated }: { materials: M
   return (
     <Modal title="Приход на склад" onClose={onClose} wide>
       <form className="form-grid" onSubmit={(event) => void submit(event)}>
-        <div className="form-field span-2"><span>Складская позиция</span><CustomSelect ariaLabel="Складская позиция для прихода" value={form.materialId} onChange={(materialId) => { const next = materials.find((item) => item.id === materialId); setForm({ ...form, materialId, unit: next?.baseUnit ?? form.unit, unitCost: next?.costPerBaseUnit ?? form.unitCost, lotNumber: `${next?.code ?? "LOT"}-${Date.now().toString().slice(-5)}` }); }} options={materials.map((item) => ({ value: item.id, label: item.name, description: `${item.code} · остаток ${formatNumber(item.currentStock)} ${unitLabel[item.baseUnit]}` }))} /></div>
+        <div className="form-field span-2"><span>Складская позиция</span><CustomSelect ariaLabel="Складская позиция для прихода" value={form.materialId} onChange={(materialId) => { const next = materials.find((item) => item.id === materialId); setForm({ ...form, materialId, unit: next?.baseUnit ?? form.unit }); }} options={materials.map((item) => ({ value: item.id, label: item.name, description: `${item.code} · остаток ${formatNumber(item.currentStock)} ${unitLabel[item.baseUnit]}` }))} /></div>
         <label><span>Номер партии</span><input required value={form.lotNumber} onChange={(event) => setForm({ ...form, lotNumber: event.target.value })} /></label>
         <label><span>Поставщик</span><input value={form.supplierName} onChange={(event) => setForm({ ...form, supplierName: event.target.value })} /></label>
         <div className="form-field"><span>Дата и время поступления</span><DateTimePicker ariaLabel="Дата и время поступления" value={form.receivedAt} onChange={(receivedAt) => setForm({ ...form, receivedAt })} /></div>
@@ -314,11 +314,12 @@ function ReceiptModal({ materials, initial, onClose, onCreated }: { materials: M
 }
 
 function ConsumptionModal({ materials, initial, onClose, onCreated }: { materials: Material[]; initial: Material; onClose: () => void; onCreated: () => Promise<void> }) {
-  const [form, setForm] = useState({ materialId: initial.id, quantity: "1", unit: initial.baseUnit, consumedAt: localDateTime(), reason: "Производственные нужды", reference: "" });
+  const [form, setForm] = useState({ materialId: "", quantity: "", unit: "" as Unit | "", consumedAt: "", reason: "", reference: "" });
   const [error, setError] = useState<string | null>(null);
   const material = materials.find((item) => item.id === form.materialId) ?? initial;
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (form.materialId === "" || form.quantity === "" || form.unit === "" || form.consumedAt === "" || form.reason.trim().length < 3) { setError("Заполните обязательные поля расхода"); return; }
     try {
       await apiMutation("/materials/consumptions", {
         ...form,
@@ -342,14 +343,4 @@ function ConsumptionModal({ materials, initial, onClose, onCreated }: { material
       </form>
     </Modal>
   );
-}
-
-function localDateTime(date = new Date()): string {
-  const offset = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
-}
-
-function localDate(date = new Date()): string {
-  const offset = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 10);
 }

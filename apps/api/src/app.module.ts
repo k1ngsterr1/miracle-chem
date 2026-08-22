@@ -1,6 +1,7 @@
 import { Controller, Get, Injectable, Module, type OnApplicationShutdown } from "@nestjs/common";
 import { prisma } from "./lib/prisma.js";
 import { AdjustmentController } from "./routes/adjustments.js";
+import { AccountingController } from "./routes/accounting.js";
 import { AttachmentController } from "./routes/attachments.js";
 import { BatchController } from "./routes/batches.js";
 import { CalculatorController } from "./routes/calculator.js";
@@ -33,6 +34,7 @@ class PrismaLifecycle implements OnApplicationShutdown {
 @Module({
   controllers: [
     HealthController,
+    AccountingController,
     MetaController,
     MaterialController,
     RecipeController,

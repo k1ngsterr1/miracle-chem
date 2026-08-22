@@ -22,6 +22,11 @@ export interface DashboardData {
   criticalMaterials: Material[];
   deviations: BatchComponent[];
   productionTrend: Array<{ date: string; produced: string; sent: string; loss: string }>;
+  analytics: {
+    batchStatuses: Array<{ status: string; count: number }>;
+    productionByLine: Array<{ line: string; produced: string; loss: string; unit: Unit }>;
+    expenseTrend: Array<{ date: string; amount: string; currency: string }>;
+  };
 }
 
 export interface UserSummary {
@@ -329,5 +334,54 @@ export interface ExpenseResponse {
     byCategory: Array<{ category: ExpenseCategory; currency: string; amount: string; count: number }>;
     recordedCount: number;
     cancelledCount: number;
+  };
+}
+
+export type AccountingDocumentType = "WAYBILL" | "PAYMENT_INVOICE" | "COMPLETION_ACT";
+export type AccountingDocumentStatus = "DRAFT" | "ISSUED" | "PAID" | "CANCELLED";
+
+export interface AccountingDocumentItem {
+  id: string;
+  description: string;
+  quantity: string;
+  unit: string;
+  unitPrice: string;
+  amount: string;
+  position: number;
+}
+
+export interface AccountingDocument {
+  id: string;
+  number: string;
+  type: AccountingDocumentType;
+  status: AccountingDocumentStatus;
+  documentAt: string;
+  dueAt: string | null;
+  issuedAt: string | null;
+  paidAt: string | null;
+  counterparty: string;
+  counterpartyTaxId: string | null;
+  basis: string | null;
+  subtotal: string;
+  vatRate: string;
+  vatAmount: string;
+  totalAmount: string;
+  currency: string;
+  transfer: { id: string; number: string } | null;
+  expense: { id: string; number: string } | null;
+  notes: string | null;
+  createdBy: Pick<UserSummary, "id" | "name">;
+  cancelledAt: string | null;
+  cancellationReason: string | null;
+  createdAt: string;
+  items: AccountingDocumentItem[];
+}
+
+export interface AccountingResponse {
+  items: AccountingDocument[];
+  summary: {
+    totals: Array<{ currency: string; amount: string }>;
+    byStatus: Array<{ status: AccountingDocumentStatus; count: number }>;
+    byType: Array<{ type: AccountingDocumentType; count: number }>;
   };
 }

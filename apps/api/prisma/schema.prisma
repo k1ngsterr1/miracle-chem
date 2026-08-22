@@ -143,6 +143,19 @@ enum ExpenseStatus {
   CANCELLED
 }
 
+enum AccountingDocumentType {
+  WAYBILL
+  PAYMENT_INVOICE
+  COMPLETION_ACT
+}
+
+enum AccountingDocumentStatus {
+  DRAFT
+  ISSUED
+  PAID
+  CANCELLED
+}
+
 enum QualityCheckStatus {
   PENDING
   PASSED
@@ -178,60 +191,63 @@ enum AuditEntityType {
   LRT_TRANSFER
   WAGON
   EXPENSE
+  ACCOUNTING_DOCUMENT
   QUALITY_CHECK
   ADJUSTMENT
 }
 
 model Workspace {
-  id              String                 @id @default(uuid()) @db.Uuid
-  name            String
-  timezone        String                 @default("Asia/Almaty")
-  currency        String                 @default("KZT") @db.VarChar(3)
-  createdAt       DateTime               @default(now())
-  updatedAt       DateTime               @updatedAt
-  users           User[]
-  productionLines ProductionLine[]
-  suppliers       Supplier[]
-  materials       Material[]
-  materialPrices  MaterialPriceHistory[]
-  materialLots    MaterialLot[]
-  recipes         Recipe[]
-  recipeVersions  RecipeVersion[]
-  formulas        Formula[]
-  formulaVersions FormulaVersion[]
-  batches         ProductionBatch[]
-  productLots     ProductLot[]
-  lrtTransfers    LrtTransfer[]
-  wagons          Wagon[]
-  wagonEvents     WagonLocationEvent[]
-  expenses        Expense[]
-  adjustments     AdjustmentDocument[]
-  auditLogs       AuditLog[]
-  idempotency     IdempotencyRecord[]
+  id                  String                 @id @default(uuid()) @db.Uuid
+  name                String
+  timezone            String                 @default("Asia/Almaty")
+  currency            String                 @default("KZT") @db.VarChar(3)
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  users               User[]
+  productionLines     ProductionLine[]
+  suppliers           Supplier[]
+  materials           Material[]
+  materialPrices      MaterialPriceHistory[]
+  materialLots        MaterialLot[]
+  recipes             Recipe[]
+  recipeVersions      RecipeVersion[]
+  formulas            Formula[]
+  formulaVersions     FormulaVersion[]
+  batches             ProductionBatch[]
+  productLots         ProductLot[]
+  lrtTransfers        LrtTransfer[]
+  wagons              Wagon[]
+  wagonEvents         WagonLocationEvent[]
+  expenses            Expense[]
+  accountingDocuments AccountingDocument[]
+  adjustments         AdjustmentDocument[]
+  auditLogs           AuditLog[]
+  idempotency         IdempotencyRecord[]
 
   @@map("workspaces")
 }
 
 model User {
-  id                  String               @id @default(uuid()) @db.Uuid
-  workspaceId         String               @db.Uuid
-  workspace           Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  name                String
-  email               String
-  role                UserRole
-  active              Boolean              @default(true)
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
-  operatedBatches     ProductionBatch[]    @relation("BatchOperator")
-  sentTransfers       LrtTransfer[]        @relation("TransferSender")
-  receivedTransfers   LrtTransfer[]        @relation("TransferReceiver")
-  performedChecks     QualityCheck[]
-  approvedAdjustments AdjustmentDocument[] @relation("AdjustmentApprover")
-  createdAdjustments  AdjustmentDocument[] @relation("AdjustmentCreator")
-  auditLogs           AuditLog[]
-  wagonLocationEvents WagonLocationEvent[]
-  createdExpenses     Expense[]            @relation("ExpenseCreator")
-  cancelledExpenses   Expense[]            @relation("ExpenseCanceller")
+  id                         String               @id @default(uuid()) @db.Uuid
+  workspaceId                String               @db.Uuid
+  workspace                  Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name                       String
+  email                      String
+  role                       UserRole
+  active                     Boolean              @default(true)
+  createdAt                  DateTime             @default(now())
+  updatedAt                  DateTime             @updatedAt
+  operatedBatches            ProductionBatch[]    @relation("BatchOperator")
+  sentTransfers              LrtTransfer[]        @relation("TransferSender")
+  receivedTransfers          LrtTransfer[]        @relation("TransferReceiver")
+  performedChecks            QualityCheck[]
+  approvedAdjustments        AdjustmentDocument[] @relation("AdjustmentApprover")
+  createdAdjustments         AdjustmentDocument[] @relation("AdjustmentCreator")
+  auditLogs                  AuditLog[]
+  wagonLocationEvents        WagonLocationEvent[]
+  createdExpenses            Expense[]            @relation("ExpenseCreator")
+  cancelledExpenses          Expense[]            @relation("ExpenseCanceller")
+  createdAccountingDocuments AccountingDocument[] @relation("AccountingDocumentCreator")
 
   @@unique([workspaceId, email])
   @@index([workspaceId, role, active])
@@ -656,25 +672,26 @@ model ProductLotMaterialTrace {
 }
 
 model LrtTransfer {
-  id           String            @id @default(uuid()) @db.Uuid
-  workspaceId  String            @db.Uuid
-  workspace    Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  number       String
-  status       LrtTransferStatus @default(DRAFT)
-  transferAt   DateTime
-  senderId     String            @db.Uuid
-  sender       User              @relation("TransferSender", fields: [senderId], references: [id], onDelete: Restrict)
-  receiverId   String?           @db.Uuid
-  receiver     User?             @relation("TransferReceiver", fields: [receiverId], references: [id], onDelete: SetNull)
-  receiverName String?
-  transport    String?
-  comments     String?           @db.Text
-  sentAt       DateTime?
-  acceptedAt   DateTime?
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
-  items        LrtTransferItem[]
-  attachments  Attachment[]
+  id                  String               @id @default(uuid()) @db.Uuid
+  workspaceId         String               @db.Uuid
+  workspace           Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  number              String
+  status              LrtTransferStatus    @default(DRAFT)
+  transferAt          DateTime
+  senderId            String               @db.Uuid
+  sender              User                 @relation("TransferSender", fields: [senderId], references: [id], onDelete: Restrict)
+  receiverId          String?              @db.Uuid
+  receiver            User?                @relation("TransferReceiver", fields: [receiverId], references: [id], onDelete: SetNull)
+  receiverName        String?
+  transport           String?
+  comments            String?              @db.Text
+  sentAt              DateTime?
+  acceptedAt          DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  items               LrtTransferItem[]
+  attachments         Attachment[]
+  accountingDocuments AccountingDocument[]
 
   @@unique([workspaceId, number])
   @@index([workspaceId, status, transferAt])
@@ -754,35 +771,92 @@ model WagonLocationEvent {
 }
 
 model Expense {
-  id                 String               @id @default(uuid()) @db.Uuid
-  workspaceId        String               @db.Uuid
-  workspace          Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  number             String
-  category           ExpenseCategory
-  costCenter         ExpenseCostCenter
-  paymentMethod      ExpensePaymentMethod
-  status             ExpenseStatus        @default(RECORDED)
-  incurredAt         DateTime
-  amount             Decimal              @db.Decimal(20, 2)
-  currency           String               @default("KZT") @db.VarChar(3)
-  description        String
-  counterparty       String?
-  documentNumber     String?
-  note               String?              @db.Text
-  createdById        String               @db.Uuid
-  createdBy          User                 @relation("ExpenseCreator", fields: [createdById], references: [id], onDelete: Restrict)
-  cancelledAt        DateTime?
-  cancelledById      String?              @db.Uuid
-  cancelledBy        User?                @relation("ExpenseCanceller", fields: [cancelledById], references: [id], onDelete: SetNull)
-  cancellationReason String?              @db.Text
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
+  id                  String               @id @default(uuid()) @db.Uuid
+  workspaceId         String               @db.Uuid
+  workspace           Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  number              String
+  category            ExpenseCategory
+  costCenter          ExpenseCostCenter
+  paymentMethod       ExpensePaymentMethod
+  status              ExpenseStatus        @default(RECORDED)
+  incurredAt          DateTime
+  amount              Decimal              @db.Decimal(20, 2)
+  currency            String               @default("KZT") @db.VarChar(3)
+  description         String
+  counterparty        String?
+  documentNumber      String?
+  note                String?              @db.Text
+  createdById         String               @db.Uuid
+  createdBy           User                 @relation("ExpenseCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  cancelledAt         DateTime?
+  cancelledById       String?              @db.Uuid
+  cancelledBy         User?                @relation("ExpenseCanceller", fields: [cancelledById], references: [id], onDelete: SetNull)
+  cancellationReason  String?              @db.Text
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  accountingDocuments AccountingDocument[]
 
   @@unique([workspaceId, number])
   @@index([workspaceId, incurredAt])
   @@index([workspaceId, status, category, incurredAt])
   @@index([workspaceId, costCenter, incurredAt])
   @@map("expenses")
+}
+
+model AccountingDocument {
+  id                 String                   @id @default(uuid()) @db.Uuid
+  workspaceId        String                   @db.Uuid
+  workspace          Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  number             String
+  type               AccountingDocumentType
+  status             AccountingDocumentStatus @default(DRAFT)
+  documentAt         DateTime
+  dueAt              DateTime?
+  issuedAt           DateTime?
+  paidAt             DateTime?
+  counterparty       String
+  counterpartyTaxId  String?
+  basis              String?
+  subtotal           Decimal                  @db.Decimal(20, 2)
+  vatRate            Decimal                  @default(0) @db.Decimal(8, 4)
+  vatAmount          Decimal                  @default(0) @db.Decimal(20, 2)
+  totalAmount        Decimal                  @db.Decimal(20, 2)
+  currency           String                   @default("KZT") @db.VarChar(3)
+  transferId         String?                  @db.Uuid
+  transfer           LrtTransfer?             @relation(fields: [transferId], references: [id], onDelete: SetNull)
+  expenseId          String?                  @db.Uuid
+  expense            Expense?                 @relation(fields: [expenseId], references: [id], onDelete: SetNull)
+  notes              String?                  @db.Text
+  createdById        String                   @db.Uuid
+  createdBy          User                     @relation("AccountingDocumentCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  cancelledAt        DateTime?
+  cancellationReason String?                  @db.Text
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+  items              AccountingDocumentItem[]
+
+  @@unique([workspaceId, number])
+  @@index([workspaceId, type, status, documentAt])
+  @@index([workspaceId, counterparty, documentAt])
+  @@index([transferId])
+  @@index([expenseId])
+  @@map("accounting_documents")
+}
+
+model AccountingDocumentItem {
+  id          String             @id @default(uuid()) @db.Uuid
+  documentId  String             @db.Uuid
+  document    AccountingDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Decimal            @db.Decimal(20, 6)
+  unit        String             @db.VarChar(20)
+  unitPrice   Decimal            @db.Decimal(20, 4)
+  amount      Decimal            @db.Decimal(20, 2)
+  position    Int                @default(0)
+  createdAt   DateTime           @default(now())
+
+  @@index([documentId, position])
+  @@map("accounting_document_items")
 }
 
 model ProductMovement {

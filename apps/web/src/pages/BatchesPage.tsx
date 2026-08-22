@@ -10,6 +10,7 @@ import {
   Plus,
   Search,
   ShieldCheck,
+  X,
 } from "lucide-react";
 import { apiFetch, apiMutation } from "../api.js";
 import { CustomSelect } from "../components/CustomSelect.js";
@@ -28,26 +29,26 @@ import {
 } from "../components/ui.js";
 
 const FILTERS = [
-  ["ALL", "Все"],
-  ["PLANNED", "План"],
-  ["IN_PROGRESS", "В работе"],
-  ["COMPLETED", "Завершены"],
-  ["TRANSFERRED", "Переданы"],
+  { id: "ALL", label: "Все", tone: "all" },
+  { id: "PLANNED", label: "План", tone: "planned" },
+  { id: "IN_PROGRESS", label: "В работе", tone: "progress" },
+  { id: "COMPLETED", label: "Завершены", tone: "completed" },
+  { id: "TRANSFERRED", label: "Переданы", tone: "transferred" },
 ] as const;
+
+type BatchFilter = (typeof FILTERS)[number]["id"];
 
 export function BatchesPage({ meta }: { meta: MetaData | null }) {
   const batches = useApi<{ items: Batch[] }>("/batches");
   const recipes = useApi<{ items: Recipe[] }>("/recipes");
-  const [filter, setFilter] = useState<(typeof FILTERS)[number][0]>("ALL");
+  const [filter, setFilter] = useState<BatchFilter>("ALL");
   const [query, setQuery] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const filtered = useMemo(() => {
     const normalized = query.toLocaleLowerCase("ru");
     return (batches.data?.items ?? []).filter((batch) => {
-      const statusMatches = filter === "ALL"
-        || (filter === "TRANSFERRED" && ["PARTIALLY_TRANSFERRED", "FULLY_TRANSFERRED"].includes(batch.status))
-        || batch.status === filter;
+      const statusMatches = matchesBatchFilter(batch.status, filter);
       return statusMatches && [batch.number, batch.concreteGrade, batch.recipeVersion.recipe.name]
         .some((value) => value.toLocaleLowerCase("ru").includes(normalized));
     });
@@ -55,6 +56,7 @@ export function BatchesPage({ meta }: { meta: MetaData | null }) {
 
   if (batches.loading) return <LoadingState />;
   if (batches.error !== null) return <ErrorState message={batches.error} retry={batches.reload} />;
+  const allBatches = batches.data?.items ?? [];
 
   return (
     <>
@@ -73,11 +75,18 @@ export function BatchesPage({ meta }: { meta: MetaData | null }) {
       </div>
 
       <Panel className="table-panel">
-        <div className="table-toolbar">
-          <div className="segmented-control">
-            {FILTERS.map(([id, label]) => <button type="button" key={id} className={filter === id ? "active" : ""} onClick={() => setFilter(id)}>{label}</button>)}
+        <div className="table-toolbar batch-filter-toolbar">
+          <div className="batch-filter-tabs" aria-label="Фильтр замесов по статусу">
+            {FILTERS.map(({ id, label, tone }) => {
+              const count = allBatches.filter((batch) => matchesBatchFilter(batch.status, id)).length;
+              return <button type="button" key={id} className={`${tone}${filter === id ? " active" : ""}`} aria-pressed={filter === id} onClick={() => setFilter(id)}><i aria-hidden="true" /><span>{label}</span><em>{count}</em></button>;
+            })}
           </div>
-          <div className="toolbar-actions"><label className="inline-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по замесам" /></label></div>
+          <div className={`batch-filter-search${query === "" ? "" : " filled"}`} role="search">
+            <Search size={16} />
+            <input aria-label="Поиск по замесам" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Номер, марка или рецептура" />
+            {query === "" ? null : <button type="button" aria-label="Очистить поиск" onClick={() => setQuery("")}><X size={14} /></button>}
+          </div>
         </div>
         <div className="data-table-wrap">
           <table className="data-table batches-table">
@@ -124,6 +133,12 @@ export function BatchesPage({ meta }: { meta: MetaData | null }) {
   );
 }
 
+function matchesBatchFilter(status: Batch["status"], filter: BatchFilter): boolean {
+  return filter === "ALL"
+    || (filter === "TRANSFERRED" && ["PARTIALLY_TRANSFERRED", "FULLY_TRANSFERRED"].includes(status))
+    || status === filter;
+}
+
 function Summary({ value, label, icon }: { value: string; label: string; icon: React.ReactNode }) {
   return <div className="summary-item"><span>{icon}</span><div><strong>{value}</strong><small>{label}</small></div></div>;
 }
@@ -140,14 +155,13 @@ function CreateBatchModal({
   onCreated: () => Promise<void>;
 }) {
   const activeRecipes = recipes.filter((recipe) => recipe.status === "ACTIVE" && recipe.versions[0] !== undefined);
-  const now = new Date(Date.now() + 5 * 60 * 1000);
   const [form, setForm] = useState({
-    number: `ZM-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${String(Math.floor(Math.random() * 900) + 100)}`,
-    scheduledAt: localDateTime(now),
-    recipeVersionId: activeRecipes[0]?.versions[0]?.id ?? "",
-    plannedVolume: "5",
-    operatorId: meta?.users.find((user) => user.role === "OPERATOR")?.id ?? meta?.actor.id ?? "",
-    productionLineId: meta?.productionLines[0]?.id ?? "",
+    number: "",
+    scheduledAt: "",
+    recipeVersionId: "",
+    plannedVolume: "",
+    operatorId: "",
+    productionLineId: "",
     comments: "",
   });
   const [saving, setSaving] = useState(false);
@@ -155,6 +169,10 @@ function CreateBatchModal({
 
   async function submit(event: React.FormEvent): Promise<void> {
     event.preventDefault();
+    if (Object.entries(form).some(([key, value]) => key !== "comments" && value === "")) {
+      setError("Заполните обязательные поля замеса");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -186,11 +204,6 @@ function CreateBatchModal({
       </form>
     </Modal>
   );
-}
-
-function localDateTime(date = new Date()): string {
-  const offset = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 }
 
 function BatchDetailModal({ id, onClose, onChanged }: { id: string; onClose: () => void; onChanged: () => Promise<void> }) {
