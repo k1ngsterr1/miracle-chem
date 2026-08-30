@@ -11,6 +11,7 @@ interface DateTimePickerProps {
   mode?: PickerMode;
   ariaLabel: string;
   disabled?: boolean;
+  required?: boolean;
   align?: "left" | "right";
   compact?: boolean;
 }
@@ -81,6 +82,7 @@ export function DateTimePicker({
   mode = "datetime",
   ariaLabel,
   disabled = false,
+  required = false,
   align = "left",
   compact = false,
 }: DateTimePickerProps) {
@@ -263,6 +265,7 @@ export function DateTimePicker({
         type="button"
         className="date-picker-trigger"
         aria-label={ariaLabel}
+        aria-required={required || undefined}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? popoverId : undefined}

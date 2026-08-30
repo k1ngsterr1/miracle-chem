@@ -1,5 +1,6 @@
 import { evaluateFormula, parseFormula, collectFormulaVariables } from "@betonflow/domain";
-import { AuditEntityType, FormulaRoundingMode, Prisma, type Unit } from "../generated/prisma/index.js";
+import { AuditEntityType, FormulaRoundingMode, Prisma, Unit } from "../generated/prisma/index.js";
+import { Decimal } from "decimal.js";
 import { prisma } from "../lib/prisma.js";
 import { ApiError } from "../lib/api-error.js";
 import { writeAudit } from "../lib/audit.js";
@@ -8,7 +9,15 @@ export interface FormulaVersionInput {
   expression: string;
   precision: number;
   roundingMode: FormulaRoundingMode;
+  dosagePercent?: string;
+  components?: AdditiveFormulaComponentInput[];
   publish?: boolean;
+}
+
+export interface AdditiveFormulaComponentInput {
+  materialId: string;
+  percentage: string;
+  position?: number;
 }
 
 export interface FormulaInput extends FormulaVersionInput {
@@ -34,6 +43,7 @@ export async function createFormula(
 ) {
   const variables = [...collectFormulaVariables(parseFormula(input.expression))].sort();
   return prisma.$transaction(async (tx) => {
+    await ensureAdditiveRecipe(tx, workspaceId, input);
     const formula = await tx.formula.create({
       data: {
         workspaceId,
@@ -48,11 +58,27 @@ export async function createFormula(
             variables,
             precision: input.precision,
             roundingMode: input.roundingMode,
+            ...(input.dosagePercent === undefined ? {} : { dosagePercent: input.dosagePercent }),
             ...(input.publish === true ? { publishedAt: new Date() } : {}),
+            ...(input.components === undefined ? {} : {
+              components: {
+                create: input.components.map((component, index) => ({
+                  materialId: component.materialId,
+                  percentage: component.percentage,
+                  position: component.position ?? index,
+                })),
+              },
+            }),
           },
         },
       },
-      include: { versions: true },
+      include: {
+        versions: {
+          include: {
+            components: { include: { material: true }, orderBy: { position: "asc" } },
+          },
+        },
+      },
     });
     await writeAudit(tx, {
       workspaceId,
@@ -60,7 +86,17 @@ export async function createFormula(
       action: "FORMULA_CREATED",
       entityType: AuditEntityType.FORMULA,
       entityId: formula.id,
-      after: { code: formula.code, expression: input.expression, variables },
+      after: {
+        code: formula.code,
+        expression: input.expression,
+        variables,
+        dosagePercent: input.dosagePercent ?? null,
+        components: (input.components ?? []).map((component) => ({
+          materialId: component.materialId,
+          percentage: component.percentage,
+          position: component.position ?? null,
+        })),
+      },
     });
     return formula;
   });
@@ -77,6 +113,7 @@ export async function createFormulaVersion(
     async (tx) => {
       const formula = await tx.formula.findFirst({ where: { id: formulaId, workspaceId } });
       if (formula === null) throw new ApiError(404, "FORMULA_NOT_FOUND", "Формула не найдена");
+      await ensureAdditiveRecipe(tx, workspaceId, input);
       const latest = await tx.formulaVersion.findFirst({
         where: { formulaId },
         orderBy: { version: "desc" },
@@ -91,7 +128,20 @@ export async function createFormulaVersion(
           variables,
           precision: input.precision,
           roundingMode: input.roundingMode,
+          ...(input.dosagePercent === undefined ? {} : { dosagePercent: input.dosagePercent }),
           ...(input.publish === true ? { publishedAt: new Date() } : {}),
+          ...(input.components === undefined ? {} : {
+            components: {
+              create: input.components.map((component, index) => ({
+                materialId: component.materialId,
+                percentage: component.percentage,
+                position: component.position ?? index,
+              })),
+            },
+          }),
+        },
+        include: {
+          components: { include: { material: true }, orderBy: { position: "asc" } },
         },
       });
       await writeAudit(tx, {
@@ -100,12 +150,58 @@ export async function createFormulaVersion(
         action: "FORMULA_VERSION_CREATED",
         entityType: AuditEntityType.FORMULA,
         entityId: formulaId,
-        after: { versionId: version.id, version: version.version, expression: version.expression },
+        after: {
+          versionId: version.id,
+          version: version.version,
+          expression: version.expression,
+          dosagePercent: version.dosagePercent,
+          components: version.components.map((component) => ({
+            materialId: component.materialId,
+            percentage: component.percentage.toString(),
+          })),
+        },
       });
       return version;
     },
     { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
   );
+}
+
+async function ensureAdditiveRecipe(
+  tx: Prisma.TransactionClient,
+  workspaceId: string,
+  input: FormulaVersionInput,
+): Promise<void> {
+  if (input.dosagePercent === undefined && input.components === undefined) return;
+  if (input.dosagePercent === undefined || input.components === undefined) {
+    throw new ApiError(400, "INCOMPLETE_ADDITIVE_FORMULA", "Укажите дозировку и состав формулы добавки");
+  }
+  const dosagePercent = new Decimal(input.dosagePercent);
+  if (dosagePercent.lte(0) || dosagePercent.gt(100)) {
+    throw new ApiError(400, "INVALID_ADDITIVE_DOSAGE", "Дозировка добавки должна быть больше 0 и не больше 100%");
+  }
+  const uniqueIds = [...new Set(input.components.map((component) => component.materialId))];
+  if (uniqueIds.length !== input.components.length) {
+    throw new ApiError(400, "DUPLICATE_ADDITIVE_COMPONENT", "Материал нельзя добавить в рецептуру формулы дважды");
+  }
+  const totalPercentage = input.components.reduce(
+    (total, component) => total.add(component.percentage),
+    new Decimal(0),
+  );
+  if (!totalPercentage.eq(100)) {
+    throw new ApiError(400, "INVALID_ADDITIVE_COMPOSITION", "Сумма долей компонентов должна быть равна 100%");
+  }
+  const materials = await tx.material.findMany({
+    where: { workspaceId, id: { in: uniqueIds }, active: true },
+    select: { id: true, baseUnit: true },
+  });
+  if (materials.length !== uniqueIds.length) {
+    throw new ApiError(422, "MATERIAL_NOT_FOUND", "Один или несколько компонентов формулы не найдены на складе");
+  }
+  const massUnits = new Set<Unit>([Unit.G, Unit.KG, Unit.T]);
+  if (materials.some((material) => !massUnits.has(material.baseUnit))) {
+    throw new ApiError(422, "ADDITIVE_COMPONENT_UNIT_MISMATCH", "Компоненты формулы добавки должны учитываться по массе");
+  }
 }
 
 export async function evaluateAndLogFormula(

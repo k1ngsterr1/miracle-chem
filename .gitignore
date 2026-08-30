@@ -10,3 +10,4 @@ coverage/
 apps/api/src/generated/prisma/
 apps/api/prisma/dev.db*
 graphify-out/
+apps/api/storage/

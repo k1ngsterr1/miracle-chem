@@ -36,15 +36,22 @@ npm audit --audit-level=low
 
 ## Production-контур
 
-`compose.production.yaml` собирает отдельные API и web-образы, выполняет `prisma migrate deploy`, включает healthcheck, security headers и rate limit. Перед запуском задайте как минимум `POSTGRES_USER`, `POSTGRES_PASSWORD`, `INTERNAL_API_KEY` (32+ случайных символа) и внешний `WEB_ORIGIN`:
+`compose.production.yaml` собирает отдельные API и web-образы, выполняет `prisma migrate deploy`, включает healthcheck, security headers, rate limit, постоянное хранилище вложений и ежедневный бэкап PostgreSQL. Перед запуском задайте как минимум `POSTGRES_USER`, `POSTGRES_PASSWORD`, `AUTH_SESSION_SECRET` (32+ случайных символа) и внешний `WEB_ORIGIN`:
 
 ```bash
 docker compose -f compose.production.yaml up -d --build
 ```
 
-Production API работает в режиме `trusted-gateway`: аутентифицирующий reverse proxy обязан добавлять `X-Workspace-Id`, `X-Actor-Id` и серверный `X-Internal-Api-Key`. Ключ нельзя помещать во frontend. Для локального seed-демо используется `AUTH_MODE=demo`.
+Production API работает в `session`-режиме: пароль проверяется API, а браузер получает подписанную `HttpOnly`-сессию. Секрет сессии должен быть уникальным и передаваться только через окружение сервера. Режим `trusted-gateway` оставлен для отдельной корпоративной интеграции, но не нужен для штатной страницы входа CRM.
 
-Вложения регистрируются как metadata + `storageKey`/URL; бинарные файлы должен принимать объектный storage или корпоративный файловый шлюз. Это не позволяет API хранить произвольные файлы на локальном диске контейнера.
+Чеки и вложения сохраняются в отдельном постоянном томе `betonflow_storage`; ежедневные дампы PostgreSQL хранятся 30 дней в `betonflow_backups`. Для рабочего контура с несколькими серверами этот том следует заменить на S3/MinIO или корпоративное файловое хранилище с тем же сроком хранения.
+
+Проверка и восстановление резервной копии:
+
+```bash
+docker compose -f compose.production.yaml exec backup ls -lh /backups
+docker compose -f compose.production.yaml exec -T backup sh -c 'cat /backups/miracle-chem-YYYYMMDDTHHMMSSZ.dump' | docker compose -f compose.production.yaml exec -T postgres pg_restore --clean --if-exists --username "$POSTGRES_USER" --dbname "$POSTGRES_DB"
+```
 
 ## Гарантии домена
 
@@ -72,6 +79,7 @@ Production API работает в режиме `trusted-gateway`: аутент�
 - `/api/accounting` — накладные, счета на оплату, акты выполненных работ и их жизненный цикл;
 - `/api/adjustments` — отдельное согласование и применение корректировок;
 - `/api/attachments` — привязка сертификатов и документов;
+- `/api/integrations/1c` — идемпотентный обмен изменениями с офлайн 1С и ручная проверка спорной номенклатуры;
 - `/api/reports` — выпуск, расход сырья, финансовые расходы, баланс, эффективность рецептур, отгрузки, CSV/XLSX и trace партии.
 
-Подробности: [docs/architecture.md](docs/architecture.md).
+Подробности: [архитектура](docs/architecture.md) · [обмен с офлайн 1С](docs/one-c-offline-sync.md).

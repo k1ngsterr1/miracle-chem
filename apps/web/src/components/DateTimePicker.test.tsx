@@ -63,4 +63,10 @@ describe("DateTimePicker", () => {
     expect(screen.queryByRole("listbox", { name: "Часы: варианты" })).not.toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "Дата и время замеса" })).toBeInTheDocument();
   });
+
+  it("exposes the required state to form labels", () => {
+    render(<DateTimePicker required ariaLabel="Обязательная дата" value="2026-08-16" onChange={() => undefined} />);
+
+    expect(screen.getByRole("button", { name: "Обязательная дата" })).toHaveAttribute("aria-required", "true");
+  });
 });

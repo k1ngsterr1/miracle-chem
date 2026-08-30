@@ -3,7 +3,7 @@ import { z } from "zod";
 import { FormulaRoundingMode, Unit } from "../generated/prisma/index.js";
 import { prisma } from "../lib/prisma.js";
 import { getRequestContext } from "../lib/request-context.js";
-import { decimalString, parseBody } from "../lib/validation.js";
+import { decimalString, parseBody, positiveDecimalString } from "../lib/validation.js";
 import {
   createFormula,
   createFormulaVersion,
@@ -12,18 +12,42 @@ import {
 import { ApiError } from "../lib/api-error.js";
 import type { ApiRequest } from "../lib/http.js";
 
-const versionSchema = z.object({
+const additiveComponentSchema = z.object({
+  materialId: z.string().uuid(),
+  percentage: positiveDecimalString,
+  position: z.number().int().min(0).optional(),
+});
+
+const versionFields = {
   expression: z.string().trim().min(1).max(4096),
   precision: z.number().int().min(0).max(12),
   roundingMode: z.nativeEnum(FormulaRoundingMode),
+  dosagePercent: positiveDecimalString.optional(),
+  components: z.array(additiveComponentSchema).min(1).max(250).optional(),
   publish: z.boolean().optional(),
-});
+};
 
-const createSchema = versionSchema.extend({
+function validateAdditiveRecipe(
+  value: { dosagePercent?: string; components?: unknown[] },
+  context: z.RefinementCtx,
+): void {
+  if ((value.dosagePercent === undefined) !== (value.components === undefined)) {
+    context.addIssue({
+      code: "custom",
+      path: value.dosagePercent === undefined ? ["dosagePercent"] : ["components"],
+      message: "Для формулы добавки укажите дозировку и состав рецептуры",
+    });
+  }
+}
+
+const versionSchema = z.object(versionFields).superRefine(validateAdditiveRecipe);
+
+const createSchema = z.object({
   code: z.string().trim().min(1).max(60),
   name: z.string().trim().min(1).max(200),
   description: z.string().trim().min(1).max(2000),
-});
+  ...versionFields,
+}).superRefine(validateAdditiveRecipe);
 
 const evaluateSchema = z.object({
   expression: z.string().trim().min(1).max(4096).optional(),
@@ -52,7 +76,18 @@ export class FormulaController {
     return {
       items: await prisma.formula.findMany({
         where: { workspaceId },
-        include: { versions: { orderBy: { version: "desc" }, take: 1 } },
+        include: {
+          versions: {
+            orderBy: { version: "desc" },
+            take: 1,
+            include: {
+              components: {
+                include: { material: true },
+                orderBy: { position: "asc" },
+              },
+            },
+          },
+        },
         orderBy: { name: "asc" },
       }),
     };

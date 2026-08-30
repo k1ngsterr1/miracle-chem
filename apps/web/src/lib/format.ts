@@ -17,6 +17,7 @@ export const unitLabel: Record<Unit, string> = {
   ML: "мл",
   L: "л",
   M3: "м³",
+  PCS: "шт",
 };
 
 export function formatNumber(value: string | number | null | undefined): string {
@@ -44,10 +45,37 @@ export function formatDate(value: string, withTime = false): string {
   }).format(new Date(value));
 }
 
+/** Formats a Kazakhstan mobile number without letting punctuation leak into the API payload. */
+export function formatKzPhone(value: string | null | undefined): string {
+  if (value === null || value === undefined || value === "") return "";
+  const digits = kzPhoneLocalDigits(value);
+  if (digits === "") return "";
+
+  let result = `+7 (${digits.slice(0, 3)}`;
+  if (digits.length < 3) return result;
+  result += `) ${digits.slice(3, 6)}`;
+  if (digits.length < 6) return result;
+  result += `-${digits.slice(6, 8)}`;
+  if (digits.length < 8) return result;
+  return `${result}-${digits.slice(8, 10)}`;
+}
+
+export function normalizeKzPhone(value: string): string {
+  const digits = kzPhoneLocalDigits(value);
+  return digits === "" ? "" : `+7${digits}`;
+}
+
+function kzPhoneLocalDigits(value: string): string {
+  const digits = value.replace(/\D/gu, "");
+  if (digits === "") return "";
+  const hasExplicitCountryCode = value.trim().startsWith("+7")
+    || (digits.length === 11 && (digits.startsWith("7") || digits.startsWith("8")));
+  return (hasExplicitCountryCode ? digits.slice(1) : digits).slice(0, 10);
+}
+
 export function formatMetric(metrics: QuantityMetric[]): string {
   if (metrics.length === 0) return "0";
   return metrics
     .map((metric) => `${formatNumber(metric.value)} ${unitLabel[metric.unit]}`)
     .join(" · ");
 }
-

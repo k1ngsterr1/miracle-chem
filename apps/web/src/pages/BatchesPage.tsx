@@ -1,11 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  AlertTriangle,
+  BadgeDollarSign,
   ChevronRight,
   Check,
   CircleGauge,
+  CopyPlus,
+  Cylinder,
   Factory,
   FlaskConical,
   MoreHorizontal,
+  PackageCheck,
   Play,
   Plus,
   Search,
@@ -44,6 +49,7 @@ export function BatchesPage({ meta }: { meta: MetaData | null }) {
   const [filter, setFilter] = useState<BatchFilter>("ALL");
   const [query, setQuery] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [template, setTemplate] = useState<Batch | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const filtered = useMemo(() => {
     const normalized = query.toLocaleLowerCase("ru");
@@ -64,7 +70,7 @@ export function BatchesPage({ meta }: { meta: MetaData | null }) {
         eyebrow="Производственный контур"
         title="Замесы"
         description="Планируйте, резервируйте сырьё, фиксируйте факт и выпуск партии в одном журнале."
-        actions={<button className="button primary" onClick={() => setCreateOpen(true)}><Plus size={17} /> Запланировать замес</button>}
+        actions={<button className="button primary" onClick={() => { setTemplate(null); setCreateOpen(true); }}><Plus size={17} /> Запланировать замес</button>}
       />
 
       <div className="summary-strip">
@@ -90,7 +96,7 @@ export function BatchesPage({ meta }: { meta: MetaData | null }) {
         </div>
         <div className="data-table-wrap">
           <table className="data-table batches-table">
-            <thead><tr><th>Замес</th><th>Время</th><th>Рецептура</th><th>Линия / оператор</th><th>Объём</th><th>Выполнение</th><th>Статус</th><th /></tr></thead>
+            <thead><tr><th>Замес</th><th>Время</th><th>Рецептура</th><th>Линия / чан</th><th>Объём</th><th>Выполнение</th><th>Статус</th><th /></tr></thead>
             <tbody>
               {filtered.map((batch) => {
                 const progress = batch.status === "PLANNED" ? 5 : batch.status === "IN_PROGRESS" ? 62 : 100;
@@ -99,7 +105,7 @@ export function BatchesPage({ meta }: { meta: MetaData | null }) {
                     <td><div className="primary-cell"><span className="batch-code-icon"><Factory size={16} /></span><span><strong>{batch.number}</strong><small>{batch.concreteGrade}</small></span></div></td>
                     <td><strong>{new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit" }).format(new Date(batch.scheduledAt))}</strong><small>{formatDate(batch.scheduledAt)}</small></td>
                     <td><strong>{batch.recipeVersion.recipe.name}</strong><small>Версия {batch.recipeVersion.version}</small></td>
-                    <td><strong>{batch.productionLine.name}</strong><small>{batch.operator.name}</small></td>
+                    <td><strong>{batch.productionLine.name}</strong><small>{batch.productionTank?.name ?? "Чан не указан"} · {batch.operator.name}</small></td>
                     <td><strong>{formatNumber(batch.plannedVolume)} {unitLabel[batch.plannedVolumeUnit]}</strong><small>план</small></td>
                     <td><div className="table-progress"><span>{progress}%</span><ProgressBar value={progress} /></div></td>
                     <td><StatusBadge status={batch.status} /></td>
@@ -118,8 +124,9 @@ export function BatchesPage({ meta }: { meta: MetaData | null }) {
         <CreateBatchModal
           meta={meta}
           recipes={recipes.data?.items ?? []}
+          template={template}
           onClose={() => setCreateOpen(false)}
-          onCreated={async () => { setCreateOpen(false); await batches.reload(); }}
+          onCreated={async () => { setCreateOpen(false); setTemplate(null); await batches.reload(); }}
         />
       ) : null}
       {selectedId === null ? null : (
@@ -127,6 +134,7 @@ export function BatchesPage({ meta }: { meta: MetaData | null }) {
           id={selectedId}
           onClose={() => setSelectedId(null)}
           onChanged={batches.reload}
+          onDuplicate={(batch) => { setSelectedId(null); setTemplate(batch); setCreateOpen(true); }}
         />
       )}
     </>
@@ -146,26 +154,35 @@ function Summary({ value, label, icon }: { value: string; label: string; icon: R
 function CreateBatchModal({
   meta,
   recipes,
+  template,
   onClose,
   onCreated,
 }: {
   meta: MetaData | null;
   recipes: Recipe[];
+  template: Batch | null;
   onClose: () => void;
   onCreated: () => Promise<void>;
 }) {
   const activeRecipes = recipes.filter((recipe) => recipe.status === "ACTIVE" && recipe.versions[0] !== undefined);
-  const [form, setForm] = useState({
-    number: "",
-    scheduledAt: "",
-    recipeVersionId: "",
-    plannedVolume: "",
-    operatorId: "",
-    productionLineId: "",
-    comments: "",
-  });
+  const [form, setForm] = useState(() => batchDraftFromTemplate(template));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const productionLines = meta?.productionLines ?? [];
+  const productionTanks = meta?.productionTanks ?? [];
+
+  useEffect(() => {
+    setForm((current) => {
+      const productionLineId = current.productionLineId || (productionLines.length === 1 ? productionLines[0]?.id ?? "" : "");
+      const tanksForLine = productionTanks.filter((tank) => tank.productionLineId === productionLineId);
+      const productionTankId = tanksForLine.some((tank) => tank.id === current.productionTankId)
+        ? current.productionTankId
+        : tanksForLine.length === 1 ? tanksForLine[0]?.id ?? "" : "";
+      return productionLineId === current.productionLineId && productionTankId === current.productionTankId
+        ? current
+        : { ...current, productionLineId, productionTankId };
+    });
+  }, [productionLines, productionTanks]);
 
   async function submit(event: React.FormEvent): Promise<void> {
     event.preventDefault();
@@ -190,14 +207,20 @@ function CreateBatchModal({
   }
 
   return (
-    <Modal title="Новый производственный замес" onClose={onClose} wide>
+    <Modal title={template === null ? "Новый производственный замес" : `Повторить замес ${template.number}`} onClose={onClose} wide>
       <form className="form-grid batch-create-form" onSubmit={(event) => void submit(event)}>
         <label><span>Номер замеса</span><input required value={form.number} onChange={(event) => setForm({ ...form, number: event.target.value })} /></label>
-        <div className="form-field"><span>Дата и время</span><DateTimePicker ariaLabel="Дата и время замеса" value={form.scheduledAt} onChange={(scheduledAt) => setForm({ ...form, scheduledAt })} /></div>
-        <div className="form-field span-2"><span>Рецептура</span><CustomSelect ariaLabel="Рецептура" value={form.recipeVersionId} onChange={(recipeVersionId) => setForm({ ...form, recipeVersionId })} options={activeRecipes.map((recipe) => ({ value: recipe.versions[0]?.id ?? "", label: recipe.name, description: `v${recipe.versions[0]?.version} · ${recipe.versions[0]?.concreteGrade}` })).filter((option) => option.value !== "")} /></div>
+        <div className="form-field"><span>Дата и время</span><DateTimePicker required ariaLabel="Дата и время замеса" value={form.scheduledAt} onChange={(scheduledAt) => setForm({ ...form, scheduledAt })} /></div>
+        <div className="form-field span-2"><span>Рецептура</span><CustomSelect required ariaLabel="Рецептура" value={form.recipeVersionId} onChange={(recipeVersionId) => setForm({ ...form, recipeVersionId })} options={activeRecipes.map((recipe) => ({ value: recipe.versions[0]?.id ?? "", label: recipe.name, description: `v${recipe.versions[0]?.version} · ${recipe.versions[0]?.concreteGrade}` })).filter((option) => option.value !== "")} /></div>
         <label><span>Плановый объём, м³</span><input required min="0.001" step="0.001" type="number" value={form.plannedVolume} onChange={(event) => setForm({ ...form, plannedVolume: event.target.value })} /></label>
-        <div className="form-field"><span>Производственная линия</span><CustomSelect ariaLabel="Производственная линия" value={form.productionLineId} onChange={(productionLineId) => setForm({ ...form, productionLineId })} options={(meta?.productionLines ?? []).map((line) => ({ value: line.id, label: line.name, description: `${formatNumber(line.capacity)} ${unitLabel[line.capacityUnit]}/ч` }))} /></div>
-        <div className="form-field span-2"><span>Оператор</span><CustomSelect ariaLabel="Оператор" value={form.operatorId} onChange={(operatorId) => setForm({ ...form, operatorId })} options={(meta?.users ?? []).filter((user) => ["OPERATOR", "ADMIN"].includes(user.role)).map((user) => ({ value: user.id, label: user.name, description: user.role === "ADMIN" ? "Администратор" : "Оператор" }))} /></div>
+        {productionLines.length === 1 && productionTanks.length === 1 ? <div className="equipment-assignment span-2">
+          <span><Factory size={17} /><small>Производственная линия</small><strong>{productionLines[0]?.name}</strong></span>
+          <span><Cylinder size={17} /><small>Производственный чан</small><strong>{productionTanks[0]?.name}</strong></span>
+        </div> : <>
+          <div className="form-field"><span>Производственная линия</span><CustomSelect required ariaLabel="Производственная линия" value={form.productionLineId} onChange={(productionLineId) => setForm({ ...form, productionLineId, productionTankId: "" })} options={productionLines.map((line) => ({ value: line.id, label: line.name, description: Number(line.capacity) > 0 ? `${formatNumber(line.capacity)} ${unitLabel[line.capacityUnit]}/ч` : "Мощность не задана" }))} /></div>
+          <div className="form-field"><span>Производственный чан</span><CustomSelect required ariaLabel="Производственный чан" value={form.productionTankId} onChange={(productionTankId) => setForm({ ...form, productionTankId })} options={productionTanks.filter((tank) => tank.productionLineId === form.productionLineId).map((tank) => ({ value: tank.id, label: tank.name, description: tank.capacity === null ? "Объём не задан" : `${formatNumber(tank.capacity)} ${unitLabel[tank.capacityUnit]}` }))} /></div>
+        </>}
+        <div className="form-field span-2"><span>Оператор</span><CustomSelect required ariaLabel="Оператор" value={form.operatorId} onChange={(operatorId) => setForm({ ...form, operatorId })} options={(meta?.users ?? []).filter((user) => ["OPERATOR", "ADMIN"].includes(user.role)).map((user) => ({ value: user.id, label: user.name, description: user.role === "ADMIN" ? "Администратор" : "Оператор" }))} /></div>
         <label className="span-2"><span>Комментарий</span><textarea rows={3} value={form.comments} onChange={(event) => setForm({ ...form, comments: event.target.value })} placeholder="Задание смены, особенности выпуска…" /></label>
         {error === null ? null : <div className="form-error span-2">{error}</div>}
         <div className="modal-actions span-2"><button type="button" className="button ghost" onClick={onClose}>Отмена</button><button className="button primary" disabled={saving}>{saving ? "Сохраняем…" : "Создать замес"}<ChevronRight size={16} /></button></div>
@@ -206,7 +229,7 @@ function CreateBatchModal({
   );
 }
 
-function BatchDetailModal({ id, onClose, onChanged }: { id: string; onClose: () => void; onChanged: () => Promise<void> }) {
+function BatchDetailModal({ id, onClose, onChanged, onDuplicate }: { id: string; onClose: () => void; onChanged: () => Promise<void>; onDuplicate: (batch: Batch) => void }) {
   const [batch, setBatch] = useState<Batch | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -217,7 +240,13 @@ function BatchDetailModal({ id, onClose, onChanged }: { id: string; onClose: () 
     try {
       const value = await apiFetch<Batch>(`/batches/${id}`);
       setBatch(value);
-      setActuals(Object.fromEntries((value.components ?? []).map((component) => [component.id, component.plannedQuantity])));
+      const confirmed = value.economics?.consumptionConfirmed
+        ?? value.materialMovements?.some((movement) => movement.type === "CONSUMPTION")
+        ?? false;
+      setActuals(Object.fromEntries((value.components ?? []).map((component) => [
+        component.id,
+        confirmed ? component.actualQuantity : component.plannedQuantity,
+      ])));
       setCompletion({
         actualOutput: value.plannedOutput,
         goodOutput: value.plannedOutput,
@@ -238,30 +267,154 @@ function BatchDetailModal({ id, onClose, onChanged }: { id: string; onClose: () 
   }
 
   if (batch === null) return <Modal title="Карта замеса" onClose={onClose} wide>{error === null ? <LoadingState /> : <ErrorState message={error} retry={load} />}</Modal>;
-  const consumptionConfirmed = batch.materialMovements?.some((movement) => movement.type === "CONSUMPTION") ?? false;
+  const consumptionConfirmed = batch.economics?.consumptionConfirmed
+    ?? batch.materialMovements?.some((movement) => movement.type === "CONSUMPTION")
+    ?? false;
+  const economics = batch.economics;
+  const stockWarnings = batch.stockReadiness?.warnings ?? [];
 
   return (
     <Modal title={`${batch.number} · ${batch.concreteGrade}`} onClose={onClose} wide>
-      <div className="detail-hero"><div><StatusBadge status={batch.status} /><h3>{batch.recipeVersion.recipe.name}</h3><p>Версия {batch.recipeVersion.version} · {batch.productionLine.name} · оператор {batch.operator.name}</p></div><div className="detail-volume"><strong>{formatNumber(batch.plannedVolume)} {unitLabel[batch.plannedVolumeUnit]}</strong><span>плановый объём</span></div></div>
-      <div className="detail-facts"><span><small>План</small><strong>{formatDate(batch.scheduledAt, true)}</strong></span><span><small>Себестоимость</small><strong>{formatMoney(batch.totalCost, batch.currency)}</strong></span><span><small>Доступно</small><strong>{formatNumber(batch.availableOutput)} {unitLabel[batch.outputAccountingUnit]}</strong></span><span><small>Контроль</small><strong>{(batch.qualityChecks?.length ?? 0) > 0 ? "Пройден" : "Ожидает"}</strong></span></div>
+      <div className="detail-hero"><div><StatusBadge status={batch.status} /><h3>{batch.recipeVersion.recipe.name}</h3><p>Версия {batch.recipeVersion.version} · {batch.productionLine.name} · {batch.productionTank?.name ?? "чан не указан"} · оператор {batch.operator.name}</p></div><div className="detail-volume"><strong>{formatNumber(batch.plannedVolume)} {unitLabel[batch.plannedVolumeUnit]}</strong><span>плановый объём</span></div></div>
+      <div className="detail-facts"><span><small>План</small><strong>{formatDate(batch.scheduledAt, true)}</strong></span><span><small>Стоимость реагентов</small><strong>{formatMoney(economics?.actualMaterialCost ?? batch.totalCost, batch.currency)}</strong></span><span><small>Доступно</small><strong>{formatNumber(batch.availableOutput)} {unitLabel[batch.outputAccountingUnit]}</strong></span><span><small>Контроль</small><strong>{(batch.qualityChecks?.length ?? 0) > 0 ? "Пройден" : "Ожидает"}</strong></span></div>
 
-      <div className="detail-section"><div className="section-title"><h3>Компоненты замеса</h3><span>{batch.components?.length ?? 0} позиций</span></div><div className="component-list">
-        {batch.components?.map((component) => (
-          <div className="component-row" key={component.id}>
-            <span className="material-dot" /><div><strong>{component.materialNameSnapshot}</strong><small>Допуск ±{formatNumber(component.allowedDeviationPercent)}%</small></div><span><small>План</small><strong>{formatNumber(component.plannedQuantity)} {unitLabel[component.plannedUnit]}</strong></span><label><small>Факт</small><input disabled={consumptionConfirmed || batch.status !== "IN_PROGRESS"} type="number" step="0.001" value={actuals[component.id] ?? ""} onChange={(event) => setActuals({ ...actuals, [component.id]: event.target.value })} /></label><span className={component.withinTolerance ? "deviation-ok" : "deviation-bad"}>{consumptionConfirmed ? `${formatNumber(component.deviationPercent)}%` : "—"}</span>
+      {stockWarnings.length > 0 ? (
+        <div className={`batch-stock-warning ${batch.stockReadiness?.status === "SHORTAGE" ? "critical" : "low"}`}>
+          <span><AlertTriangle size={18} /></span>
+          <div className="batch-stock-warning-copy">
+            <strong>{batch.stockReadiness?.status === "SHORTAGE" ? "Недостаточно реагентов для запуска" : "После замеса остаток будет низким"}</strong>
+            <p>{batch.stockReadiness?.status === "SHORTAGE" ? "Пополните склад или скорректируйте объём партии." : "Проверьте минимальные остатки и запланируйте закупку."}</p>
           </div>
-        ))}
+          <div className="batch-stock-warning-items">
+            {stockWarnings.map((warning) => (
+              <span key={warning.batchComponentId}>
+                <b>{warning.materialName}</b>
+                <small>{batchStockWarningText(warning)}</small>
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {consumptionConfirmed && economics !== null && economics !== undefined ? (
+        <div className="batch-economics-section">
+          <div className="section-title batch-economics-title">
+            <div><h3>Фактическая экономика партии</h3><p>Списание по складским партиям и прибыль по выставленным счетам отгрузки.</p></div>
+            <span><PackageCheck size={14} /> По фактическим лотам</span>
+          </div>
+          <div className="batch-economics-grid">
+            <EconomicsMetric label="Списано по факту" value={formatActualQuantities(economics.actualQuantities)} note={`${economics.components.length} реагентов в партии`} />
+            <EconomicsMetric label="Стоимость реагентов" value={formatMoney(economics.actualMaterialCost, economics.currency)} note={`${formatMoney(economics.actualUnitCost, economics.currency)} / ${unitLabel[economics.outputUnit]}`} />
+            <EconomicsMetric label="Отгружено" value={`${formatNumber(economics.shippedQuantity)} ${unitLabel[economics.outputUnit]}`} note={`В счетах: ${formatNumber(economics.invoicedQuantity)} ${unitLabel[economics.outputUnit]}`} />
+            <EconomicsMetric label="Выручка без НДС" value={formatMoney(economics.invoicedRevenue, economics.currency)} note={`Оплачено без НДС: ${formatMoney(economics.paidRevenue, economics.currency)}`} />
+            <EconomicsMetric label="Реагенты в отгрузке" value={formatMoney(economics.soldCost, economics.currency)} note="Себестоимость выставленного объёма" />
+            <EconomicsMetric
+              accent={economics.grossProfit !== null}
+              label="Валовая прибыль"
+              value={economics.grossProfit === null ? "—" : formatMoney(economics.grossProfit, economics.currency)}
+              note={economics.marginPercent === null ? economicsStatusText(economics.calculationStatus) : `Маржа ${formatNumber(economics.marginPercent)}%`}
+              icon={<BadgeDollarSign size={16} />}
+            />
+          </div>
+          <p className="batch-economics-note">Прибыль рассчитана как выручка без НДС по выставленным счетам минус фактическая стоимость реагентов в отгруженном объёме. Операционные расходы в эту сумму не входят.</p>
+        </div>
+      ) : null}
+
+      <div className="detail-section"><div className="section-title"><div><h3>Расход реагентов на партию</h3><p className="section-subtitle">План, подтверждённый факт и стоимость конкретных складских лотов.</p></div><span>{batch.components?.length ?? 0} позиций</span></div><div className="component-list">
+        {batch.components?.map((component) => {
+          const componentEconomics = economics?.components.find((item) => item.batchComponentId === component.id);
+          return (
+            <article className="component-item" key={component.id}>
+              <div className="component-row">
+                <span className="material-dot" />
+                <div className="component-name"><strong>{component.materialNameSnapshot}</strong><small>Допуск ±{formatNumber(component.allowedDeviationPercent)}%</small></div>
+                <div className="component-metrics">
+                  <span><small>План</small><strong>{formatNumber(component.plannedQuantity)} {unitLabel[component.plannedUnit]}</strong></span>
+                  {consumptionConfirmed || batch.status !== "IN_PROGRESS"
+                    ? <span><small>Потрачено по факту</small><strong>{formatNumber(component.actualQuantity)} {unitLabel[component.actualUnit]}</strong></span>
+                    : <label><small>Факт</small><input type="number" min="0" step="0.001" value={actuals[component.id] ?? ""} onChange={(event) => setActuals({ ...actuals, [component.id]: event.target.value })} /></label>}
+                  <span><small>Отклонение</small><strong className={component.withinTolerance ? "deviation-ok" : "deviation-bad"}>{consumptionConfirmed ? `${formatNumber(component.deviationPercent)}%` : "—"}</strong></span>
+                  <span><small>Фактическая стоимость</small><strong>{consumptionConfirmed ? formatMoney(componentEconomics?.actualCost ?? component.componentCost, componentEconomics?.currency ?? batch.currency) : "—"}</strong></span>
+                </div>
+              </div>
+              {consumptionConfirmed && (componentEconomics?.lots.length ?? 0) > 0 ? (
+                <div className="component-lot-lines">
+                  {componentEconomics?.lots.map((lot) => (
+                    <span key={lot.allocationId}>
+                      <small>Лот {lot.lotNumber}{lot.supplier === null ? "" : ` · ${lot.supplier.name}`}</small>
+                      <strong>{formatNumber(lot.quantity)} {unitLabel[lot.unit]} × {formatMoney(lot.unitCost, componentEconomics.currency)} = {formatMoney(lot.cost, componentEconomics.currency)}</strong>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </article>
+          );
+        })}
       </div></div>
 
       {error === null ? null : <div className="form-error">{error}</div>}
       <div className="workflow-actions">
+        <button className="button ghost" onClick={() => onDuplicate(batch)}><CopyPlus size={16} /> Создать на основе</button>
         {batch.status === "PLANNED" ? <button disabled={busy} className="button primary" onClick={() => void action(() => apiMutation(`/batches/${batch.id}/start`, {}, { idempotent: true }))}><Play size={16} /> Запустить и зарезервировать</button> : null}
         {batch.status === "IN_PROGRESS" && !consumptionConfirmed ? <button disabled={busy} className="button primary" onClick={() => void action(() => apiMutation(`/batches/${batch.id}/consumption`, { components: batch.components?.map((component) => ({ batchComponentId: component.id, actualQuantity: actuals[component.id] ?? component.plannedQuantity, actualUnit: component.actualUnit, lossQuantity: "0", lossUnit: component.actualUnit })) }, { idempotent: true }))}><Check size={16} /> Подтвердить расход</button> : null}
         {batch.status === "IN_PROGRESS" && consumptionConfirmed ? (
-          <div className="completion-inline"><label>Партия<input value={completion.lot} onChange={(event) => setCompletion({ ...completion, lot: event.target.value })} /></label><label>Получено, м³<input type="number" step="0.001" value={completion.actualOutput} onChange={(event) => setCompletion({ ...completion, actualOutput: event.target.value, goodOutput: event.target.value })} /></label><label>Брак, м³<input type="number" step="0.001" value={completion.rejectedOutput} onChange={(event) => setCompletion({ ...completion, rejectedOutput: event.target.value, goodOutput: String(Math.max(0, Number(completion.actualOutput) - Number(event.target.value))) })} /></label><button disabled={busy} className="button primary" onClick={() => void action(() => apiMutation(`/batches/${batch.id}/complete`, { productLotNumber: completion.lot, actualVolume: completion.actualOutput, actualVolumeUnit: "M3", actualOutput: completion.actualOutput, goodOutput: completion.goodOutput, rejectedOutput: completion.rejectedOutput, technologicalLoss: completion.loss, outputUnit: "M3", densityKgPerM3: "2400" }, { idempotent: true }))}><ShieldCheck size={16} /> Завершить замес</button></div>
+          <div className="completion-inline"><label><span>Партия</span><input required value={completion.lot} onChange={(event) => setCompletion({ ...completion, lot: event.target.value })} /></label><label><span>Получено, м³</span><input required type="number" step="0.001" value={completion.actualOutput} onChange={(event) => setCompletion({ ...completion, actualOutput: event.target.value, goodOutput: event.target.value })} /></label><label><span>Брак, м³</span><input required type="number" step="0.001" value={completion.rejectedOutput} onChange={(event) => setCompletion({ ...completion, rejectedOutput: event.target.value, goodOutput: String(Math.max(0, Number(completion.actualOutput) - Number(event.target.value))) })} /></label><button disabled={busy} className="button primary" onClick={() => void action(() => apiMutation(`/batches/${batch.id}/complete`, { productLotNumber: completion.lot, actualVolume: completion.actualOutput, actualVolumeUnit: "M3", actualOutput: completion.actualOutput, goodOutput: completion.goodOutput, rejectedOutput: completion.rejectedOutput, technologicalLoss: completion.loss, outputUnit: "M3", densityKgPerM3: "2400" }, { idempotent: true }))}><ShieldCheck size={16} /> Завершить замес</button></div>
         ) : null}
         {["COMPLETED", "PARTIALLY_TRANSFERRED", "FULLY_TRANSFERRED"].includes(batch.status) ? <span className="locked-note"><ShieldCheck size={16} /> Расчётные данные зафиксированы и защищены от изменения</span> : null}
       </div>
     </Modal>
   );
+}
+
+function batchDraftFromTemplate(template: Batch | null) {
+  return {
+    number: "",
+    scheduledAt: "",
+    recipeVersionId: template?.recipeVersionId ?? "",
+    plannedVolume: template?.plannedVolume ?? "",
+    operatorId: template?.operator.id ?? "",
+    productionLineId: template?.productionLine.id ?? "",
+    productionTankId: template?.productionTank?.id ?? "",
+    comments: template?.comments ?? "",
+  };
+}
+
+function EconomicsMetric({
+  label,
+  value,
+  note,
+  accent = false,
+  icon,
+}: {
+  label: string;
+  value: string;
+  note: string;
+  accent?: boolean;
+  icon?: React.ReactNode;
+}) {
+  return <div className={`batch-economics-metric${accent ? " accent" : ""}`}><span>{label}{icon}</span><strong>{value}</strong><small>{note}</small></div>;
+}
+
+function economicsStatusText(status: NonNullable<Batch["economics"]>["calculationStatus"]): string {
+  return {
+    NO_CONSUMPTION: "Сначала подтвердите расход реагентов",
+    NOT_COMPLETED: "Сначала завершите выпуск партии",
+    NO_SHIPMENT: "Партия ещё не отгружена",
+    NO_INVOICE: "Нет выставленного счёта по отгрузке",
+    CURRENCY_MISMATCH: "Валюта счёта отличается от валюты партии",
+    CALCULATED: "Рассчитано по факту",
+  }[status];
+}
+
+function formatActualQuantities(quantities: NonNullable<Batch["economics"]>["actualQuantities"]): string {
+  return quantities.length === 0
+    ? "0"
+    : quantities.map((quantity) => `${formatNumber(quantity.value)} ${unitLabel[quantity.unit]}`).join(" · ");
+}
+
+function batchStockWarningText(warning: NonNullable<Batch["stockReadiness"]>["warnings"][number]): string {
+  if (["OUT_OF_STOCK", "SHORTAGE"].includes(warning.level)) {
+    return `Свободно ${formatNumber(warning.freeStock)} ${unitLabel[warning.unit]}, нужно ${formatNumber(warning.requiredQuantity)} · дефицит ${formatNumber(warning.shortfall)}`;
+  }
+  return `Свободно ${formatNumber(warning.freeStock)} ${unitLabel[warning.unit]}, после замеса ${formatNumber(warning.projectedStock)}`;
 }

@@ -52,4 +52,10 @@ describe("CustomSelect", () => {
     expect(trigger).toHaveFocus();
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
   });
+
+  it("exposes the required state to form labels", () => {
+    render(<CustomSelect required ariaLabel="Обязательная линия" value="" options={OPTIONS} onChange={() => undefined} />);
+
+    expect(screen.getByRole("combobox", { name: "Обязательная линия" })).toHaveAttribute("aria-required", "true");
+  });
 });

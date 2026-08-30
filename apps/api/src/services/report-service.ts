@@ -1,11 +1,15 @@
 import { Decimal } from "decimal.js";
 import {
+  AccountingDocumentStatus,
+  AccountingDocumentType,
   ExpenseStatus,
   MaterialMovementType,
   ProductMovementType,
   ProductionBatchStatus,
+  Unit,
 } from "../generated/prisma/index.js";
 import { prisma } from "../lib/prisma.js";
+import { MAIN_REAGENTS, matchesMaterial, quantityInKilograms } from "../lib/material-identity.js";
 
 export interface Period {
   from: Date;
@@ -15,15 +19,15 @@ export interface Period {
 export type ProductionGroupBy = "day" | "week" | "month" | "shift" | "grade" | "line" | "operator";
 export type BalanceGroupBy = "productLot" | "batch" | "grade" | "line" | "operator";
 
-export async function getDashboard(workspaceId: string, timezone: string) {
-  const today = currentDayRange(timezone);
+export async function getDashboard(workspaceId: string, timezone: string, selectedDay?: Period) {
+  const today = selectedDay ?? currentDayRange(timezone);
   const activeStatuses: ProductionBatchStatus[] = [
     ProductionBatchStatus.PLANNED,
     ProductionBatchStatus.PREPARATION,
     ProductionBatchStatus.IN_PROGRESS,
   ];
   const analyticsFrom = new Date(today.from.getTime() - 29 * 24 * 60 * 60 * 1000);
-  const [consumption, completedBatches, dispatches, availableLots, activeBatches, criticalMaterials, deviations, expenses, analyticsBatches, analyticsExpenses] =
+  const [consumption, completedBatches, dispatches, availableLots, activeBatches, criticalMaterials, plannedMaterialDemand, deviations, expenses, analyticsBatches, analyticsExpenses, dailyRevenue, receivableDocuments] =
     await Promise.all([
       prisma.materialMovement.findMany({
         where: {
@@ -67,7 +71,26 @@ export async function getDashboard(workspaceId: string, timezone: string) {
           reservedStock: true,
           minimumStock: true,
           baseUnit: true,
+          lots: {
+            where: { availableQuantity: { gt: 0 } },
+            select: { availableQuantity: true, reservedQuantity: true, unit: true },
+          },
         },
+      }),
+      prisma.batchComponent.findMany({
+        where: {
+          batch: {
+            workspaceId,
+            status: { in: [ProductionBatchStatus.PLANNED, ProductionBatchStatus.PREPARATION] },
+          },
+        },
+        select: {
+          materialId: true,
+          plannedQuantity: true,
+          plannedUnit: true,
+          batch: { select: { id: true, number: true, scheduledAt: true } },
+        },
+        orderBy: { batch: { scheduledAt: "asc" } },
       }),
       prisma.batchComponent.findMany({
         where: {
@@ -105,13 +128,132 @@ export async function getDashboard(workspaceId: string, timezone: string) {
         },
         select: { incurredAt: true, amount: true, currency: true },
       }),
+      prisma.accountingDocument.groupBy({
+        by: ["currency"],
+        where: {
+          workspaceId,
+          type: AccountingDocumentType.PAYMENT_INVOICE,
+          status: { in: [AccountingDocumentStatus.ISSUED, AccountingDocumentStatus.PAID] },
+          documentAt: { gte: today.from, lt: today.to },
+        },
+        _sum: { totalAmount: true },
+      }),
+      prisma.accountingDocument.findMany({
+        where: {
+          workspaceId,
+          type: AccountingDocumentType.PAYMENT_INVOICE,
+          status: AccountingDocumentStatus.ISSUED,
+        },
+        select: {
+          id: true,
+          number: true,
+          counterparty: true,
+          counterpartyTaxId: true,
+          totalAmount: true,
+          currency: true,
+          documentAt: true,
+          dueAt: true,
+          transferId: true,
+        },
+        orderBy: { documentAt: "desc" },
+      }),
     ]);
 
   const outputTotal = sumDecimals(completedBatches.map((batch) => batch.actualOutput?.toString() ?? "0"));
   const lossTotal = sumDecimals(completedBatches.map((batch) => batch.technologicalLoss.toString()));
+  const demandByMaterial = plannedMaterialDemand.reduce((map, component) => {
+    const current = map.get(component.materialId) ?? new Decimal(0);
+    map.set(component.materialId, current.add(component.plannedQuantity.toString()));
+    return map;
+  }, new Map<string, Decimal>());
+  const stockWarnings = criticalMaterials
+    .map((material) => {
+      const freeStock = material.currentStock.sub(material.reservedStock);
+      const plannedDemand = demandByMaterial.get(material.id) ?? new Decimal(0);
+      const projectedStock = freeStock.sub(plannedDemand);
+      const level = stockWarningLevel(freeStock, projectedStock, material.minimumStock);
+      if (level === null) return null;
+      const affectedBatches = plannedMaterialDemand
+        .filter((component) => component.materialId === material.id)
+        .map((component) => ({
+          id: component.batch.id,
+          number: component.batch.number,
+          scheduledAt: component.batch.scheduledAt.toISOString(),
+          requiredQuantity: component.plannedQuantity.toString(),
+          unit: component.plannedUnit,
+        }));
+      return {
+        id: material.id,
+        code: material.code,
+        name: material.name,
+        baseUnit: material.baseUnit,
+        currentStock: material.currentStock.toString(),
+        reservedStock: material.reservedStock.toString(),
+        freeStock: freeStock.toString(),
+        minimumStock: material.minimumStock.toString(),
+        plannedDemand: plannedDemand.toString(),
+        projectedStock: projectedStock.toString(),
+        shortfall: Decimal.max(0, projectedStock.negated()).toString(),
+        level,
+        affectedBatches,
+      };
+    })
+    .filter((warning): warning is NonNullable<typeof warning> => warning !== null)
+    .sort((left, right) => stockWarningRank(left.level) - stockWarningRank(right.level));
   const critical = criticalMaterials
-    .filter((material) => material.currentStock.lte(material.minimumStock))
+    .filter((material) => stockWarnings.some((warning) => warning.id === material.id))
     .map((material) => ({ ...material, freeStock: material.currentStock.sub(material.reservedStock) }));
+  const mainReagents = MAIN_REAGENTS.map((definition) => {
+    const materials = criticalMaterials.filter((candidate) => matchesMaterial(candidate, definition));
+    if (materials.length === 0) {
+      return {
+        id: null,
+        code: definition.code,
+        name: definition.name,
+        currentStock: "0",
+        reservedStock: "0",
+        freeStock: "0",
+        minimumStock: "0",
+        plannedDemand: "0",
+        projectedStock: "0",
+        shortfall: "0",
+        baseUnit: "KG" as const,
+        isCritical: true,
+        warningLevel: "MISSING" as const,
+        missing: true,
+      };
+    }
+    const lots = materials.flatMap((material) => material.lots);
+    const currentStock = lots.length === 0
+      ? sumDecimals(materials.map((material) => quantityInKilograms(material.currentStock, material.baseUnit).toString()))
+      : sumDecimals(lots.map((lot) => quantityInKilograms(lot.availableQuantity, lot.unit).toString()));
+    const reservedStock = lots.length === 0
+      ? sumDecimals(materials.map((material) => quantityInKilograms(material.reservedStock, material.baseUnit).toString()))
+      : sumDecimals(lots.map((lot) => quantityInKilograms(lot.reservedQuantity, lot.unit).toString()));
+    const minimumStock = sumDecimals(materials.map((material) => quantityInKilograms(material.minimumStock, material.baseUnit).toString()));
+    const plannedDemand = sumDecimals(materials.map((material) => (
+      quantityInKilograms(demandByMaterial.get(material.id) ?? 0, material.baseUnit).toString()
+    )));
+    const freeStock = currentStock.sub(reservedStock);
+    const projectedStock = freeStock.sub(plannedDemand);
+    const warningLevel = stockWarningLevel(freeStock, projectedStock, minimumStock);
+    return {
+      id: materials[0]?.id ?? null,
+      code: definition.code,
+      name: definition.name,
+      currentStock: currentStock.toString(),
+      reservedStock: reservedStock.toString(),
+      freeStock: freeStock.toString(),
+      minimumStock: minimumStock.toString(),
+      plannedDemand: plannedDemand.toString(),
+      projectedStock: projectedStock.toString(),
+      shortfall: Decimal.max(0, projectedStock.negated()).toString(),
+      baseUnit: Unit.KG,
+      isCritical: warningLevel !== null,
+      warningLevel,
+      missing: false,
+    };
+  });
 
   return {
     period: { from: today.from.toISOString(), to: today.to.toISOString(), timezone },
@@ -133,8 +275,16 @@ export async function getDashboard(workspaceId: string, timezone: string) {
         amount: expense._sum.amount?.toString() ?? "0",
         currency: expense.currency,
       })),
+      dailyRevenue: dailyRevenue.map((revenue) => ({
+        amount: revenue._sum.totalAmount?.toString() ?? "0",
+        currency: revenue.currency,
+      })),
+      accountsReceivable: groupMoneyByCurrency(receivableDocuments),
     },
+    receivables: summarizeReceivables(receivableDocuments, today.to),
     criticalMaterials: critical,
+    stockWarnings,
+    mainReagents,
     deviations,
     productionTrend: await productionTrend(workspaceId, today.from, timezone),
     analytics: {
@@ -145,12 +295,37 @@ export async function getDashboard(workspaceId: string, timezone: string) {
   };
 }
 
+type StockWarningLevel = "OUT_OF_STOCK" | "SHORTAGE" | "CRITICAL" | "LOW_AFTER_PLAN";
+
+function stockWarningLevel(
+  freeStock: Decimal,
+  projectedStock: Decimal,
+  minimumStock: { toString(): string },
+): StockWarningLevel | null {
+  const minimum = new Decimal(minimumStock.toString());
+  if (freeStock.lte(0)) return "OUT_OF_STOCK";
+  if (projectedStock.lt(0)) return "SHORTAGE";
+  if (minimum.gt(0) && freeStock.lte(minimum)) return "CRITICAL";
+  if (minimum.gt(0) && projectedStock.lte(minimum)) return "LOW_AFTER_PLAN";
+  return null;
+}
+
+function stockWarningRank(level: StockWarningLevel): number {
+  return {
+    OUT_OF_STOCK: 0,
+    SHORTAGE: 1,
+    CRITICAL: 2,
+    LOW_AFTER_PLAN: 3,
+  }[level];
+}
+
 export async function getProductionReport(workspaceId: string, period: Period) {
   const batches = await prisma.productionBatch.findMany({
     where: { workspaceId, scheduledAt: { gte: period.from, lte: period.to } },
     include: {
       recipeVersion: { include: { recipe: true } },
       productionLine: true,
+      productionTank: true,
       operator: true,
       components: true,
       productLots: true,
@@ -166,6 +341,7 @@ export async function getProductionReport(workspaceId: string, period: Period) {
     recipeVersion: batch.recipeVersion.version,
     concreteGrade: batch.concreteGrade,
     productionLine: batch.productionLine.name,
+    productionTank: batch.productionTank?.name ?? "",
     operator: batch.operator.name,
     plannedVolume: batch.plannedVolume.toString(),
     actualVolume: batch.actualVolume?.toString() ?? "",
@@ -372,7 +548,7 @@ export async function getLrtTransferReport(workspaceId: string, period: Period) 
     where: { workspaceId, transferAt: { gte: period.from, lte: period.to } },
     include: {
       sender: true,
-      receiver: true,
+      customer: true,
       items: { include: { productLot: true, batch: true } },
     },
     orderBy: { transferAt: "asc" },
@@ -393,7 +569,7 @@ export async function getLrtTransferReport(workspaceId: string, period: Period) 
     returned: item.returnedQuantity.toString(),
     unit: item.unit,
     sender: transfer.sender.name,
-    receiver: transfer.receiver?.name ?? transfer.receiverName ?? "",
+    receiver: transfer.customer?.name ?? "",
     transport: transfer.transport ?? "",
   })));
 }
@@ -402,7 +578,7 @@ export async function getProductBalanceReport(workspaceId: string, period: Perio
   const lots = await prisma.productLot.findMany({
     where: { workspaceId, producedAt: { lte: period.to } },
     include: {
-      batch: { include: { productionLine: true, operator: true } },
+      batch: { include: { productionLine: true, productionTank: true, operator: true } },
       movements: { where: { occurredAt: { lte: period.to } }, orderBy: { occurredAt: "asc" } },
     },
     orderBy: { producedAt: "asc" },
@@ -433,6 +609,7 @@ export async function getProductBalanceReport(workspaceId: string, period: Perio
       batchNumber: lot.batch.number,
       concreteGrade: lot.concreteGrade,
       productionLine: lot.batch.productionLine.name,
+      productionTank: lot.batch.productionTank?.name ?? "",
       operator: lot.batch.operator.name,
       unit: lot.unit,
       opening: new Decimal(opening).toString(),
@@ -539,6 +716,80 @@ function groupQuantities(
 
 function sumDecimals(values: string[]): Decimal {
   return values.reduce<Decimal>((sum, value) => sum.add(value), new Decimal(0));
+}
+
+function groupMoneyByCurrency(
+  rows: Array<{ totalAmount: { toString(): string }; currency: string }>,
+): Array<{ amount: string; currency: string }> {
+  const totals = new Map<string, Decimal>();
+  for (const row of rows) {
+    totals.set(row.currency, (totals.get(row.currency) ?? new Decimal(0)).add(row.totalAmount.toString()));
+  }
+  return [...totals.entries()].map(([currency, amount]) => ({ currency, amount: amount.toString() }));
+}
+
+function summarizeReceivables(
+  documents: Array<{
+    counterparty: string;
+    counterpartyTaxId: string | null;
+    totalAmount: { toString(): string };
+    currency: string;
+    documentAt: Date;
+    dueAt: Date | null;
+    transferId: string | null;
+  }>,
+  now: Date,
+) {
+  const counterparties = new Map<string, {
+    counterparty: string;
+    counterpartyTaxId: string | null;
+    currency: string;
+    amount: Decimal;
+    overdueAmount: Decimal;
+    invoiceCount: number;
+    linkedShipmentCount: number;
+    lastDocumentAt: Date;
+    nearestDueAt: Date | null;
+  }>();
+  for (const document of documents) {
+    const identity = document.counterpartyTaxId?.trim() || document.counterparty.trim().toLocaleUpperCase("ru-RU");
+    const key = `${identity}\u0000${document.currency}`;
+    const current = counterparties.get(key) ?? {
+      counterparty: document.counterparty,
+      counterpartyTaxId: document.counterpartyTaxId,
+      currency: document.currency,
+      amount: new Decimal(0),
+      overdueAmount: new Decimal(0),
+      invoiceCount: 0,
+      linkedShipmentCount: 0,
+      lastDocumentAt: document.documentAt,
+      nearestDueAt: document.dueAt,
+    };
+    current.amount = current.amount.add(document.totalAmount.toString());
+    current.invoiceCount += 1;
+    if (document.transferId !== null) current.linkedShipmentCount += 1;
+    if (document.documentAt > current.lastDocumentAt) current.lastDocumentAt = document.documentAt;
+    if (document.dueAt !== null && (current.nearestDueAt === null || document.dueAt < current.nearestDueAt)) {
+      current.nearestDueAt = document.dueAt;
+    }
+    if (document.dueAt !== null && document.dueAt < now) {
+      current.overdueAmount = current.overdueAmount.add(document.totalAmount.toString());
+    }
+    counterparties.set(key, current);
+  }
+  return [...counterparties.values()]
+    .sort((left, right) => right.amount.comparedTo(left.amount))
+    .map((item) => ({
+      counterparty: item.counterparty,
+      counterpartyTaxId: item.counterpartyTaxId,
+      currency: item.currency,
+      amount: item.amount.toString(),
+      overdueAmount: item.overdueAmount.toString(),
+      invoiceCount: item.invoiceCount,
+      linkedShipmentCount: item.linkedShipmentCount,
+      lastDocumentAt: item.lastDocumentAt.toISOString(),
+      nearestDueAt: item.nearestDueAt?.toISOString() ?? null,
+    }));
 }
 
 function sumMovement(

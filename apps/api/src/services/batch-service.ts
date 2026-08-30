@@ -1,5 +1,4 @@
 import {
-  batchCost,
   convertQuantity,
   deviation,
   plannedComponentQuantity,
@@ -28,7 +27,8 @@ export interface CreateBatchInput {
   plannedVolume: string;
   plannedVolumeUnit: Unit;
   operatorId: string;
-  productionLineId: string;
+  productionLineId?: string;
+  productionTankId?: string;
   comments?: string;
 }
 
@@ -87,14 +87,41 @@ export async function createBatch(
     if (recipeVersion.recipe.status !== RecipeStatus.ACTIVE) {
       throw new ApiError(422, "RECIPE_NOT_ACTIVE", "Для замеса нужна активная рецептура");
     }
-    const [operator, line] = await Promise.all([
-      tx.user.findFirst({ where: { id: input.operatorId, workspaceId, active: true } }),
-      tx.productionLine.findFirst({
-        where: { id: input.productionLineId, workspaceId, active: true },
-      }),
-    ]);
+    const operator = await tx.user.findFirst({ where: { id: input.operatorId, workspaceId, active: true } });
     if (operator === null) throw new ApiError(422, "OPERATOR_NOT_FOUND", "Оператор не найден");
-    if (line === null) throw new ApiError(422, "LINE_NOT_FOUND", "Производственная линия не найдена");
+    const lineCandidates = await tx.productionLine.findMany({
+      where: {
+        workspaceId,
+        active: true,
+        ...(input.productionLineId === undefined ? {} : { id: input.productionLineId }),
+      },
+      take: 2,
+    });
+    const line = lineCandidates.length === 1 ? lineCandidates[0] ?? null : null;
+    if (line === null) {
+      throw new ApiError(
+        422,
+        input.productionLineId === undefined && lineCandidates.length > 1 ? "LINE_REQUIRED" : "LINE_NOT_FOUND",
+        input.productionLineId === undefined && lineCandidates.length > 1 ? "Выберите производственную линию" : "Производственная линия не найдена",
+      );
+    }
+    const tankCandidates = await tx.productionTank.findMany({
+      where: {
+        workspaceId,
+        productionLineId: line.id,
+        active: true,
+        ...(input.productionTankId === undefined ? {} : { id: input.productionTankId }),
+      },
+      take: 2,
+    });
+    const tank = tankCandidates.length === 1 ? tankCandidates[0] ?? null : null;
+    if (tank === null) {
+      throw new ApiError(
+        422,
+        input.productionTankId === undefined && tankCandidates.length > 1 ? "TANK_REQUIRED" : "TANK_NOT_FOUND",
+        input.productionTankId === undefined && tankCandidates.length > 1 ? "Выберите производственный чан" : "Производственный чан не найден",
+      );
+    }
 
     const plannedVolumeM3 = convertQuantity(
       { value: input.plannedVolume, unit: input.plannedVolumeUnit },
@@ -126,6 +153,7 @@ export async function createBatch(
         outputAccountingUnit: recipeVersion.yieldUnit,
         operatorId: operator.id,
         productionLineId: line.id,
+        productionTankId: tank.id,
         currency: recipeVersion.components[0]?.material.currency ?? "KZT",
         ...(input.comments === undefined ? {} : { comments: input.comments }),
         components: {
@@ -457,7 +485,17 @@ export async function confirmBatchConsumption(
             ? new Decimal(0)
             : deviation(actual, planned).percent;
           const withinTolerance = deviationPercent.abs().lte(component.allowedDeviationPercent.toString());
-          const componentCost = actual.mul(component.unitCostSnapshot.toString());
+          const consumedAllocations = await tx.batchMaterialAllocation.findMany({
+            where: { batchComponentId: component.id, consumedQuantity: { gt: 0 } },
+            select: { consumedQuantity: true, unitCostSnapshot: true },
+          });
+          const componentCost = consumedAllocations.reduce(
+            (sum, allocation) => sum.add(
+              new Decimal(allocation.consumedQuantity.toString())
+                .mul(allocation.unitCostSnapshot.toString()),
+            ),
+            new Decimal(0),
+          );
           await tx.batchComponent.update({
             where: { id: component.id },
             data: {
@@ -662,13 +700,14 @@ export async function completeBatch(
             "Фактический выход должен равняться сумме годного продукта и брака",
           );
         }
-        const cost = batchCost(
-          batch.components.map((component) => ({
-            actualQuantity: component.actualQuantity.toString(),
-            unitCost: component.unitCostSnapshot.toString(),
-          })),
-          actualOutput,
+        const totalCost = batch.components.reduce(
+          (sum, component) => sum.add(component.componentCost.toString()),
+          new Decimal(0),
         );
+        const cost = {
+          total: totalCost,
+          perProductUnit: goodOutput.isZero() ? new Decimal(0) : totalCost.div(goodOutput),
+        };
         const productLot = await tx.productLot.create({
           data: {
             workspaceId,

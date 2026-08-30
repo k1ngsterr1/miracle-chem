@@ -20,6 +20,7 @@ import {
   type ProductionGroupBy,
 } from "../services/report-service.js";
 import type { ApiRequest } from "../lib/http.js";
+import { dayPeriodFromQuery } from "../lib/date-filter.js";
 
 const productionGroups: ProductionGroupBy[] = ["day", "week", "month", "shift", "grade", "line", "operator"];
 const balanceGroups: BalanceGroupBy[] = ["productLot", "batch", "grade", "line", "operator"];
@@ -27,10 +28,10 @@ const balanceGroups: BalanceGroupBy[] = ["productLot", "batch", "grade", "line",
 @Controller()
 export class ReportController {
   @Get("dashboard")
-  async dashboard(@Req() request: ApiRequest) {
+  async dashboard(@Req() request: ApiRequest, @Query("date") date?: string) {
     const { workspaceId } = await getRequestContext(request, prisma);
     const workspace = await prisma.workspace.findUniqueOrThrow({ where: { id: workspaceId } });
-    return getDashboard(workspaceId, workspace.timezone);
+    return getDashboard(workspaceId, workspace.timezone, dayPeriodFromQuery(date));
   }
 
   @Get("reports/production")

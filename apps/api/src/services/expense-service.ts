@@ -54,7 +54,10 @@ export async function createExpense(
         note: input.note ?? null,
         createdById: actorId,
       },
-      include: { createdBy: { select: { id: true, name: true } } },
+      include: {
+        createdBy: { select: { id: true, name: true } },
+        attachments: true,
+      },
     });
     const response = jsonValue(expense);
     await writeAudit(tx, {
@@ -99,6 +102,7 @@ export async function cancelExpense(
       include: {
         createdBy: { select: { id: true, name: true } },
         cancelledBy: { select: { id: true, name: true } },
+        attachments: { orderBy: { createdAt: "desc" } },
       },
     });
     const response = jsonValue(updated);

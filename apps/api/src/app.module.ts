@@ -1,14 +1,18 @@
 import { Controller, Get, Injectable, Module, type OnApplicationShutdown } from "@nestjs/common";
 import { prisma } from "./lib/prisma.js";
 import { AdjustmentController } from "./routes/adjustments.js";
+import { AdminController } from "./routes/admin.js";
 import { AccountingController } from "./routes/accounting.js";
+import { AuthController } from "./routes/auth.js";
 import { AttachmentController } from "./routes/attachments.js";
 import { BatchController } from "./routes/batches.js";
 import { CalculatorController } from "./routes/calculator.js";
+import { CustomerController } from "./routes/customers.js";
 import { ExpenseController } from "./routes/expenses.js";
 import { FormulaController } from "./routes/formulas.js";
 import { MaterialController } from "./routes/materials.js";
 import { MetaController } from "./routes/meta.js";
+import { OneCSyncController } from "./routes/one-c-sync.js";
 import { ProductController } from "./routes/products.js";
 import { RecipeController } from "./routes/recipes.js";
 import { ReportController } from "./routes/reports.js";
@@ -34,8 +38,11 @@ class PrismaLifecycle implements OnApplicationShutdown {
 @Module({
   controllers: [
     HealthController,
+    AuthController,
+    AdminController,
     AccountingController,
     MetaController,
+    OneCSyncController,
     MaterialController,
     RecipeController,
     FormulaController,
@@ -46,6 +53,7 @@ class PrismaLifecycle implements OnApplicationShutdown {
     AdjustmentController,
     AttachmentController,
     CalculatorController,
+    CustomerController,
     WagonController,
     ExpenseController,
   ],

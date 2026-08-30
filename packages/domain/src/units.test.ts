@@ -25,5 +25,11 @@ describe("unit conversion", () => {
       "Плотность должна быть положительным числом",
     );
   });
-});
 
+  it("keeps item quantities separate from mass and volume", () => {
+    expect(convertQuantity({ value: "12", unit: "PCS" }, "PCS").value.toString()).toBe("12");
+    expect(() => convertQuantity({ value: "1", unit: "PCS" }, "KG", "1000")).toThrow(
+      "Нельзя пересчитать PCS → KG",
+    );
+  });
+});

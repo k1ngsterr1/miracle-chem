@@ -95,7 +95,7 @@ export async function createMaterial(
 
 export async function receiveMaterial(
   workspaceId: string,
-  actorId: string,
+  actorId: string | undefined,
   idempotencyKey: string,
   input: ReceiveMaterialInput,
 ) {

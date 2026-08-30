@@ -15,6 +15,97 @@ export interface RecipeCalculationInput {
   calculatedFor: Date;
 }
 
+export interface AdditiveCalculationInput {
+  formulaVersionId: string;
+  binderMass: string;
+  binderMassUnit: Unit;
+}
+
+export async function calculateAdditiveFormula(
+  workspaceId: string,
+  input: AdditiveCalculationInput,
+) {
+  const version = await prisma.formulaVersion.findFirst({
+    where: { id: input.formulaVersionId, workspaceId },
+    include: {
+      formula: true,
+      components: {
+        include: { material: true },
+        orderBy: { position: "asc" },
+      },
+    },
+  });
+  if (version === null) {
+    throw new ApiError(404, "FORMULA_VERSION_NOT_FOUND", "Версия формулы добавки не найдена");
+  }
+  if (version.dosagePercent === null || version.components.length === 0) {
+    throw new ApiError(422, "ADDITIVE_RECIPE_NOT_CONFIGURED", "Для этой формулы не настроена рецептура добавки");
+  }
+
+  const binderMassKg = convertQuantity(
+    { value: input.binderMass, unit: input.binderMassUnit },
+    "KG",
+  ).value;
+  const dosagePercent = new Decimal(version.dosagePercent.toString());
+  const additiveQuantityKg = new Decimal(binderMassKg).mul(dosagePercent).div(100);
+  let totalCost = new Decimal(0);
+
+  const components = version.components.map((component) => {
+    const percentage = new Decimal(component.percentage.toString());
+    const quantityKg = additiveQuantityKg.mul(percentage).div(100);
+    const quantity = new Decimal(convertQuantity(
+      { value: quantityKg.toString(), unit: "KG" },
+      component.material.baseUnit,
+    ).value);
+    const unitCost = new Decimal(component.material.costPerBaseUnit.toString());
+    const componentCost = quantity.mul(unitCost);
+    const freeStock = Decimal.max(
+      0,
+      new Decimal(component.material.currentStock.toString()).sub(
+        component.material.reservedStock.toString(),
+      ),
+    );
+    const shortage = Decimal.max(0, quantity.sub(freeStock));
+    totalCost = totalCost.add(componentCost);
+    return {
+      materialId: component.material.id,
+      code: component.material.code,
+      name: component.material.name,
+      percentage: percentage.toDecimalPlaces(6).toString(),
+      quantity: quantity.toDecimalPlaces(6).toString(),
+      unit: component.material.baseUnit,
+      freeStock: freeStock.toDecimalPlaces(6).toString(),
+      shortage: shortage.toDecimalPlaces(6).toString(),
+      sufficient: shortage.isZero(),
+      unitCost: unitCost.toDecimalPlaces(4).toString(),
+      componentCost: componentCost.toDecimalPlaces(4).toString(),
+    };
+  });
+
+  return {
+    formula: {
+      id: version.formula.id,
+      code: version.formula.code,
+      name: version.formula.name,
+      versionId: version.id,
+      version: version.version,
+    },
+    binderMass: new Decimal(binderMassKg).toDecimalPlaces(6).toString(),
+    binderMassUnit: "KG" as const,
+    dosagePercent: dosagePercent.toDecimalPlaces(6).toString(),
+    additiveQuantity: additiveQuantityKg.toDecimalPlaces(6).toString(),
+    additiveQuantityUnit: "KG" as const,
+    compositionTotalPercent: version.components.reduce(
+      (total, component) => total.add(component.percentage.toString()),
+      new Decimal(0),
+    ).toDecimalPlaces(6).toString(),
+    totalCost: totalCost.toDecimalPlaces(4).toString(),
+    currency: version.components[0]?.material.currency ?? "KZT",
+    sufficient: components.every((component) => component.sufficient),
+    components,
+  };
+}
+
 export async function calculateRecipe(
   workspaceId: string,
   input: RecipeCalculationInput,

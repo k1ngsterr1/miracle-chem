@@ -9,6 +9,7 @@ import helmet from "helmet";
 import { AppModule } from "./app.module.js";
 import { config } from "./config.js";
 import { ApiExceptionFilter } from "./lib/api-error.js";
+import { AuthorizationGuard } from "./lib/authorization-guard.js";
 import type { ApiRequest } from "./lib/http.js";
 
 export async function buildApp(): Promise<NestExpressApplication> {
@@ -20,7 +21,7 @@ export async function buildApp(): Promise<NestExpressApplication> {
     exclude: [{ path: "health", method: RequestMethod.GET }],
   });
   app.use(json({ limit: "1mb" }));
-  app.enableCors({ origin: config.webOrigin, credentials: false });
+  app.enableCors({ origin: config.webOrigin, credentials: true });
   app.use(helmet({ contentSecurityPolicy: false }));
   app.use(rateLimit({ limit: config.rateLimitMax, windowMs: 60_000, standardHeaders: "draft-8", legacyHeaders: false }));
   app.use((request: ApiRequest, response: Response, next: NextFunction) => {
@@ -30,6 +31,7 @@ export async function buildApp(): Promise<NestExpressApplication> {
     response.setHeader("x-request-id", request.requestId);
     next();
   });
+  app.useGlobalGuards(new AuthorizationGuard());
   app.useGlobalFilters(new ApiExceptionFilter());
   await app.init();
   return app;

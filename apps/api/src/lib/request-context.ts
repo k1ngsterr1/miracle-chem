@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import type { PrismaClient, User } from "../generated/prisma/index.js";
 import { config, DEFAULT_ACTOR_ID, DEFAULT_WORKSPACE_ID } from "../config.js";
+import { readOptionalSessionClaims, readSessionClaims } from "./auth-session.js";
 import { ApiError } from "./api-error.js";
 import type { ApiRequest } from "./http.js";
 
@@ -13,6 +14,17 @@ export async function getRequestContext(
   request: ApiRequest,
   client: PrismaClient,
 ): Promise<RequestContext> {
+  if (request.requestContext !== undefined) return request.requestContext;
+  const session = config.authMode === "session" ? readSessionClaims(request) : readOptionalSessionClaims(request);
+  if (session !== null) {
+    const actor = await client.user.findFirst({
+      where: { id: session.userId, workspaceId: session.workspaceId, active: true },
+    });
+    if (actor === null) throw new ApiError(401, "INVALID_SESSION", "Пользователь не найден или отключён");
+    const context = { workspaceId: session.workspaceId, actor };
+    request.requestContext = context;
+    return context;
+  }
   const workspaceHeader = request.headers["x-workspace-id"];
   const actorHeader = request.headers["x-actor-id"];
   if (config.authMode === "trusted-gateway") {
@@ -33,7 +45,9 @@ export async function getRequestContext(
   if (actor === null) {
     throw new ApiError(401, "INVALID_ACTOR", "Пользователь не найден или отключён");
   }
-  return { workspaceId, actor };
+  const context = { workspaceId, actor };
+  request.requestContext = context;
+  return context;
 }
 
 function secureEqual(left: string, right: string): boolean {

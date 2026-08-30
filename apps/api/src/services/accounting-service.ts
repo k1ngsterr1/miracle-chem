@@ -4,6 +4,7 @@ import {
   AccountingDocumentStatus,
   AccountingDocumentType,
   AuditEntityType,
+  UserRole,
   type Prisma,
 } from "../generated/prisma/index.js";
 import { ApiError } from "../lib/api-error.js";
@@ -16,13 +17,22 @@ export interface CreateAccountingDocumentInput {
   type: AccountingDocumentType;
   documentAt: Date;
   dueAt?: Date;
-  counterparty: string;
+  customerId?: string;
+  counterparty?: string;
   counterpartyTaxId?: string;
   basis?: string;
   vatRate?: string;
   currency?: string;
   transferId?: string;
   expenseId?: string;
+  powerOfAttorney?: {
+    representativeName: string;
+    representativePosition?: string;
+    representativeIin?: string;
+    identityDocument: string;
+    identityIssuedBy: string;
+    identityIssuedAt: Date;
+  };
   notes?: string;
   items: Array<{
     description: string;
@@ -35,6 +45,7 @@ export interface CreateAccountingDocumentInput {
 const accountingDocumentInclude = {
   items: { orderBy: { position: "asc" as const } },
   createdBy: { select: { id: true, name: true } },
+  customer: { select: { id: true, name: true, taxId: true, contactPerson: true, address: true } },
   transfer: { select: { id: true, number: true } },
   expense: { select: { id: true, number: true } },
 };
@@ -51,20 +62,40 @@ export async function createAccountingDocument(
     key: idempotencyKey,
     payload: input,
   }, async () => {
-    const [workspace, transfer, expense] = await Promise.all([
+    const [workspace, transfer, expense, selectedCustomer] = await Promise.all([
       tx.workspace.findUniqueOrThrow({ where: { id: workspaceId } }),
       input.transferId === undefined
         ? null
-        : tx.lrtTransfer.findFirst({ where: { id: input.transferId, workspaceId }, select: { id: true } }),
+        : tx.lrtTransfer.findFirst({
+          where: { id: input.transferId, workspaceId },
+          select: { id: true, customerId: true, customer: { select: { id: true, name: true, taxId: true } } },
+        }),
       input.expenseId === undefined
         ? null
         : tx.expense.findFirst({ where: { id: input.expenseId, workspaceId }, select: { id: true } }),
+      input.customerId === undefined
+        ? null
+        : tx.customer.findFirst({ where: { id: input.customerId, workspaceId, active: true }, select: { id: true, name: true, taxId: true } }),
     ]);
     if (input.transferId !== undefined && transfer === null) {
       throw new ApiError(422, "TRANSFER_NOT_FOUND", "Связанная отгрузка не найдена");
     }
     if (input.expenseId !== undefined && expense === null) {
       throw new ApiError(422, "EXPENSE_NOT_FOUND", "Связанный расход не найден");
+    }
+    if (input.customerId !== undefined && selectedCustomer === null) {
+      throw new ApiError(422, "CUSTOMER_NOT_FOUND", "Активный клиент не найден");
+    }
+    const customer = selectedCustomer ?? transfer?.customer ?? null;
+    if (transfer !== null && selectedCustomer !== null && transfer.customerId !== selectedCustomer.id) {
+      throw new ApiError(422, "ACCOUNTING_CUSTOMER_MISMATCH", "Клиент документа должен совпадать с получателем отгрузки");
+    }
+    if (isSalesDocument(input.type) && customer === null) {
+      throw new ApiError(422, "ACCOUNTING_CUSTOMER_REQUIRED", "Для накладной, счёта или акта выберите клиента");
+    }
+    const counterparty = customer?.name ?? input.counterparty?.trim();
+    if (counterparty === undefined || counterparty === "") {
+      throw new ApiError(422, "COUNTERPARTY_REQUIRED", "Укажите контрагента документа");
     }
 
     const calculatedItems = input.items.map((item, position) => {
@@ -91,8 +122,9 @@ export async function createAccountingDocument(
         type: input.type,
         documentAt: input.documentAt,
         dueAt: input.dueAt ?? null,
-        counterparty: input.counterparty,
-        counterpartyTaxId: input.counterpartyTaxId ?? null,
+        counterparty,
+        counterpartyTaxId: customer?.taxId ?? input.counterpartyTaxId ?? null,
+        customerId: customer?.id ?? null,
         basis: input.basis ?? null,
         subtotal: subtotal.toString(),
         vatRate: vatRate.toString(),
@@ -101,6 +133,10 @@ export async function createAccountingDocument(
         currency: input.currency ?? workspace.currency,
         transferId: transfer?.id ?? null,
         expenseId: expense?.id ?? null,
+        details: input.powerOfAttorney === undefined ? undefined : {
+          ...input.powerOfAttorney,
+          identityIssuedAt: input.powerOfAttorney.identityIssuedAt.toISOString(),
+        },
         notes: input.notes ?? null,
         createdById: actorId,
         items: { create: calculatedItems },
@@ -132,6 +168,60 @@ export async function issueAccountingDocument(
     action: "ACCOUNTING_DOCUMENT_ISSUED",
     data: { issuedAt: new Date() },
   });
+}
+
+export async function submitAccountingDocument(
+  workspaceId: string,
+  actorId: string,
+  actorRole: UserRole,
+  idempotencyKey: string,
+  documentId: string,
+) {
+  const targetStatus = actorRole === UserRole.DIRECTOR
+    ? AccountingDocumentStatus.PENDING_ACCOUNTANT_APPROVAL
+    : AccountingDocumentStatus.PENDING_DIRECTOR_APPROVAL;
+  return transitionAccountingDocument(workspaceId, actorId, idempotencyKey, documentId, {
+    allowed: [AccountingDocumentStatus.DRAFT],
+    status: targetStatus,
+    action: targetStatus === AccountingDocumentStatus.PENDING_DIRECTOR_APPROVAL
+      ? "ACCOUNTING_DOCUMENT_SUBMITTED_TO_DIRECTOR"
+      : "ACCOUNTING_DOCUMENT_SUBMITTED_TO_ACCOUNTANT",
+    data: {},
+  });
+}
+
+export async function approveAccountingDocument(
+  workspaceId: string,
+  actorId: string,
+  actorRole: UserRole,
+  idempotencyKey: string,
+  documentId: string,
+) {
+  const document = await prisma.accountingDocument.findFirst({ where: { id: documentId, workspaceId }, select: { status: true } });
+  if (document === null) throw new ApiError(404, "ACCOUNTING_DOCUMENT_NOT_FOUND", "Бухгалтерский документ не найден");
+  if (document.status === AccountingDocumentStatus.PENDING_DIRECTOR_APPROVAL) {
+    if (actorRole !== UserRole.ADMIN && actorRole !== UserRole.DIRECTOR) {
+      throw new ApiError(403, "DIRECTOR_APPROVAL_REQUIRED", "Документ может согласовать только руководитель");
+    }
+    return transitionAccountingDocument(workspaceId, actorId, idempotencyKey, documentId, {
+      allowed: [AccountingDocumentStatus.PENDING_DIRECTOR_APPROVAL],
+      status: AccountingDocumentStatus.PENDING_ACCOUNTANT_APPROVAL,
+      action: "ACCOUNTING_DOCUMENT_APPROVED_BY_DIRECTOR",
+      data: {},
+    });
+  }
+  if (document.status === AccountingDocumentStatus.PENDING_ACCOUNTANT_APPROVAL) {
+    if (actorRole !== UserRole.ADMIN && actorRole !== UserRole.ACCOUNTANT) {
+      throw new ApiError(403, "ACCOUNTANT_APPROVAL_REQUIRED", "Документ может выпустить только бухгалтер");
+    }
+    return transitionAccountingDocument(workspaceId, actorId, idempotencyKey, documentId, {
+      allowed: [AccountingDocumentStatus.PENDING_ACCOUNTANT_APPROVAL],
+      status: AccountingDocumentStatus.ISSUED,
+      action: "ACCOUNTING_DOCUMENT_ISSUED_BY_ACCOUNTANT",
+      data: { issuedAt: new Date() },
+    });
+  }
+  throw new ApiError(409, "ACCOUNTING_APPROVAL_NOT_APPLICABLE", "Документ не ожидает согласования");
 }
 
 export async function payAccountingDocument(
@@ -214,9 +304,16 @@ function accountingDocumentNumber(type: AccountingDocumentType, date: Date): str
     [AccountingDocumentType.WAYBILL]: "NKL",
     [AccountingDocumentType.PAYMENT_INVOICE]: "SCH",
     [AccountingDocumentType.COMPLETION_ACT]: "AKT",
+    [AccountingDocumentType.POWER_OF_ATTORNEY]: "DOV",
   }[type];
   const day = date.toISOString().slice(0, 10).replaceAll("-", "");
   return `${prefix}-${day}-${randomUUID().slice(0, 6).toUpperCase()}`;
+}
+
+function isSalesDocument(type: AccountingDocumentType): boolean {
+  return type === AccountingDocumentType.WAYBILL
+    || type === AccountingDocumentType.PAYMENT_INVOICE
+    || type === AccountingDocumentType.COMPLETION_ACT;
 }
 
 function jsonValue(value: unknown): Prisma.InputJsonValue {

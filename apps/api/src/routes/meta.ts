@@ -22,7 +22,7 @@ export class MetaController {
   @Get()
   async meta(@Req() request: ApiRequest) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
-    const [workspace, users, productionLines, productLots] = await Promise.all([
+    const [workspace, users, productionLines, productionTanks, productLots, customers] = await Promise.all([
       prisma.workspace.findUniqueOrThrow({ where: { id: workspaceId } }),
       prisma.user.findMany({
         where: { workspaceId, active: true },
@@ -33,18 +33,31 @@ export class MetaController {
         where: { workspaceId, active: true },
         orderBy: { name: "asc" },
       }),
+      prisma.productionTank.findMany({
+        where: { workspaceId, active: true },
+        include: { productionLine: { select: { id: true, code: true, name: true } } },
+        orderBy: { name: "asc" },
+      }),
       prisma.productLot.findMany({
         where: { workspaceId, availableQuantity: { gt: 0 } },
         include: { batch: { select: { id: true, number: true } } },
         orderBy: { producedAt: "asc" },
       }),
+      prisma.customer.findMany({
+        where: { workspaceId, active: true },
+        select: { id: true, name: true, taxId: true, contactPerson: true, contractNumber: true, paymentTermDays: true, creditLimit: true },
+        orderBy: { name: "asc" },
+      }),
     ]);
+    const { passwordHash: _passwordHash, ...safeActor } = actor;
     return {
       workspace,
-      actor,
+      actor: safeActor,
       users,
       productionLines,
+      productionTanks,
       productLots,
+      customers,
       enums: {
         units: Object.values(Unit),
         materialTypes: Object.values(MaterialType),

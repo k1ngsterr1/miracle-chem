@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Req } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post, Query, Req } from "@nestjs/common";
 import { z } from "zod";
 import { RecipeStatus, Unit } from "../generated/prisma/index.js";
 import { prisma } from "../lib/prisma.js";
@@ -11,6 +11,7 @@ import {
 } from "../services/recipe-service.js";
 import { ApiError } from "../lib/api-error.js";
 import type { ApiRequest } from "../lib/http.js";
+import { dayPeriodFromQuery } from "../lib/date-filter.js";
 
 const componentSchema = z.object({
   materialId: z.string().uuid(),
@@ -38,6 +39,7 @@ const versionSchema = z.object({
 const createSchema = z.object({
   code: z.string().trim().min(1).max(40),
   name: z.string().trim().min(1).max(200),
+  customerId: z.string().uuid(),
   status: z.nativeEnum(RecipeStatus).optional(),
   version: versionSchema,
 });
@@ -45,12 +47,15 @@ const createSchema = z.object({
 @Controller("recipes")
 export class RecipeController {
   @Get()
-  async list(@Req() request: ApiRequest) {
+  async list(@Req() request: ApiRequest, @Query("date") date?: string) {
     const { workspaceId } = await getRequestContext(request, prisma);
+    const selectedDay = dayPeriodFromQuery(date);
     const items = await prisma.recipe.findMany({
       where: { workspaceId },
       include: {
+        customer: { select: { id: true, name: true } },
         versions: {
+          ...(selectedDay === undefined ? {} : { where: { publishedAt: { lte: selectedDay.to } } }),
           orderBy: { version: "desc" },
           take: 1,
           include: { components: { include: { material: true }, orderBy: { position: "asc" } } },
@@ -67,6 +72,7 @@ export class RecipeController {
     const recipe = await prisma.recipe.findFirst({
       where: { id, workspaceId },
       include: {
+        customer: { select: { id: true, name: true } },
         versions: {
           include: { components: { include: { material: true }, orderBy: { position: "asc" } } },
           orderBy: { version: "desc" },

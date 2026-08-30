@@ -1,4 +1,4 @@
-export type Unit = "G" | "KG" | "T" | "ML" | "L" | "M3";
+export type Unit = "G" | "KG" | "T" | "ML" | "L" | "M3" | "PCS";
 
 export interface QuantityMetric {
   value: string;
@@ -18,7 +18,57 @@ export interface DashboardData {
     deviationBatchCount: number;
     productionCost: string;
     operatingExpenses: Array<{ amount: string; currency: string }>;
+    dailyRevenue: Array<{ amount: string; currency: string }>;
+    accountsReceivable: Array<{ amount: string; currency: string }>;
   };
+  receivables: Array<{
+    counterparty: string;
+    counterpartyTaxId: string | null;
+    currency: string;
+    amount: string;
+    overdueAmount: string;
+    invoiceCount: number;
+    linkedShipmentCount: number;
+    lastDocumentAt: string;
+    nearestDueAt: string | null;
+  }>;
+  mainReagents: Array<{
+    id: string | null;
+    code: string;
+    name: string;
+    currentStock: string;
+    reservedStock: string;
+    freeStock: string;
+    minimumStock: string;
+    plannedDemand: string;
+    projectedStock: string;
+    shortfall: string;
+    baseUnit: Unit;
+    isCritical: boolean;
+    warningLevel: "MISSING" | "OUT_OF_STOCK" | "SHORTAGE" | "CRITICAL" | "LOW_AFTER_PLAN" | null;
+    missing: boolean;
+  }>;
+  stockWarnings?: Array<{
+    id: string;
+    code: string;
+    name: string;
+    baseUnit: Unit;
+    currentStock: string;
+    reservedStock: string;
+    freeStock: string;
+    minimumStock: string;
+    plannedDemand: string;
+    projectedStock: string;
+    shortfall: string;
+    level: "OUT_OF_STOCK" | "SHORTAGE" | "CRITICAL" | "LOW_AFTER_PLAN";
+    affectedBatches: Array<{
+      id: string;
+      number: string;
+      scheduledAt: string;
+      requiredQuantity: string;
+      unit: Unit;
+    }>;
+  }>;
   criticalMaterials: Material[];
   deviations: BatchComponent[];
   productionTrend: Array<{ date: string; produced: string; sent: string; loss: string }>;
@@ -36,6 +86,35 @@ export interface UserSummary {
   email?: string;
 }
 
+export interface ManagedUser extends UserSummary {
+  email: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CompanyProfile {
+  workspaceId: string;
+  legalName: string | null;
+  taxId: string | null;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  bankName: string | null;
+  iban: string | null;
+  bic: string | null;
+  directorName: string | null;
+  accountantName: string | null;
+  signatoryName: string | null;
+  signatoryPosition: string | null;
+  documentFooter: string | null;
+}
+
+export interface AuthSession {
+  user: UserSummary & { email: string };
+  workspace: { id: string; name: string; timezone: string; currency: string };
+}
+
 export interface ProductionLine {
   id: string;
   code: string;
@@ -44,12 +123,32 @@ export interface ProductionLine {
   capacityUnit: Unit;
 }
 
+export interface ProductionTank {
+  id: string;
+  code: string;
+  name: string;
+  capacity: string | null;
+  capacityUnit: Unit;
+  productionLineId: string;
+  productionLine: Pick<ProductionLine, "id" | "code" | "name">;
+}
+
 export interface MetaData {
   workspace: { id: string; name: string; timezone: string; currency: string };
   actor: UserSummary;
   users: UserSummary[];
   productionLines: ProductionLine[];
+  productionTanks: ProductionTank[];
   productLots: ProductLot[];
+  customers: Array<{
+    id: string;
+    name: string;
+    taxId: string | null;
+    contactPerson: string | null;
+    contractNumber: string | null;
+    paymentTermDays: number | null;
+    creditLimit: string | null;
+  }>;
 }
 
 export interface MaterialLot {
@@ -111,6 +210,84 @@ export interface Material {
   priceHistory?: MaterialPrice[];
 }
 
+export interface MaterialListResponse {
+  items: Material[];
+  summary: {
+    sodiumGluconate: {
+      name: string;
+      totalMassKg: string;
+      freeMassKg: string;
+      lotCount: number;
+      priceVariants: number;
+    };
+  };
+}
+
+export interface SupplierSummary {
+  id: string;
+  name: string;
+}
+
+export interface PurchaseBatchItem {
+  id: string;
+  lotNumber: string;
+  material: Pick<Material, "id" | "code" | "name" | "baseUnit">;
+  supplier: SupplierSummary | null;
+  initialQuantity: string;
+  availableQuantity: string;
+  reservedQuantity: string;
+  unit: Unit;
+  unitCost: string;
+  lineCost: string;
+}
+
+export interface PurchaseBatchForecastComponent {
+  materialId: string;
+  code: string;
+  name: string;
+  requirementPerM3: string;
+  unit: Unit;
+  receivedInBatch: string;
+  remainingInBatch: string;
+  freeStock: string;
+  remainingAfterOneM3: string;
+  maximumOutput: string | null;
+  outputFromBatch: string | null;
+  unitCost: string;
+  costPerM3: string;
+}
+
+export interface PurchaseBatch {
+  id: string;
+  number: string;
+  receivedAt: string;
+  currency: string;
+  targetSalePrice: string | null;
+  notes: string | null;
+  totalCost: string;
+  remainingCost: string;
+  items: PurchaseBatchItem[];
+  forecast: null | {
+    recipe: {
+      id: string;
+      code: string;
+      name: string;
+      versionId: string;
+      version: number;
+      concreteGrade: string;
+    };
+    maximumOutput: string;
+    outputFromBatch: string;
+    costPerM3: string;
+    targetSalePrice: string | null;
+    marginPerM3: string | null;
+    projectedRevenue: string | null;
+    projectedProductionCost: string;
+    projectedProfit: string | null;
+    components: PurchaseBatchForecastComponent[];
+  };
+}
+
 export interface RecipeComponent {
   id: string;
   materialId: string;
@@ -141,8 +318,42 @@ export interface Recipe {
   id: string;
   code: string;
   name: string;
+  customerId: string | null;
+  customer: { id: string; name: string } | null;
   status: string;
   versions: RecipeVersion[];
+}
+
+export interface AdditiveFormulaCalculation {
+  formula: {
+    id: string;
+    code: string;
+    name: string;
+    versionId: string;
+    version: number;
+  };
+  binderMass: string;
+  binderMassUnit: Unit;
+  dosagePercent: string;
+  additiveQuantity: string;
+  additiveQuantityUnit: Unit;
+  compositionTotalPercent: string;
+  totalCost: string;
+  currency: string;
+  sufficient: boolean;
+  components: Array<{
+    materialId: string;
+    code: string;
+    name: string;
+    percentage: string;
+    quantity: string;
+    unit: Unit;
+    freeStock: string;
+    shortage: string;
+    sufficient: boolean;
+    unitCost: string;
+    componentCost: string;
+  }>;
 }
 
 export interface BatchComponent {
@@ -163,6 +374,59 @@ export interface BatchComponent {
   componentCost: string;
   batchId?: string;
   batch?: { id: string; number: string };
+}
+
+export interface BatchEconomics {
+  calculationStatus: "NO_CONSUMPTION" | "NOT_COMPLETED" | "NO_SHIPMENT" | "NO_INVOICE" | "CURRENCY_MISMATCH" | "CALCULATED";
+  consumptionConfirmed: boolean;
+  currency: string;
+  actualQuantities: Array<{ value: string; unit: Unit }>;
+  actualMaterialCost: string;
+  actualUnitCost: string;
+  outputUnit: Unit;
+  shippedQuantity: string;
+  invoicedQuantity: string;
+  invoicedRevenue: string;
+  paidRevenue: string;
+  soldCost: string;
+  grossProfit: string | null;
+  marginPercent: string | null;
+  currencyMismatch: boolean;
+  costSource: "WAREHOUSE_LOTS" | "RECORDED_BATCH";
+  components: Array<{
+    batchComponentId: string;
+    materialId: string;
+    materialName: string;
+    plannedQuantity: string;
+    plannedUnit: Unit;
+    actualQuantity: string;
+    actualUnit: Unit;
+    lossQuantity: string;
+    lossUnit: Unit;
+    averageUnitCost: string;
+    actualCost: string;
+    currency: string;
+    costSource: "WAREHOUSE_LOTS" | "RECORDED_COMPONENT";
+    lots: Array<{
+      allocationId: string;
+      materialLotId: string;
+      lotNumber: string;
+      supplier: { id: string; name: string } | null;
+      quantity: string;
+      unit: Unit;
+      unitCost: string;
+      cost: string;
+    }>;
+  }>;
+  revenueDocuments: Array<{
+    id: string;
+    number: string;
+    status: AccountingDocumentStatus;
+    transferId: string;
+    transferNumber: string;
+    allocatedAmount: string;
+    currency: string;
+  }>;
 }
 
 export interface Batch {
@@ -187,13 +451,30 @@ export interface Batch {
   totalCost: string;
   costPerOutputUnit: string;
   currency: string;
+  comments: string | null;
   operator: UserSummary;
   productionLine: ProductionLine;
+  productionTank: Pick<ProductionTank, "id" | "code" | "name"> | null;
   recipeVersion: RecipeVersion & { recipe: Pick<Recipe, "name" | "code"> };
   components?: BatchComponent[];
   productLots?: ProductLot[];
   qualityChecks?: unknown[];
   materialMovements?: Array<{ id: string; type: string }>;
+  economics?: BatchEconomics | null;
+  stockReadiness?: {
+    status: "READY" | "LOW" | "SHORTAGE" | "NOT_APPLICABLE";
+    warnings: Array<{
+      batchComponentId: string;
+      materialName: string;
+      level: "OUT_OF_STOCK" | "SHORTAGE" | "CRITICAL" | "LOW_AFTER_BATCH";
+      freeStock: string;
+      requiredQuantity: string;
+      projectedStock: string;
+      shortfall: string;
+      minimumStock: string;
+      unit: Unit;
+    }>;
+  };
 }
 
 export interface ProductLot {
@@ -227,10 +508,10 @@ export interface Transfer {
   transferAt: string;
   sentAt: string | null;
   acceptedAt: string | null;
-  receiverName: string | null;
   transport: string | null;
   sender: UserSummary;
-  receiver?: UserSummary | null;
+  customerId: string | null;
+  customer: { id: string; name: string; taxId?: string | null; contactPerson?: string | null } | null;
   items: TransferItem[];
 }
 
@@ -306,6 +587,16 @@ export type ExpenseCostCenter = "PRODUCTION" | "WAREHOUSE" | "LOGISTICS" | "LABO
 export type ExpensePaymentMethod = "BANK_TRANSFER" | "CASH" | "CORPORATE_CARD" | "OFFSET" | "OTHER";
 export type ExpenseStatus = "RECORDED" | "CANCELLED";
 
+export interface ExpenseAttachment {
+  id: string;
+  name: string;
+  storageKey: string;
+  mimeType: string;
+  sizeBytes: number;
+  url: string | null;
+  createdAt: string;
+}
+
 export interface Expense {
   id: string;
   number: string;
@@ -325,6 +616,7 @@ export interface Expense {
   cancelledBy: Pick<UserSummary, "id" | "name"> | null;
   cancellationReason: string | null;
   createdAt: string;
+  attachments: ExpenseAttachment[];
 }
 
 export interface ExpenseResponse {
@@ -337,8 +629,8 @@ export interface ExpenseResponse {
   };
 }
 
-export type AccountingDocumentType = "WAYBILL" | "PAYMENT_INVOICE" | "COMPLETION_ACT";
-export type AccountingDocumentStatus = "DRAFT" | "ISSUED" | "PAID" | "CANCELLED";
+export type AccountingDocumentType = "WAYBILL" | "PAYMENT_INVOICE" | "COMPLETION_ACT" | "POWER_OF_ATTORNEY";
+export type AccountingDocumentStatus = "DRAFT" | "PENDING_DIRECTOR_APPROVAL" | "PENDING_ACCOUNTANT_APPROVAL" | "ISSUED" | "PAID" | "CANCELLED";
 
 export interface AccountingDocumentItem {
   id: string;
@@ -361,6 +653,8 @@ export interface AccountingDocument {
   paidAt: string | null;
   counterparty: string;
   counterpartyTaxId: string | null;
+  customerId: string | null;
+  customer: { id: string; name: string; taxId: string | null; contactPerson: string | null; address: string | null } | null;
   basis: string | null;
   subtotal: string;
   vatRate: string;
@@ -369,6 +663,14 @@ export interface AccountingDocument {
   currency: string;
   transfer: { id: string; number: string } | null;
   expense: { id: string; number: string } | null;
+  details: null | {
+    representativeName?: string;
+    representativePosition?: string;
+    representativeIin?: string;
+    identityDocument?: string;
+    identityIssuedBy?: string;
+    identityIssuedAt?: string;
+  };
   notes: string | null;
   createdBy: Pick<UserSummary, "id" | "name">;
   cancelledAt: string | null;
@@ -383,5 +685,85 @@ export interface AccountingResponse {
     totals: Array<{ currency: string; amount: string }>;
     byStatus: Array<{ status: AccountingDocumentStatus; count: number }>;
     byType: Array<{ type: AccountingDocumentType; count: number }>;
+  };
+}
+
+export interface CustomerConcreteComponent {
+  id: string;
+  name: string;
+  quantity: string;
+  unit: Unit;
+  position: number;
+  note: string | null;
+}
+
+export interface CustomerConcreteRecipe {
+  id: string;
+  name: string;
+  concreteGrade: string;
+  basisVolume: string;
+  basisUnit: Unit;
+  binderMassKg: string;
+  additiveDosagePercent: string;
+  additiveQuantityKg: string;
+  additiveQuantityPerM3Kg: string;
+  recommendedDosagePercent: string | null;
+  notes: string | null;
+  additiveFormulaVersion: {
+    id: string;
+    version: number;
+    dosagePercent: string | null;
+    formula: { id: string; code: string; name: string };
+  };
+  components: CustomerConcreteComponent[];
+  createdAt: string;
+}
+
+export interface Customer {
+  id: string;
+  name: string;
+  taxId: string | null;
+  contactPerson: string | null;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  contractNumber: string | null;
+  contractSignedAt: string | null;
+  contractValidUntil: string | null;
+  paymentTermDays: number | null;
+  creditLimit: string | null;
+  notes: string | null;
+  active: boolean;
+  concreteRecipes: CustomerConcreteRecipe[];
+  receivables: Array<{
+    currency: string;
+    amount: string;
+    overdueAmount: string;
+    invoiceCount: number;
+    nearestDueAt: string | null;
+  }>;
+  timeline?: CustomerTimelineItem[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CustomerTimelineItem {
+  id: string;
+  kind: "CONCRETE_RECIPE" | "TRANSFER" | "WAYBILL" | "DOCUMENT" | "PAYMENT" | "DEBT";
+  occurredAt: string;
+  title: string;
+  description: string;
+  status: string | null;
+  amount: string | null;
+  currency: string | null;
+  relatedId: string | null;
+}
+
+export interface CustomerResponse {
+  items: Customer[];
+  summary: {
+    activeCustomers: number;
+    concreteRecipes: number;
+    formulasInUse: number;
   };
 }

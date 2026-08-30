@@ -30,6 +30,7 @@ export interface RecipeVersionInput {
 export interface CreateRecipeInput {
   code: string;
   name: string;
+  customerId: string;
   status?: RecipeStatus;
   version: RecipeVersionInput;
 }
@@ -40,10 +41,16 @@ export async function createRecipe(
   input: CreateRecipeInput,
 ) {
   return prisma.$transaction(async (tx) => {
+    const customer = await tx.customer.findFirst({
+      where: { id: input.customerId, workspaceId, active: true },
+      select: { id: true },
+    });
+    if (customer === null) throw new ApiError(422, "CUSTOMER_NOT_FOUND", "Активный клиент не найден");
     await ensureMaterials(tx, workspaceId, input.version.components);
     const recipe = await tx.recipe.create({
       data: {
         workspaceId,
+        customerId: customer.id,
         code: input.code,
         name: input.name,
         status: input.status ?? RecipeStatus.DRAFT,
@@ -59,6 +66,7 @@ export async function createRecipe(
       after: {
         code: recipe.code,
         name: recipe.name,
+        customerId: customer.id,
         status: recipe.status,
         versionId: version.id,
       },

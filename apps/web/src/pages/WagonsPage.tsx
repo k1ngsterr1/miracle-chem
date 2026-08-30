@@ -134,15 +134,15 @@ function CreateWagonModal({ onClose, onCreated }: { onClose: () => void; onCreat
         <label><span>Номер вагона</span><input required value={form.number} onChange={(event) => setForm({ ...form, number: event.target.value })} /></label>
         <label><span>Тип вагона</span><input required value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value })} /></label>
         <label><span>Вместимость</span><input required type="number" min="0.001" step="0.001" value={form.capacity} onChange={(event) => setForm({ ...form, capacity: event.target.value })} /></label>
-        <div className="form-field"><span>Единица вместимости</span><CustomSelect ariaLabel="Единица вместимости" value={form.capacityUnit} onChange={(capacityUnit) => setForm({ ...form, capacityUnit: capacityUnit as Unit })} options={CARGO_UNIT_OPTIONS} /></div>
+        <div className="form-field"><span>Единица вместимости</span><CustomSelect required ariaLabel="Единица вместимости" value={form.capacityUnit} onChange={(capacityUnit) => setForm({ ...form, capacityUnit: capacityUnit as Unit })} options={CARGO_UNIT_OPTIONS} /></div>
         <label><span>Тара, т</span><input type="number" min="0.001" step="0.001" value={form.tareWeightT} onChange={(event) => setForm({ ...form, tareWeightT: event.target.value })} /></label>
-        <div className="form-field"><span>Статус</span><CustomSelect ariaLabel="Статус вагона" value={form.status} onChange={(status) => setForm({ ...form, status: status as WagonStatus })} options={STATUS_OPTIONS} /></div>
+        <div className="form-field"><span>Статус</span><CustomSelect required ariaLabel="Статус вагона" value={form.status} onChange={(status) => setForm({ ...form, status: status as WagonStatus })} options={STATUS_OPTIONS} /></div>
         <label><span>Текущая дислокация</span><input required value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} /></label>
-        <div className="form-field"><span>Дата и время отметки</span><DateTimePicker ariaLabel="Дата и время первой отметки вагона" value={form.lastReportedAt} onChange={(lastReportedAt) => setForm({ ...form, lastReportedAt })} align="right" /></div>
+        <div className="form-field"><span>Дата и время отметки</span><DateTimePicker required ariaLabel="Дата и время первой отметки вагона" value={form.lastReportedAt} onChange={(lastReportedAt) => setForm({ ...form, lastReportedAt })} align="right" /></div>
         <label><span>Описание груза</span><input value={form.cargoDescription} onChange={(event) => setForm({ ...form, cargoDescription: event.target.value })} /></label>
         <label><span>Номер отгрузки</span><input value={form.shipmentNumber} onChange={(event) => setForm({ ...form, shipmentNumber: event.target.value })} /></label>
-        <label><span>Количество груза</span><input type="number" min="0" step="0.001" value={form.cargoQuantity} onChange={(event) => setForm({ ...form, cargoQuantity: event.target.value })} /></label>
-        <div className="form-field"><span>Единица груза</span><CustomSelect ariaLabel="Единица груза" value={form.cargoUnit} onChange={(cargoUnit) => setForm({ ...form, cargoUnit: cargoUnit as Unit })} options={CARGO_UNIT_OPTIONS} /></div>
+        <label><span>Количество груза</span><input required type="number" min="0" step="0.001" value={form.cargoQuantity} onChange={(event) => setForm({ ...form, cargoQuantity: event.target.value })} /></label>
+        <div className="form-field"><span>Единица груза</span><CustomSelect required ariaLabel="Единица груза" value={form.cargoUnit} onChange={(cargoUnit) => setForm({ ...form, cargoUnit: cargoUnit as Unit })} options={CARGO_UNIT_OPTIONS} /></div>
         <label className="span-2"><span>Комментарий</span><textarea rows={3} value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} /></label>
         {error === null ? null : <div className="form-error span-2">{error}</div>}
         <div className="modal-actions span-2"><button type="button" className="button ghost" onClick={onClose}>Отмена</button><button className="button primary"><TrainFront size={16} /> Добавить вагон</button></div>
@@ -165,13 +165,13 @@ function WagonLocationModal({ wagon, onClose, onCreated }: { wagon: Wagon; onClo
   return (
     <Modal title={`Новая отметка · ${wagon.number}`} onClose={onClose} wide>
       <form className="form-grid" onSubmit={(event) => void submit(event)}>
-        <div className="form-field"><span>Статус</span><CustomSelect ariaLabel="Новый статус вагона" value={form.status} onChange={(status) => setForm({ ...form, status: status as WagonStatus })} options={STATUS_OPTIONS} /></div>
-        <div className="form-field"><span>Дата и время</span><DateTimePicker ariaLabel="Дата и время дислокации" value={form.occurredAt} onChange={(occurredAt) => setForm({ ...form, occurredAt })} align="right" /></div>
+        <div className="form-field"><span>Статус</span><CustomSelect required ariaLabel="Новый статус вагона" value={form.status} onChange={(status) => setForm({ ...form, status: status as WagonStatus })} options={STATUS_OPTIONS} /></div>
+        <div className="form-field"><span>Дата и время</span><DateTimePicker required ariaLabel="Дата и время дислокации" value={form.occurredAt} onChange={(occurredAt) => setForm({ ...form, occurredAt })} align="right" /></div>
         <label className="span-2"><span>Местоположение</span><input required value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} /></label>
         <label><span>Груз</span><input value={form.cargoDescription} onChange={(event) => setForm({ ...form, cargoDescription: event.target.value })} /></label>
         <label><span>Номер отгрузки</span><input value={form.shipmentNumber} onChange={(event) => setForm({ ...form, shipmentNumber: event.target.value })} /></label>
-        <label><span>Количество</span><input type="number" min="0" step="0.001" value={form.cargoQuantity} onChange={(event) => setForm({ ...form, cargoQuantity: event.target.value })} /></label>
-        <div className="form-field"><span>Единица груза</span><CustomSelect ariaLabel="Единица груза при отметке" value={form.cargoUnit} onChange={(cargoUnit) => setForm({ ...form, cargoUnit: cargoUnit as Unit })} options={CARGO_UNIT_OPTIONS} /></div>
+        <label><span>Количество</span><input required type="number" min="0" step="0.001" value={form.cargoQuantity} onChange={(event) => setForm({ ...form, cargoQuantity: event.target.value })} /></label>
+        <div className="form-field"><span>Единица груза</span><CustomSelect required ariaLabel="Единица груза при отметке" value={form.cargoUnit} onChange={(cargoUnit) => setForm({ ...form, cargoUnit: cargoUnit as Unit })} options={CARGO_UNIT_OPTIONS} /></div>
         <label className="span-2"><span>Комментарий диспетчера</span><textarea rows={3} value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} /></label>
         {error === null ? null : <div className="form-error span-2">{error}</div>}
         <div className="modal-actions span-2"><button type="button" className="button ghost" onClick={onClose}>Отмена</button><button className="button primary"><MapPinned size={16} /> Зафиксировать</button></div>

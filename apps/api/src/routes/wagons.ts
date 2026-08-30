@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Req } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query, Req } from "@nestjs/common";
 import { z } from "zod";
 import { Unit, WagonStatus } from "../generated/prisma/index.js";
 import { prisma } from "../lib/prisma.js";
@@ -6,6 +6,7 @@ import { getRequestContext } from "../lib/request-context.js";
 import { nonNegativeDecimalString, parseBody, positiveDecimalString } from "../lib/validation.js";
 import { createWagon, recordWagonLocation } from "../services/wagon-service.js";
 import type { ApiRequest } from "../lib/http.js";
+import { dayPeriodFromQuery } from "../lib/date-filter.js";
 
 const locationFields = {
   status: z.nativeEnum(WagonStatus),
@@ -35,19 +36,39 @@ const locationSchema = z.object({
 @Controller("wagons")
 export class WagonController {
   @Get()
-  async list(@Req() request: ApiRequest) {
+  async list(@Req() request: ApiRequest, @Query("date") date?: string) {
     const { workspaceId } = await getRequestContext(request, prisma);
-    return {
-      items: await prisma.wagon.findMany({
-        where: { workspaceId, active: true },
-        include: {
-          locationEvents: {
-            include: { actor: { select: { id: true, name: true } } },
-            orderBy: { occurredAt: "desc" },
-            take: 12,
-          },
+    const selectedDay = dayPeriodFromQuery(date);
+    const items = await prisma.wagon.findMany({
+      where: {
+        workspaceId,
+        active: true,
+        ...(selectedDay === undefined ? {} : { lastReportedAt: { lte: selectedDay.to } }),
+      },
+      include: {
+        locationEvents: {
+          where: selectedDay === undefined ? undefined : { occurredAt: { lte: selectedDay.to } },
+          include: { actor: { select: { id: true, name: true } } },
+          orderBy: { occurredAt: "desc" },
+          take: 12,
         },
-        orderBy: [{ status: "asc" }, { number: "asc" }],
+      },
+      orderBy: [{ status: "asc" }, { number: "asc" }],
+    });
+    return {
+      items: items.map((wagon) => {
+        const latest = wagon.locationEvents[0];
+        return latest === undefined ? wagon : {
+          ...wagon,
+          status: latest.status,
+          location: latest.location,
+          cargoDescription: latest.cargoDescription,
+          cargoQuantity: latest.cargoQuantity,
+          cargoUnit: latest.cargoUnit,
+          shipmentNumber: latest.shipmentNumber,
+          note: latest.note,
+          lastReportedAt: latest.occurredAt,
+        };
       }),
     };
   }

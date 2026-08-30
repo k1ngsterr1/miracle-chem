@@ -117,13 +117,15 @@ const STATUS_LABELS: Record<string, string> = {
   MAINTENANCE: "Обслуживание",
   RECORDED: "Учтён",
   ISSUED: "Выставлен",
+  PENDING_DIRECTOR_APPROVAL: "На согласовании у руководителя",
+  PENDING_ACCOUNTANT_APPROVAL: "На проверке у бухгалтера",
   PAID: "Оплачен",
 };
 
 export function StatusBadge({ status }: { status: string }) {
   const style = ["COMPLETED", "ACTIVE", "ACCEPTED", "AVAILABLE", "EMPTY", "AT_DESTINATION", "RECORDED", "PAID"].includes(status)
     ? "success"
-    : ["IN_PROGRESS", "PARTIALLY_TRANSFERRED", "PARTIALLY_ACCEPTED", "SENT", "IN_TRANSIT", "RETURNING", "LOADING", "UNLOADING", "LOADED", "ISSUED"].includes(status)
+    : ["IN_PROGRESS", "PARTIALLY_TRANSFERRED", "PARTIALLY_ACCEPTED", "SENT", "IN_TRANSIT", "RETURNING", "LOADING", "UNLOADING", "LOADED", "ISSUED", "PENDING_DIRECTOR_APPROVAL", "PENDING_ACCOUNTANT_APPROVAL"].includes(status)
       ? "progress"
       : ["REJECTED", "CANCELLED", "BLOCKED", "MAINTENANCE"].includes(status)
         ? "danger"

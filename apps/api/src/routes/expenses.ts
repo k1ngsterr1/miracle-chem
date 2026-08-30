@@ -1,13 +1,39 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query, Req } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
+  Query,
+  Req,
+  Res,
+  UploadedFile,
+  UseInterceptors,
+} from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
+import type { Response } from "express";
 import { z } from "zod";
 import {
+  AuditEntityType,
   ExpenseCategory,
   ExpenseCostCenter,
   ExpensePaymentMethod,
   ExpenseStatus,
   Prisma,
 } from "../generated/prisma/index.js";
+import { ApiError } from "../lib/api-error.js";
+import { writeAudit } from "../lib/audit.js";
 import { prisma } from "../lib/prisma.js";
+import {
+  MAX_EXPENSE_RECEIPT_BYTES,
+  readStoredReceipt,
+  removeStoredReceipt,
+  safeReceiptName,
+  storeExpenseReceipt,
+  type ExpenseReceiptUpload,
+} from "../lib/receipt-storage.js";
 import { getRequestContext } from "../lib/request-context.js";
 import { parseBody, positiveDecimalString } from "../lib/validation.js";
 import { cancelExpense, createExpense } from "../services/expense-service.js";
@@ -70,6 +96,7 @@ export class ExpenseController {
         include: {
           createdBy: { select: { id: true, name: true } },
           cancelledBy: { select: { id: true, name: true } },
+          attachments: { orderBy: { createdAt: "desc" } },
         },
         orderBy: [{ incurredAt: "desc" }, { createdAt: "desc" }],
         take: 500,
@@ -102,6 +129,85 @@ export class ExpenseController {
         cancelledCount,
       },
     };
+  }
+
+  @Get(":id")
+  async detail(@Req() request: ApiRequest, @Param("id") id: string) {
+    const { workspaceId } = await getRequestContext(request, prisma);
+    const expense = await prisma.expense.findFirst({
+      where: { id, workspaceId },
+      include: {
+        createdBy: { select: { id: true, name: true } },
+        cancelledBy: { select: { id: true, name: true } },
+        attachments: { orderBy: { createdAt: "desc" } },
+      },
+    });
+    if (expense === null) throw new ApiError(404, "EXPENSE_NOT_FOUND", "Расход не найден");
+    return expense;
+  }
+
+  @Post(":id/receipts")
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: MAX_EXPENSE_RECEIPT_BYTES } }))
+  async uploadReceipt(
+    @Req() request: ApiRequest,
+    @Param("id") id: string,
+    @UploadedFile() file: ExpenseReceiptUpload | undefined,
+  ) {
+    const { workspaceId, actor } = await getRequestContext(request, prisma);
+    const expense = await prisma.expense.findFirst({ where: { id, workspaceId }, select: { id: true } });
+    if (expense === null) throw new ApiError(404, "EXPENSE_NOT_FOUND", "Расход не найден");
+    if (file === undefined) throw new ApiError(400, "EXPENSE_RECEIPT_REQUIRED", "Выберите файл чека Kaspi");
+    const stored = await storeExpenseReceipt(workspaceId, expense.id, file);
+    try {
+      return await prisma.$transaction(async (tx) => {
+        const attachment = await tx.attachment.create({
+          data: {
+            expenseId: expense.id,
+            name: safeReceiptName(file.originalname),
+            storageKey: stored.storageKey,
+            mimeType: stored.mimeType,
+            sizeBytes: stored.sizeBytes,
+          },
+        });
+        await writeAudit(tx, {
+          workspaceId,
+          actorId: actor.id,
+          action: "EXPENSE_RECEIPT_ATTACHED",
+          entityType: AuditEntityType.EXPENSE,
+          entityId: expense.id,
+          after: {
+            attachmentId: attachment.id,
+            name: attachment.name,
+            mimeType: attachment.mimeType,
+            sizeBytes: attachment.sizeBytes,
+          },
+        });
+        return attachment;
+      });
+    } catch (cause) {
+      await removeStoredReceipt(stored.storageKey);
+      throw cause;
+    }
+  }
+
+  @Get(":id/receipts/:receiptId/file")
+  async openReceipt(
+    @Req() request: ApiRequest,
+    @Param("id") id: string,
+    @Param("receiptId") receiptId: string,
+    @Res() response: Response,
+  ): Promise<void> {
+    const { workspaceId } = await getRequestContext(request, prisma);
+    const attachment = await prisma.attachment.findFirst({
+      where: { id: receiptId, expenseId: id, expense: { workspaceId } },
+    });
+    if (attachment === null) throw new ApiError(404, "EXPENSE_RECEIPT_NOT_FOUND", "Чек расхода не найден");
+    const file = await readStoredReceipt(attachment.storageKey);
+    response.setHeader("Content-Type", attachment.mimeType);
+    response.setHeader("Content-Length", String(file.length));
+    response.setHeader("Cache-Control", "private, max-age=300");
+    response.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(attachment.name)}`);
+    response.send(file);
   }
 
   @Post()

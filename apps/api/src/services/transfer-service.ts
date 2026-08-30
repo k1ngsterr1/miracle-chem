@@ -18,8 +18,7 @@ export interface CreateTransferInput {
   number: string;
   transferAt: Date;
   senderId: string;
-  receiverId?: string;
-  receiverName?: string;
+  customerId: string;
   transport?: string;
   comments?: string;
   items: Array<{ productLotId: string; quantity: string; unit: Unit }>;
@@ -44,6 +43,11 @@ export async function createTransfer(
   input: CreateTransferInput,
 ) {
   return prisma.$transaction(async (tx) => {
+    const customer = await tx.customer.findFirst({
+      where: { id: input.customerId, workspaceId, active: true },
+      select: { id: true },
+    });
+    if (customer === null) throw new ApiError(422, "CUSTOMER_NOT_FOUND", "Активный клиент не найден");
     const lots = await tx.productLot.findMany({
       where: { workspaceId, id: { in: input.items.map((item) => item.productLotId) } },
     });
@@ -76,8 +80,7 @@ export async function createTransfer(
         number: input.number,
         transferAt: input.transferAt,
         senderId: input.senderId,
-        ...(input.receiverId === undefined ? {} : { receiverId: input.receiverId }),
-        ...(input.receiverName === undefined ? {} : { receiverName: input.receiverName }),
+        customerId: customer.id,
         ...(input.transport === undefined ? {} : { transport: input.transport }),
         ...(input.comments === undefined ? {} : { comments: input.comments }),
         items: { create: items },
@@ -92,6 +95,7 @@ export async function createTransfer(
       entityId: transfer.id,
       after: {
         number: transfer.number,
+        customerId: customer.id,
         items: items as unknown as Prisma.InputJsonValue,
       },
     });

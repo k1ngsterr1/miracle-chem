@@ -9,14 +9,22 @@ import {
   FlaskConical,
   LayoutDashboard,
   Landmark,
+  LogOut,
+  Menu,
   Search,
+  Settings2,
   TrainFront,
   Truck,
+  UsersRound,
   WalletCards,
 } from "lucide-react";
 import { useApi } from "./hooks/use-api.js";
-import type { MetaData } from "./types.js";
-import { PageSkeleton } from "./components/ui.js";
+import { apiFetch, apiMutation } from "./api.js";
+import type { AuthSession, MetaData } from "./types.js";
+import { Modal, PageSkeleton } from "./components/ui.js";
+import { DateTimePicker } from "./components/DateTimePicker.js";
+import { DateFilterProvider, todayDate, useDateFilter } from "./hooks/use-date-filter.js";
+import { LoginPage } from "./pages/LoginPage.js";
 
 function cachePageLoader<T>(load: () => Promise<T>): () => Promise<T> {
   let promise: Promise<T> | undefined;
@@ -40,20 +48,9 @@ const loadTransfersPage = cachePageLoader(() => import("./pages/TransfersPage.js
 const loadWagonsPage = cachePageLoader(() => import("./pages/WagonsPage.js").then((module) => ({ default: module.WagonsPage })));
 const loadExpensesPage = cachePageLoader(() => import("./pages/ExpensesPage.js").then((module) => ({ default: module.ExpensesPage })));
 const loadAccountingPage = cachePageLoader(() => import("./pages/AccountingPage.js").then((module) => ({ default: module.AccountingPage })));
+const loadClientsPage = cachePageLoader(() => import("./pages/ClientsPage.js").then((module) => ({ default: module.ClientsPage })));
 const loadReportsPage = cachePageLoader(() => import("./pages/ReportsPage.js").then((module) => ({ default: module.ReportsPage })));
-
-const PAGE_LOADERS = [
-  loadDashboardPage,
-  loadBatchesPage,
-  loadMaterialsPage,
-  loadRecipesPage,
-  loadFormulaPage,
-  loadTransfersPage,
-  loadWagonsPage,
-  loadExpensesPage,
-  loadAccountingPage,
-  loadReportsPage,
-];
+const loadSettingsPage = cachePageLoader(() => import("./pages/SettingsPage.js").then((module) => ({ default: module.SettingsPage })));
 
 const DashboardPage = lazy(loadDashboardPage);
 const BatchesPage = lazy(loadBatchesPage);
@@ -64,42 +61,80 @@ const TransfersPage = lazy(loadTransfersPage);
 const WagonsPage = lazy(loadWagonsPage);
 const ExpensesPage = lazy(loadExpensesPage);
 const AccountingPage = lazy(loadAccountingPage);
+const ClientsPage = lazy(loadClientsPage);
 const ReportsPage = lazy(loadReportsPage);
+const SettingsPage = lazy(loadSettingsPage);
 
-type ViewId = "dashboard" | "batches" | "materials" | "recipes" | "formulas" | "transfers" | "wagons" | "expenses" | "accounting" | "reports";
+type ViewId = "dashboard" | "batches" | "materials" | "recipes" | "formulas" | "transfers" | "wagons" | "expenses" | "accounting" | "clients" | "reports" | "settings";
 
-const NAVIGATION = [
+interface NavigationItem {
+  id: ViewId;
+  label: string;
+  icon: typeof LayoutDashboard;
+  keywords: string;
+  roles?: string[];
+}
+
+const NAVIGATION: NavigationItem[] = [
   { id: "dashboard" as const, label: "Обзор", icon: LayoutDashboard, keywords: "главная сводка показатели" },
-  { id: "batches" as const, label: "Производство", icon: Factory, keywords: "замес выпуск бетон" },
-  { id: "materials" as const, label: "Склад", icon: Boxes, keywords: "материал позиция остаток приход расход" },
-  { id: "recipes" as const, label: "Рецептуры", icon: Beaker, keywords: "рецепт состав технология" },
-  { id: "formulas" as const, label: "Калькулятор", icon: FlaskConical, keywords: "формула расчёт себестоимость" },
-  { id: "transfers" as const, label: "Отгрузки", icon: Truck, keywords: "отправка лрт документ" },
-  { id: "wagons" as const, label: "Дислокация", icon: TrainFront, keywords: "вагон железная дорога местоположение" },
-  { id: "expenses" as const, label: "Расходы", icon: WalletCards, keywords: "затраты деньги финансы" },
-  { id: "accounting" as const, label: "Бухгалтерия", icon: Landmark, keywords: "накладная счет оплата акт документы" },
-  { id: "reports" as const, label: "Отчёты", icon: BarChart3, keywords: "аналитика экспорт csv xlsx" },
+  { id: "batches" as const, label: "Производство", icon: Factory, keywords: "замес выпуск бетон", roles: ["ADMIN", "DIRECTOR", "TECHNOLOGIST", "OPERATOR", "QUALITY_MANAGER"] },
+  { id: "materials" as const, label: "Склад", icon: Boxes, keywords: "материал позиция остаток приход расход", roles: ["ADMIN", "DIRECTOR", "TECHNOLOGIST", "OPERATOR", "STOREKEEPER"] },
+  { id: "recipes" as const, label: "Рецептуры", icon: Beaker, keywords: "рецепт состав технология", roles: ["ADMIN", "DIRECTOR", "TECHNOLOGIST"] },
+  { id: "formulas" as const, label: "Калькулятор", icon: FlaskConical, keywords: "формула расчёт себестоимость", roles: ["ADMIN", "DIRECTOR", "TECHNOLOGIST"] },
+  { id: "transfers" as const, label: "Отгрузки", icon: Truck, keywords: "отправка клиент документ", roles: ["ADMIN", "DIRECTOR", "MANAGER", "STOREKEEPER", "LRT_RECEIVER"] },
+  { id: "wagons" as const, label: "Дислокация", icon: TrainFront, keywords: "вагон железная дорога местоположение", roles: ["ADMIN", "DIRECTOR", "STOREKEEPER", "LRT_RECEIVER"] },
+  { id: "expenses" as const, label: "Расходы", icon: WalletCards, keywords: "затраты деньги финансы", roles: ["ADMIN", "DIRECTOR", "ACCOUNTANT"] },
+  { id: "accounting" as const, label: "Бухгалтерия", icon: Landmark, keywords: "накладная счет оплата акт документы", roles: ["ADMIN", "DIRECTOR", "ACCOUNTANT", "MANAGER"] },
+  { id: "clients" as const, label: "Клиенты", icon: UsersRound, keywords: "заказчик покупатель бетон состав дозировка добавка", roles: ["ADMIN", "DIRECTOR", "ACCOUNTANT", "MANAGER", "TECHNOLOGIST", "VIEWER"] },
+  { id: "reports" as const, label: "Отчёты", icon: BarChart3, keywords: "аналитика экспорт csv xlsx", roles: ["ADMIN", "DIRECTOR", "ACCOUNTANT", "TECHNOLOGIST", "QUALITY_MANAGER", "VIEWER"] },
+  { id: "settings" as const, label: "Команда и реквизиты", icon: Settings2, keywords: "сотрудники роли доступ реквизиты компания банк", roles: ["ADMIN", "DIRECTOR"] },
 ];
 
 export function App() {
+  const [session, setSession] = useState<AuthSession | null>(null);
+  const [checkingSession, setCheckingSession] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    void apiFetch<AuthSession>("/auth/session")
+      .then((current) => { if (active) setSession(current); })
+      .catch(() => { if (active) setSession(null); })
+      .finally(() => { if (active) setCheckingSession(false); });
+    const unauthorized = () => setSession(null);
+    window.addEventListener("miracle-chem:unauthorized", unauthorized);
+    return () => {
+      active = false;
+      window.removeEventListener("miracle-chem:unauthorized", unauthorized);
+    };
+  }, []);
+
+  if (checkingSession) return <div className="auth-loading" role="status" aria-label="Проверка доступа"><span className="brand-mark"><Blocks size={22} /></span><strong>MIRACLE CHEM</strong></div>;
+  if (session === null) return <LoginPage onAuthenticated={setSession} />;
+
+  return <DateFilterProvider><AuthenticatedApp onLogout={() => setSession(null)} /></DateFilterProvider>;
+}
+
+function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
   const [view, setView] = useState<ViewId>(() => readHash());
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const activeNavRef = useRef<HTMLButtonElement>(null);
   const { data: meta } = useApi<MetaData>("/meta");
+  const { selectedDate, setSelectedDate, resetToToday } = useDateFilter();
+  const selectedDateIsToday = selectedDate === todayDate();
+  const actorRole = meta?.actor.role;
+  const visibleNavigation = useMemo(
+    () => NAVIGATION.filter((item) => item.roles === undefined || (actorRole !== undefined && item.roles.includes(actorRole))),
+    [actorRole],
+  );
+  const currentView = visibleNavigation.some((item) => item.id === view) ? view : "dashboard";
 
   useEffect(() => {
     const onHashChange = () => setView(readHash());
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
-  }, []);
-
-  useEffect(() => {
-    const preloadTimer = window.setTimeout(() => {
-      void Promise.allSettled(PAGE_LOADERS.map((loadPage) => loadPage()));
-    }, 200);
-    return () => window.clearTimeout(preloadTimer);
   }, []);
 
   useEffect(() => {
@@ -122,16 +157,16 @@ export function App() {
 
   const searchResults = useMemo(() => {
     const normalized = searchQuery.trim().toLocaleLowerCase("ru");
-    if (normalized === "") return NAVIGATION;
-    return NAVIGATION.filter((item) => `${item.label} ${item.keywords}`.toLocaleLowerCase("ru").includes(normalized));
-  }, [searchQuery]);
+    if (normalized === "") return visibleNavigation;
+    return visibleNavigation.filter((item) => `${item.label} ${item.keywords}`.toLocaleLowerCase("ru").includes(normalized));
+  }, [searchQuery, visibleNavigation]);
 
   const page = useMemo(() => {
-    switch (view) {
+    switch (currentView) {
       case "batches":
         return <BatchesPage meta={meta} />;
       case "materials":
-        return <MaterialsPage />;
+        return <MaterialsPage actorRole={actorRole} />;
       case "recipes":
         return <RecipesPage />;
       case "formulas":
@@ -143,19 +178,31 @@ export function App() {
       case "expenses":
         return <ExpensesPage />;
       case "accounting":
-        return <AccountingPage />;
+        return <AccountingPage actorRole={actorRole} />;
+      case "clients":
+        return <ClientsPage />;
       case "reports":
         return <ReportsPage />;
+      case "settings":
+        return <SettingsPage actorRole={actorRole} />;
       case "dashboard":
         return <DashboardPage onNavigate={navigate} />;
     }
-  }, [view, meta]);
+  }, [currentView, meta, actorRole]);
 
   function navigate(target: ViewId): void {
     window.location.hash = target;
     setView(target);
     setSearchOpen(false);
     setSearchQuery("");
+  }
+
+  async function logout(): Promise<void> {
+    try {
+      await apiMutation<void>("/auth/logout", {});
+    } finally {
+      onLogout();
+    }
   }
 
   return (
@@ -173,11 +220,11 @@ export function App() {
 
         <nav>
           <span className="nav-label">Рабочее пространство</span>
-          {NAVIGATION.map((item) => (
+          {visibleNavigation.map((item) => (
             <button
               key={item.id}
-              ref={view === item.id ? activeNavRef : undefined}
-              className={view === item.id ? "active" : ""}
+              ref={currentView === item.id ? activeNavRef : undefined}
+              className={currentView === item.id ? "active" : ""}
               onClick={() => navigate(item.id)}
             >
               <item.icon size={18} strokeWidth={1.9} />
@@ -185,12 +232,17 @@ export function App() {
               {item.id === "batches" ? <em>2</em> : null}
             </button>
           ))}
+          <button type="button" className="mobile-navigation-more" aria-label="Открыть все разделы" onClick={() => setMobileNavigationOpen(true)}>
+            <Menu size={18} strokeWidth={1.9} />
+            <span>Ещё</span>
+          </button>
         </nav>
 
         <div className="sidebar-footer">
           <div className="profile-card">
             <span className="avatar">{initials(meta?.actor.name ?? "Admin")}</span>
             <span><strong>{meta?.actor.name ?? "Администратор"}</strong><small>{roleName(meta?.actor.role)}</small></span>
+            <button type="button" className="profile-logout" aria-label="Выйти из системы" title="Выйти" onClick={() => void logout()}><LogOut size={16} /></button>
           </div>
         </div>
       </aside>
@@ -236,6 +288,11 @@ export function App() {
                 </div>
               ) : null}
             </div>
+            <div className="global-date-filter">
+              <div className="global-date-copy"><small>Рабочая дата</small><strong>Данные за день</strong></div>
+              <DateTimePicker compact mode="date" ariaLabel="Выберите дату для данных CRM" value={selectedDate} onChange={setSelectedDate} align="right" />
+              {selectedDateIsToday ? null : <button type="button" className="global-date-reset" onClick={resetToToday}>Сегодня</button>}
+            </div>
           </div>
         </header>
         <div className="page-content">
@@ -244,6 +301,19 @@ export function App() {
           </Suspense>
         </div>
       </main>
+      {mobileNavigationOpen ? (
+        <Modal title="Разделы CRM" onClose={() => setMobileNavigationOpen(false)}>
+          <div className="mobile-navigation-menu">
+            {visibleNavigation.map((item) => (
+              <button type="button" className={currentView === item.id ? "active" : ""} key={item.id} onClick={() => { navigate(item.id); setMobileNavigationOpen(false); }}>
+                <item.icon size={18} />
+                <span>{item.label}</span>
+                <ChevronRight size={16} />
+              </button>
+            ))}
+          </div>
+        </Modal>
+      ) : null}
     </div>
   );
 }
@@ -260,11 +330,14 @@ function initials(name: string): string {
 function roleName(role?: string): string {
   const labels: Record<string, string> = {
     ADMIN: "Администратор",
+    DIRECTOR: "Руководитель",
+    MANAGER: "Менеджер",
+    ACCOUNTANT: "Бухгалтер",
     TECHNOLOGIST: "Технолог",
     OPERATOR: "Оператор",
     STOREKEEPER: "Кладовщик",
     QUALITY_MANAGER: "Контроль качества",
-    LRT_RECEIVER: "Приёмщик ЛРТ",
+    LRT_RECEIVER: "Менеджер отгрузок",
   };
   return role === undefined ? "" : labels[role] ?? role;
 }

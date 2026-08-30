@@ -16,6 +16,7 @@ interface CustomSelectProps {
   ariaLabel: string;
   placeholder?: string;
   disabled?: boolean;
+  required?: boolean;
   compact?: boolean;
   align?: "left" | "right";
 }
@@ -27,6 +28,7 @@ export function CustomSelect({
   ariaLabel,
   placeholder = "Выберите значение",
   disabled = false,
+  required = false,
   compact = false,
   align = "left",
 }: CustomSelectProps) {
@@ -174,6 +176,7 @@ export function CustomSelect({
         role="combobox"
         className="custom-select-trigger"
         aria-label={ariaLabel}
+        aria-required={required || undefined}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listboxId : undefined}

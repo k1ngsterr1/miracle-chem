@@ -14,13 +14,13 @@ import {
   sendTransfer,
 } from "../services/transfer-service.js";
 import { requireIdempotencyKey, type ApiRequest } from "../lib/http.js";
+import { dayPeriodFromQuery } from "../lib/date-filter.js";
 
 const createSchema = z.object({
   number: z.string().trim().min(1).max(80),
   transferAt: z.coerce.date(),
   senderId: z.string().uuid(),
-  receiverId: z.string().uuid().optional(),
-  receiverName: z.string().trim().min(1).max(200).optional(),
+  customerId: z.string().uuid(),
   transport: z.string().trim().max(500).optional(),
   comments: z.string().max(5000).optional(),
   items: z.array(
@@ -59,17 +59,22 @@ const cancelSchema = z.object({ reason: z.string().trim().min(3).max(1000) });
 @Controller("transfers")
 export class TransferController {
   @Get()
-  async list(@Req() request: ApiRequest, @Query() query: { status?: string }) {
+  async list(@Req() request: ApiRequest, @Query() query: { status?: string; date?: string }) {
     const { workspaceId } = await getRequestContext(request, prisma);
+    const selectedDay = dayPeriodFromQuery(query.date);
     const status = query.status !== undefined && Object.values(LrtTransferStatus).includes(query.status as LrtTransferStatus)
       ? (query.status as LrtTransferStatus)
       : undefined;
     return {
       items: await prisma.lrtTransfer.findMany({
-        where: { workspaceId, ...(status === undefined ? {} : { status }) },
+        where: {
+          workspaceId,
+          ...(status === undefined ? {} : { status }),
+          ...(selectedDay === undefined ? {} : { transferAt: { gte: selectedDay.from, lte: selectedDay.to } }),
+        },
         include: {
           sender: { select: { name: true } },
-          receiver: { select: { name: true } },
+          customer: { select: { id: true, name: true } },
           items: { include: { productLot: true, batch: { select: { number: true } } } },
         },
         orderBy: { transferAt: "desc" },
@@ -85,7 +90,7 @@ export class TransferController {
       where: { id, workspaceId },
       include: {
         sender: true,
-        receiver: true,
+        customer: { select: { id: true, name: true, taxId: true, contactPerson: true } },
         items: {
           include: {
             productLot: { include: { movements: { orderBy: { occurredAt: "desc" } } } },

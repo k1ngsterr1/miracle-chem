@@ -10,6 +10,7 @@ import {
   Req,
 } from "@nestjs/common";
 import { z } from "zod";
+import { Decimal } from "decimal.js";
 import {
   AuditEntityType,
   ProductionBatchStatus,
@@ -31,6 +32,8 @@ import {
   createBatch,
   startBatch,
 } from "../services/batch-service.js";
+import { getBatchEconomics } from "../services/batch-economics-service.js";
+import { dayPeriodFromQuery } from "../lib/date-filter.js";
 
 const createSchema = z.object({
   number: z.string().trim().min(1).max(80),
@@ -39,7 +42,8 @@ const createSchema = z.object({
   plannedVolume: positiveDecimalString,
   plannedVolumeUnit: z.nativeEnum(Unit),
   operatorId: z.string().uuid(),
-  productionLineId: z.string().uuid(),
+  productionLineId: z.string().uuid().optional(),
+  productionTankId: z.string().uuid().optional(),
   comments: z.string().max(5000).optional(),
 });
 
@@ -90,9 +94,10 @@ export class BatchController {
   @Get()
   async list(
     @Req() request: ApiRequest,
-    @Query() query: { status?: string; from?: string; to?: string },
+    @Query() query: { status?: string; from?: string; to?: string; date?: string },
   ) {
     const { workspaceId } = await getRequestContext(request, prisma);
+    const selectedDay = dayPeriodFromQuery(query.date);
     const status = query.status !== undefined && Object.values(ProductionBatchStatus).includes(query.status as ProductionBatchStatus)
       ? (query.status as ProductionBatchStatus)
       : undefined;
@@ -100,18 +105,19 @@ export class BatchController {
       where: {
         workspaceId,
         ...(status === undefined ? {} : { status }),
-        ...(query.from === undefined && query.to === undefined
+        ...(query.from === undefined && query.to === undefined && selectedDay === undefined
           ? {}
           : {
               scheduledAt: {
-                ...(query.from === undefined ? {} : { gte: new Date(query.from) }),
-                ...(query.to === undefined ? {} : { lte: new Date(query.to) }),
+                ...(query.from === undefined ? (selectedDay === undefined ? {} : { gte: selectedDay.from }) : { gte: new Date(query.from) }),
+                ...(query.to === undefined ? (selectedDay === undefined ? {} : { lte: selectedDay.to }) : { lte: new Date(query.to) }),
               },
             }),
       },
       include: {
         operator: { select: { id: true, name: true } },
         productionLine: { select: { id: true, code: true, name: true } },
+        productionTank: { select: { id: true, code: true, name: true } },
         recipeVersion: { include: { recipe: { select: { name: true, code: true } } } },
         _count: { select: { qualityChecks: true } },
       },
@@ -129,6 +135,7 @@ export class BatchController {
       include: {
         operator: true,
         productionLine: true,
+        productionTank: true,
         recipeVersion: { include: { recipe: true } },
         components: {
           include: {
@@ -142,7 +149,9 @@ export class BatchController {
       },
     });
     if (batch === null) throw new ApiError(404, "BATCH_NOT_FOUND", "Замес не найден");
-    return batch;
+    const economics = await getBatchEconomics(workspaceId, batch.id);
+    const stockReadiness = buildBatchStockReadiness(batch);
+    return { ...batch, economics, stockReadiness };
   }
 
   @Post()
@@ -252,4 +261,58 @@ export class BatchController {
     });
     return check;
   }
+}
+
+function buildBatchStockReadiness(batch: {
+  status: ProductionBatchStatus;
+  components: Array<{
+    id: string;
+    materialNameSnapshot: string;
+    plannedQuantity: Prisma.Decimal;
+    plannedUnit: Unit;
+    material: {
+      currentStock: Prisma.Decimal;
+      reservedStock: Prisma.Decimal;
+      minimumStock: Prisma.Decimal;
+      baseUnit: Unit;
+    };
+  }>;
+}) {
+  if (batch.status !== ProductionBatchStatus.PLANNED && batch.status !== ProductionBatchStatus.PREPARATION) {
+    return { status: "NOT_APPLICABLE" as const, warnings: [] };
+  }
+  const warnings = batch.components.flatMap((component) => {
+    const freeStock = new Decimal(component.material.currentStock.toString())
+      .sub(component.material.reservedStock.toString());
+    const required = new Decimal(component.plannedQuantity.toString());
+    const projectedStock = freeStock.sub(required);
+    const minimumStock = new Decimal(component.material.minimumStock.toString());
+    const level = freeStock.lte(0)
+      ? "OUT_OF_STOCK" as const
+      : projectedStock.lt(0)
+        ? "SHORTAGE" as const
+        : minimumStock.gt(0) && freeStock.lte(minimumStock)
+          ? "CRITICAL" as const
+          : minimumStock.gt(0) && projectedStock.lte(minimumStock)
+            ? "LOW_AFTER_BATCH" as const
+            : null;
+    if (level === null) return [];
+    return [{
+      batchComponentId: component.id,
+      materialName: component.materialNameSnapshot,
+      level,
+      freeStock: freeStock.toString(),
+      requiredQuantity: required.toString(),
+      projectedStock: projectedStock.toString(),
+      shortfall: Decimal.max(0, projectedStock.negated()).toString(),
+      minimumStock: minimumStock.toString(),
+      unit: component.plannedUnit,
+    }];
+  });
+  return {
+    status: warnings.some((warning) => ["OUT_OF_STOCK", "SHORTAGE"].includes(warning.level))
+      ? "SHORTAGE" as const
+      : warnings.length > 0 ? "LOW" as const : "READY" as const,
+    warnings,
+  };
 }

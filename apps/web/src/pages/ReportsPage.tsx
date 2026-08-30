@@ -16,6 +16,7 @@ import {
 import { reportExportUrl } from "../api.js";
 import { DateTimePicker } from "../components/DateTimePicker.js";
 import { useApi } from "../hooks/use-api.js";
+import { useDateFilter } from "../hooks/use-date-filter.js";
 import { formatNumber } from "../lib/format.js";
 import { ErrorState, LoadingState, PageHeader, Panel, PanelHeader } from "../components/ui.js";
 
@@ -124,8 +125,13 @@ function ReportWorkspace({
   onBackToReport: () => void;
   onOpenRow: (rowIndex: number) => void;
 }) {
-  const [from, setFrom] = useState(() => new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10));
-  const [to, setTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const { selectedDate } = useDateFilter();
+  const [from, setFrom] = useState(selectedDate);
+  const [to, setTo] = useState(selectedDate);
+  useEffect(() => {
+    setFrom(selectedDate);
+    setTo(selectedDate);
+  }, [selectedDate]);
   const path = `${REPORTS[type].path}?from=${encodeURIComponent(`${from}T00:00:00`)}&to=${encodeURIComponent(`${to}T23:59:59`)}`;
   const report = useApi<{ items: Array<Record<string, unknown>> }>(path);
   const columns = useMemo(() => Object.keys(report.data?.items[0] ?? {}).slice(0, 12), [report.data]);
@@ -233,6 +239,7 @@ const LABELS: Record<string, string> = {
   recipe: "Рецептура",
   concreteGrade: "Класс",
   productionLine: "Линия",
+  productionTank: "Чан",
   operator: "Оператор",
   plannedVolume: "План",
   actualVolume: "Факт",

@@ -1,17 +1,25 @@
 import { useMemo, useState } from "react";
 import {
   AlertTriangle,
+  BarChart3,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   Boxes,
   CheckCircle2,
+  CircleDollarSign,
+  CloudCog,
   Coins,
   Droplets,
   Filter,
   History,
+  PackageOpen,
   PackagePlus,
+  Plus,
   Search,
+  Scale,
   ShieldCheck,
+  Trash2,
 } from "lucide-react";
 import { apiMutation } from "../api.js";
 import { CustomSelect } from "../components/CustomSelect.js";
@@ -19,8 +27,12 @@ import { DateTimePicker } from "../components/DateTimePicker.js";
 import { useApi } from "../hooks/use-api.js";
 import type {
   Material,
+  MaterialListResponse,
   MaterialMovement,
   MaterialPrice,
+  PurchaseBatch,
+  Recipe,
+  SupplierSummary,
   Unit,
 } from "../types.js";
 import { formatDate, formatMoney, formatNumber, unitLabel } from "../lib/format.js";
@@ -66,14 +78,56 @@ interface WarehouseHistory {
   movements: MaterialMovement[];
 }
 
-export function MaterialsPage() {
-  const materials = useApi<{ items: Material[] }>("/materials");
+interface DraftPurchaseItem {
+  key: string;
+  materialId: string;
+  supplierName: string;
+  quantity: string;
+  unitCost: string;
+  expiresAt: string;
+  certificateNumber: string;
+}
+
+interface OneCSyncRun {
+  id: string;
+  batchId: string;
+  generatedAt: string;
+  startedAt: string;
+  completedAt: string | null;
+  status: "PROCESSING" | "COMPLETED" | "PARTIAL" | "FAILED";
+  summary: { created?: number; updated?: number; skipped?: number; quarantined?: number } | null;
+}
+
+interface OneCSyncReview {
+  id: string;
+  entityType: string;
+  externalId: string;
+  payload: unknown;
+  reason: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  createdAt: string;
+  resolutionNote: string | null;
+}
+
+export function MaterialsPage({ actorRole }: { actorRole: string | undefined }) {
+  const materials = useApi<MaterialListResponse>("/materials");
+  const purchaseBatches = useApi<{ items: PurchaseBatch[]; suppliers: SupplierSummary[] }>("/materials/purchase-batches");
+  const canManageMaterials = ["ADMIN", "DIRECTOR", "TECHNOLOGIST", "STOREKEEPER"].includes(actorRole ?? "");
+  const canMoveMaterials = ["ADMIN", "DIRECTOR", "TECHNOLOGIST", "OPERATOR", "STOREKEEPER"].includes(actorRole ?? "");
+  const canViewRecipes = ["ADMIN", "DIRECTOR", "TECHNOLOGIST"].includes(actorRole ?? "");
+  const recipes = useApi<{ items: Recipe[] }>(canViewRecipes ? "/recipes" : null);
+  const oneCSyncRuns = useApi<{ items: OneCSyncRun[] }>("/integrations/1c/runs");
+  const oneCSyncReviews = useApi<{ items: OneCSyncReview[] }>("/integrations/1c/reviews");
   const [query, setQuery] = useState("");
   const [criticalOnly, setCriticalOnly] = useState(false);
   const [selected, setSelected] = useState<Material | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [purchaseOpen, setPurchaseOpen] = useState(false);
+  const [selectedPurchase, setSelectedPurchase] = useState<PurchaseBatch | null>(null);
   const [receiptMaterial, setReceiptMaterial] = useState<Material | null>(null);
   const [consumptionMaterial, setConsumptionMaterial] = useState<Material | null>(null);
+  const [reviewAction, setReviewAction] = useState<OneCSyncReview | null>(null);
+  const [reviewBusy, setReviewBusy] = useState(false);
   const filtered = useMemo(
     () => (materials.data?.items ?? []).filter((material) => {
       const matchesQuery = [material.name, material.code, MATERIAL_LABELS[material.type] ?? material.type]
@@ -83,9 +137,38 @@ export function MaterialsPage() {
     [criticalOnly, materials.data, query],
   );
 
-  if (materials.loading) return <LoadingState />;
+  if (materials.loading || purchaseBatches.loading || recipes.loading) return <LoadingState />;
   if (materials.error !== null) return <ErrorState message={materials.error} retry={materials.reload} />;
+  if (purchaseBatches.error !== null) return <ErrorState message={purchaseBatches.error} retry={purchaseBatches.reload} />;
+  if (recipes.error !== null) return <ErrorState message={recipes.error} retry={recipes.reload} />;
   const all = materials.data?.items ?? [];
+  const gluconate = materials.data?.summary?.sodiumGluconate;
+  const purchases = purchaseBatches.data?.items ?? [];
+  const recipeItems = recipes.data?.items ?? [];
+  const pendingReviews = (oneCSyncReviews.data?.items ?? []).filter((review) => review.status === "PENDING");
+  const canManageOneC = canManageMaterials;
+
+  async function approveReview(review: OneCSyncReview): Promise<void> {
+    setReviewBusy(true);
+    try {
+      await apiMutation(`/integrations/1c/reviews/${review.id}/approve`, {}, { idempotent: true });
+      await Promise.all([materials.reload(), oneCSyncReviews.reload(), oneCSyncRuns.reload()]);
+    } finally {
+      setReviewBusy(false);
+    }
+  }
+
+  async function rejectReview(note: string): Promise<void> {
+    if (reviewAction === null) return;
+    setReviewBusy(true);
+    try {
+      await apiMutation(`/integrations/1c/reviews/${reviewAction.id}/reject`, { note }, { idempotent: true });
+      setReviewAction(null);
+      await Promise.all([oneCSyncReviews.reload(), oneCSyncRuns.reload()]);
+    } finally {
+      setReviewBusy(false);
+    }
+  }
 
   return (
     <>
@@ -95,15 +178,18 @@ export function MaterialsPage() {
         description="Остатки по партиям, приход и расход, резервы производства и полная история закупочных цен."
         actions={(
           <>
-            <button className="button ghost" disabled={all.length === 0} onClick={() => setConsumptionMaterial(all[0] ?? null)}>
+            {canMoveMaterials ? <button className="button ghost" disabled={all.length === 0} onClick={() => setConsumptionMaterial(all[0] ?? null)}>
               <ChevronUp size={17} /> Расход
-            </button>
-            <button className="button ghost" disabled={all.length === 0} onClick={() => setReceiptMaterial(all[0] ?? null)}>
+            </button> : null}
+            {canMoveMaterials ? <button className="button ghost" disabled={all.length === 0} onClick={() => setReceiptMaterial(all[0] ?? null)}>
               <ChevronDown size={17} /> Приход
-            </button>
-            <button className="button primary" onClick={() => setCreateOpen(true)}>
+            </button> : null}
+            {canManageMaterials ? <button className="button ghost" onClick={() => setCreateOpen(true)}>
               <PackagePlus size={17} /> Новая позиция
-            </button>
+            </button> : null}
+            {canManageMaterials && canViewRecipes ? <button className="button primary" disabled={all.length === 0} onClick={() => setPurchaseOpen(true)}>
+              <PackageOpen size={17} /> Новая партия
+            </button> : null}
           </>
         )}
       />
@@ -119,7 +205,53 @@ export function MaterialsPage() {
         </Panel>
         <Panel className="stock-mini"><span><Coins size={18} /></span><div><small>Стоимость запасов</small><strong>{formatMoney(all.reduce((sum, item) => sum + Number(item.currentStock) * Number(item.costPerBaseUnit), 0))}</strong></div></Panel>
         <Panel className="stock-mini"><span className="amber"><AlertTriangle size={18} /></span><div><small>Зарезервировано</small><strong>{formatNumber(all.reduce((sum, item) => sum + Number(item.reservedStock), 0))}</strong></div></Panel>
+        <Panel className="stock-mini gluconate-total"><span><Scale size={18} /></span><div><small>Общая масса глюконата</small><strong>{formatNumber(gluconate?.totalMassKg ?? 0)} кг</strong><em>{formatCount(gluconate?.lotCount ?? 0, "партия", "партии", "партий")} · {formatCount(gluconate?.priceVariants ?? 0, "цена", "цены", "цен")}</em></div></Panel>
       </div>
+
+      <Panel className="one-c-sync-panel">
+        <div className="table-toolbar">
+          <div><h2><CloudCog size={17} /> Синхронизация 1С</h2><p>Изменения приходят из локальной 1С через исходящее безопасное подключение.</p></div>
+          <span className={`soft-tag ${pendingReviews.length > 0 ? "warning" : ""}`}>{pendingReviews.length === 0 ? "Нет записей на проверке" : `${pendingReviews.length} на проверке`}</span>
+        </div>
+        {oneCSyncReviews.loading || oneCSyncRuns.loading ? <LoadingState /> : null}
+        {oneCSyncReviews.error !== null || oneCSyncRuns.error !== null ? <ErrorState message={oneCSyncReviews.error ?? oneCSyncRuns.error ?? "Не удалось загрузить журнал 1С"} retry={() => Promise.all([oneCSyncReviews.reload(), oneCSyncRuns.reload()]).then(() => undefined)} /> : null}
+        {oneCSyncReviews.loading || oneCSyncRuns.loading || oneCSyncReviews.error !== null || oneCSyncRuns.error !== null ? null : <>
+          {pendingReviews.length === 0 ? <div className="one-c-sync-empty">Номенклатура и поступления, которые нельзя применить автоматически, появятся здесь для ручной проверки.</div> : <div className="one-c-review-list">
+            {pendingReviews.slice(0, 5).map((review) => {
+              const details = oneCPayloadDetails(review.payload);
+              return <article key={review.id}>
+                <span><AlertTriangle size={17} /></span>
+                <div><strong>{details.name ?? review.externalId}</strong><small>{details.code === undefined ? review.entityType : `${review.entityType} · ${details.code}`}</small><p>{review.reason}</p></div>
+                {canManageOneC ? <div className="one-c-review-actions"><button className="button ghost small" disabled={reviewBusy} onClick={() => setReviewAction(review)}>Отклонить</button><button className="button primary small" disabled={reviewBusy || review.entityType !== "MATERIAL"} onClick={() => void approveReview(review)}>Подтвердить</button></div> : null}
+              </article>;
+            })}
+          </div>}
+          {(oneCSyncRuns.data?.items.length ?? 0) === 0 ? null : <div className="one-c-last-run">Последний обмен: <strong>{formatDate(oneCSyncRuns.data?.items[0]?.completedAt ?? oneCSyncRuns.data?.items[0]?.startedAt ?? "")}</strong> · {oneCSyncRunSummary(oneCSyncRuns.data?.items[0])}</div>}
+        </>}
+      </Panel>
+
+      <Panel className="purchase-batch-panel">
+        <div className="table-toolbar">
+          <div><h2>Закупочные партии</h2><p>Реагенты одной поставки, фактическая стоимость и прогноз выпуска по рецептуре</p></div>
+          <span className="soft-tag">{formatPurchaseCount(purchases.length)}</span>
+        </div>
+        {purchases.length === 0 ? (
+          <EmptyState title="Закупочных партий пока нет" text="Создайте партию и добавьте в неё все поступившие реагенты." />
+        ) : (
+          <div className="purchase-batch-grid">
+            {purchases.slice(0, 6).map((batch) => (
+              <button type="button" className="purchase-batch-card" key={batch.id} onClick={() => setSelectedPurchase(batch)}>
+                <span className="purchase-batch-icon"><PackageOpen size={19} /></span>
+                <span className="purchase-batch-main"><small>Партия</small><strong>№{batch.number}</strong><em>{formatDate(batch.receivedAt, true)} · {batch.items.length} позиций</em></span>
+                <span><small>Закупка</small><strong>{formatMoney(batch.totalCost, batch.currency)}</strong></span>
+                <span><small>Можно произвести</small><strong>{batch.forecast === null ? "—" : `${formatNumber(batch.forecast.maximumOutput)} м³`}</strong></span>
+                <span><small>Прогноз прибыли</small><strong className={Number(batch.forecast?.projectedProfit ?? 0) < 0 ? "price-up" : "profit-value"}>{batch.forecast?.projectedProfit === null || batch.forecast === null ? "—" : formatMoney(batch.forecast.projectedProfit, batch.currency)}</strong></span>
+                <ChevronRight size={18} />
+              </button>
+            ))}
+          </div>
+        )}
+      </Panel>
 
       <Panel className="table-panel">
         <div className="table-toolbar">
@@ -171,9 +303,199 @@ export function MaterialsPage() {
         />
       )}
       {createOpen ? <CreateMaterialModal onClose={() => setCreateOpen(false)} onCreated={async () => { setCreateOpen(false); await materials.reload(); }} /> : null}
+      {purchaseOpen ? <PurchaseBatchModal materials={all} recipes={recipeItems} suppliers={purchaseBatches.data?.suppliers ?? []} onClose={() => setPurchaseOpen(false)} onCreated={async () => { setPurchaseOpen(false); await Promise.all([materials.reload(), purchaseBatches.reload()]); }} /> : null}
+      {selectedPurchase === null ? null : <PurchaseBatchDetail batch={selectedPurchase} onClose={() => setSelectedPurchase(null)} />}
       {receiptMaterial === null ? null : <ReceiptModal materials={all} initial={receiptMaterial} onClose={() => setReceiptMaterial(null)} onCreated={async () => { setReceiptMaterial(null); await materials.reload(); }} />}
       {consumptionMaterial === null ? null : <ConsumptionModal materials={all} initial={consumptionMaterial} onClose={() => setConsumptionMaterial(null)} onCreated={async () => { setConsumptionMaterial(null); await materials.reload(); }} />}
+      {reviewAction === null ? null : <RejectOneCReviewModal review={reviewAction} busy={reviewBusy} onClose={() => setReviewAction(null)} onReject={rejectReview} />}
     </>
+  );
+}
+
+function RejectOneCReviewModal({ review, busy, onClose, onReject }: { review: OneCSyncReview; busy: boolean; onClose: () => void; onReject: (note: string) => Promise<void> }) {
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  return <Modal title="Отклонить запись из 1С" onClose={onClose}><form onSubmit={(event) => { event.preventDefault(); if (note.trim().length < 3) { setError("Укажите причину не короче трёх символов"); return; } void onReject(note.trim()).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Не удалось отклонить запись")); }}><div className="form-grid"><label className="span-2"><span>Причина <b>*</b></span><textarea required minLength={3} value={note} placeholder={`Почему «${oneCPayloadDetails(review.payload).name ?? review.externalId}» не нужно добавлять на склад`} onChange={(event) => setNote(event.target.value)} /></label></div>{error === null ? null : <p className="form-error">{error}</p>}<div className="modal-actions"><button type="button" className="button ghost" onClick={onClose}>Назад</button><button className="button primary" disabled={busy}>{busy ? "Сохраняем…" : "Отклонить запись"}</button></div></form></Modal>;
+}
+
+function oneCPayloadDetails(payload: unknown): { name?: string; code?: string } {
+  if (payload === null || typeof payload !== "object") return {};
+  const value = payload as Record<string, unknown>;
+  return {
+    ...(typeof value.name === "string" ? { name: value.name } : {}),
+    ...(typeof value.code === "string" ? { code: value.code } : {}),
+  };
+}
+
+function oneCSyncRunSummary(run: OneCSyncRun | undefined): string {
+  if (run === undefined) return "";
+  if (run.status === "FAILED") return "ошибка обмена";
+  const summary = run.summary;
+  if (summary === null) return run.status === "PROCESSING" ? "выполняется" : "без изменений";
+  return `создано ${summary.created ?? 0}, обновлено ${summary.updated ?? 0}, на проверке ${summary.quarantined ?? 0}`;
+}
+
+function formatPurchaseCount(count: number): string {
+  return formatCount(count, "партия", "партии", "партий");
+}
+
+function formatCount(count: number, one: string, few: string, many: string): string {
+  const lastTwo = count % 100;
+  const last = count % 10;
+  if (lastTwo >= 11 && lastTwo <= 14) return `${count} ${many}`;
+  if (last === 1) return `${count} ${one}`;
+  if (last >= 2 && last <= 4) return `${count} ${few}`;
+  return `${count} ${many}`;
+}
+
+function PurchaseBatchModal({
+  materials,
+  recipes,
+  suppliers,
+  onClose,
+  onCreated,
+}: {
+  materials: Material[];
+  recipes: Recipe[];
+  suppliers: SupplierSummary[];
+  onClose: () => void;
+  onCreated: () => Promise<void>;
+}) {
+  const [form, setForm] = useState({ number: "", receivedAt: "", recipeVersionId: "", targetSalePrice: "", notes: "" });
+  const [items, setItems] = useState<DraftPurchaseItem[]>([
+    { key: crypto.randomUUID(), materialId: "", supplierName: "", quantity: "", unitCost: "", expiresAt: "", certificateNumber: "" },
+  ]);
+  const [error, setError] = useState<string | null>(null);
+  const recipeOptions = recipes.flatMap((recipe) => recipe.versions.map((version) => ({
+    value: version.id,
+    label: `${recipe.name} · v${version.version}`,
+    description: `${version.concreteGrade} · ${version.components.length} компонентов`,
+  })));
+
+  function addItem(): void {
+    setItems([...items, { key: crypto.randomUUID(), materialId: "", supplierName: "", quantity: "", unitCost: "", expiresAt: "", certificateNumber: "" }]);
+  }
+
+  function updateItem(key: string, patch: Partial<DraftPurchaseItem>): void {
+    setItems(items.map((item) => item.key === key ? { ...item, ...patch } : item));
+  }
+
+  async function submit(event: React.FormEvent): Promise<void> {
+    event.preventDefault();
+    if (form.number.trim() === "" || form.receivedAt === "" || form.recipeVersionId === "" || form.targetSalePrice === "") {
+      setError("Укажите номер партии, дату, рецептуру и цену реализации");
+      return;
+    }
+    if (items.length === 0 || items.some((item) => item.materialId === "" || item.supplierName.trim() === "" || item.quantity === "" || item.unitCost === "")) {
+      setError("Для каждого реагента укажите наименование, количество, цену и поставщика");
+      return;
+    }
+    try {
+      await apiMutation("/materials/purchase-batches", {
+        number: form.number,
+        receivedAt: new Date(form.receivedAt).toISOString(),
+        recipeVersionId: form.recipeVersionId,
+        targetSalePrice: form.targetSalePrice,
+        notes: form.notes || undefined,
+        items: items.map((item) => {
+          const material = materials.find((candidate) => candidate.id === item.materialId);
+          return {
+            materialId: item.materialId,
+            supplierName: item.supplierName,
+            quantity: item.quantity,
+            unit: material?.baseUnit ?? "KG",
+            unitCost: item.unitCost,
+            expiresAt: item.expiresAt === "" ? undefined : new Date(item.expiresAt).toISOString(),
+            certificateNumber: item.certificateNumber || undefined,
+          };
+        }),
+      }, { idempotent: true });
+      await onCreated();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Не удалось оприходовать закупочную партию");
+    }
+  }
+
+  return (
+    <Modal title="Новая закупочная партия" onClose={onClose} wide>
+      <form onSubmit={(event) => void submit(event)}>
+        <div className="form-grid purchase-batch-form-head">
+          <label><span>Номер партии</span><input required value={form.number} onChange={(event) => setForm({ ...form, number: event.target.value })} placeholder="Например, 27" /></label>
+          <div className="form-field"><span>Дата и время поступления</span><DateTimePicker required ariaLabel="Дата и время закупочной партии" value={form.receivedAt} onChange={(receivedAt) => setForm({ ...form, receivedAt })} align="right" /></div>
+          <div className="form-field"><span>Рецептура для расчёта</span><CustomSelect ariaLabel="Рецептура для расчёта партии" value={form.recipeVersionId} onChange={(recipeVersionId) => setForm({ ...form, recipeVersionId })} options={recipeOptions} placeholder="Выберите текущую рецептуру" /></div>
+          <label><span>Цена реализации за 1 м³, ₸</span><input required type="number" min="0" step="0.01" value={form.targetSalePrice} onChange={(event) => setForm({ ...form, targetSalePrice: event.target.value })} /></label>
+        </div>
+        <div className="section-title purchase-builder-title">
+          <div><h3>Реагенты и материалы</h3><span>Каждая строка станет отдельной складской позицией внутри партии №{form.number || "—"}</span></div>
+          <button type="button" className="button ghost small" disabled={items.length >= materials.length} onClick={addItem}><Plus size={15} /> Добавить реагент</button>
+        </div>
+        <div className="purchase-builder-list">
+          {items.map((item, index) => {
+            const material = materials.find((candidate) => candidate.id === item.materialId);
+            return (
+              <div key={item.key}>
+                <span className="purchase-row-number">{index + 1}</span>
+                <div className="form-field"><span>Наименование</span><CustomSelect required ariaLabel={`Реагент ${index + 1}`} value={item.materialId} onChange={(materialId) => updateItem(item.key, { materialId })} options={materials.filter((candidate) => candidate.id === item.materialId || !items.some((row) => row.materialId === candidate.id)).map((candidate) => ({ value: candidate.id, label: candidate.name, description: `${candidate.code} · на складе ${formatNumber(candidate.currentStock)} ${unitLabel[candidate.baseUnit]}` }))} placeholder="Выберите реагент" /></div>
+                <label><span>Количество, {unitLabel[material?.baseUnit ?? "KG"]}</span><input required type="number" min="0.001" step="0.001" value={item.quantity} onChange={(event) => updateItem(item.key, { quantity: event.target.value })} /></label>
+                <label><span>Цена за {unitLabel[material?.baseUnit ?? "KG"]}, ₸</span><input required type="number" min="0" step="0.01" value={item.unitCost} onChange={(event) => updateItem(item.key, { unitCost: event.target.value })} /></label>
+                <label><span>Поставщик</span><input required value={item.supplierName} onChange={(event) => updateItem(item.key, { supplierName: event.target.value })} placeholder={suppliers[0]?.name ?? "Название поставщика"} /></label>
+                <div className="form-field"><span>Срок годности</span><DateTimePicker mode="date" ariaLabel={`Срок годности реагента ${index + 1}`} value={item.expiresAt} onChange={(expiresAt) => updateItem(item.key, { expiresAt })} align="right" /></div>
+                <button type="button" className="row-action danger" aria-label={`Удалить реагент ${index + 1}`} disabled={items.length === 1} onClick={() => setItems(items.filter((row) => row.key !== item.key))}><Trash2 size={16} /></button>
+              </div>
+            );
+          })}
+        </div>
+        <label className="full-label"><span>Комментарий</span><textarea rows={3} value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} placeholder="Документы, условия закупки, особенности партии…" /></label>
+        <div className="purchase-calculation-note"><BarChart3 size={18} /><span><strong>Расчёт появится сразу после сохранения</strong><small>CRM пересчитает стоимость закупки, расход на 1 м³, остаток после производства, доступный объём, выручку и прибыль.</small></span></div>
+        {error === null ? null : <div className="form-error modal-inline-error">{error}</div>}
+        <div className="modal-actions purchase-modal-actions"><button type="button" className="button ghost" onClick={onClose}>Отмена</button><button className="button primary"><PackageOpen size={16} /> Оприходовать партию</button></div>
+      </form>
+    </Modal>
+  );
+}
+
+function PurchaseBatchDetail({ batch, onClose }: { batch: PurchaseBatch; onClose: () => void }) {
+  const forecast = batch.forecast;
+  return (
+    <Modal title={`Закупочная партия №${batch.number}`} onClose={onClose} wide>
+      <div className="purchase-detail-hero">
+        <div><span className="soft-tag">Оприходована</span><h3>Партия №{batch.number}</h3><p>{formatDate(batch.receivedAt, true)} · {batch.items.length} складских позиций{forecast === null ? "" : ` · ${forecast.recipe.name}, v${forecast.recipe.version}`}</p></div>
+        <div className="detail-volume"><strong>{formatMoney(batch.totalCost, batch.currency)}</strong><span>стоимость закупки</span></div>
+      </div>
+      <div className="purchase-forecast-kpis">
+        <span><PackageOpen size={17} /><small>Остаток партии</small><strong>{formatMoney(batch.remainingCost, batch.currency)}</strong></span>
+        <span><BarChart3 size={17} /><small>Можно произвести</small><strong>{forecast === null ? "—" : `${formatNumber(forecast.maximumOutput)} м³`}</strong></span>
+        <span><Coins size={17} /><small>Себестоимость 1 м³</small><strong>{forecast === null ? "—" : formatMoney(forecast.costPerM3, batch.currency)}</strong></span>
+        <span><CircleDollarSign size={17} /><small>Прогноз прибыли</small><strong className={Number(forecast?.projectedProfit ?? 0) < 0 ? "price-up" : "profit-value"}>{forecast?.projectedProfit === null || forecast === null ? "—" : formatMoney(forecast.projectedProfit, batch.currency)}</strong></span>
+      </div>
+      <div className="section-title"><h3>Состав закупки</h3><span>{batch.items.length} позиций</span></div>
+      <div className="purchase-detail-table-wrap">
+        <table className="data-table purchase-detail-table">
+          <thead><tr><th>Наименование</th><th>Поставщик</th><th>Получено</th><th>Осталось</th><th>Цена</th><th>Сумма</th></tr></thead>
+          <tbody>{batch.items.map((item) => <tr key={item.id}><td><strong>{item.material.name}</strong><small>{item.material.code} · {item.lotNumber}</small></td><td>{item.supplier?.name ?? "—"}</td><td>{formatNumber(item.initialQuantity)} {unitLabel[item.unit]}</td><td>{formatNumber(Number(item.availableQuantity) - Number(item.reservedQuantity))} {unitLabel[item.unit]}</td><td>{formatMoney(item.unitCost, batch.currency)}</td><td><strong>{formatMoney(item.lineCost, batch.currency)}</strong></td></tr>)}</tbody>
+        </table>
+      </div>
+      {forecast === null ? (
+        <div className="purchase-calculation-note"><AlertTriangle size={18} /><span><strong>Рецептура не выбрана</strong><small>Для расчёта выпуска и прибыли укажите рецептуру в закупочной партии.</small></span></div>
+      ) : (
+        <>
+          <div className="purchase-finance-strip">
+            <span><small>Из этой партии</small><strong>{formatNumber(forecast.outputFromBatch)} м³</strong></span>
+            <span><small>Цена реализации</small><strong>{forecast.targetSalePrice === null ? "—" : formatMoney(forecast.targetSalePrice, batch.currency)}</strong></span>
+            <span><small>Прогноз выручки</small><strong>{forecast.projectedRevenue === null ? "—" : formatMoney(forecast.projectedRevenue, batch.currency)}</strong></span>
+            <span><small>Маржа на 1 м³</small><strong>{forecast.marginPerM3 === null ? "—" : formatMoney(forecast.marginPerM3, batch.currency)}</strong></span>
+          </div>
+          <div className="section-title"><h3>Расчёт по текущей рецептуре</h3><span>{forecast.recipe.concreteGrade} · на 1 м³</span></div>
+          <div className="purchase-detail-table-wrap forecast-table-wrap">
+            <table className="data-table purchase-detail-table forecast-table">
+              <thead><tr><th>Компонент</th><th>Берём на 1 м³</th><th>Пришло в партии</th><th>Свободно на складе</th><th>Останется после 1 м³</th><th>Лимит выпуска</th></tr></thead>
+              <tbody>{forecast.components.map((component) => <tr key={component.materialId}><td><strong>{component.name}</strong><small>{component.code} · {formatMoney(component.costPerM3, batch.currency)} / м³</small></td><td>{formatNumber(component.requirementPerM3)} {unitLabel[component.unit]}</td><td>{formatNumber(component.receivedInBatch)} {unitLabel[component.unit]}</td><td>{formatNumber(component.freeStock)} {unitLabel[component.unit]}</td><td>{formatNumber(component.remainingAfterOneM3)} {unitLabel[component.unit]}</td><td><strong>{component.maximumOutput === null ? "—" : `${formatNumber(component.maximumOutput)} м³`}</strong></td></tr>)}</tbody>
+            </table>
+          </div>
+        </>
+      )}
+      {batch.notes === null ? null : <div className="technology-note"><strong>Комментарий к партии</strong><p>{batch.notes}</p></div>}
+    </Modal>
   );
 }
 
@@ -265,8 +587,8 @@ function CreateMaterialModal({ onClose, onCreated }: { onClose: () => void; onCr
       <form className="form-grid" onSubmit={(event) => void submit(event)}>
         <label><span>Код</span><input required value={form.code} onChange={(event) => setForm({ ...form, code: event.target.value })} /></label>
         <label><span>Название</span><input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
-        <div className="form-field"><span>Тип</span><CustomSelect ariaLabel="Тип складской позиции" value={form.type} onChange={(type) => setForm({ ...form, type })} options={MATERIAL_TYPE_OPTIONS} /></div>
-        <div className="form-field"><span>Единица учёта</span><CustomSelect ariaLabel="Единица учёта" value={form.baseUnit} onChange={(baseUnit) => setForm({ ...form, baseUnit: baseUnit as Unit })} options={UNIT_OPTIONS} /></div>
+        <div className="form-field"><span>Тип</span><CustomSelect required ariaLabel="Тип складской позиции" value={form.type} onChange={(type) => setForm({ ...form, type })} options={MATERIAL_TYPE_OPTIONS} /></div>
+        <div className="form-field"><span>Единица учёта</span><CustomSelect required ariaLabel="Единица учёта" value={form.baseUnit} onChange={(baseUnit) => setForm({ ...form, baseUnit: baseUnit as Unit })} options={UNIT_OPTIONS} /></div>
         <label><span>Начальная цена</span><input type="number" min="0" step="0.01" required value={form.costPerBaseUnit} onChange={(event) => setForm({ ...form, costPerBaseUnit: event.target.value })} /></label>
         <label><span>Минимальный остаток</span><input type="number" min="0" step="0.001" required value={form.minimumStock} onChange={(event) => setForm({ ...form, minimumStock: event.target.value })} /></label>
         <label className="span-2"><span>Плотность, кг/м³</span><input type="number" min="0" step="0.001" value={form.densityKgPerM3} onChange={(event) => setForm({ ...form, densityKgPerM3: event.target.value })} placeholder="Для пересчёта массы и объёма" /></label>
@@ -298,10 +620,10 @@ function ReceiptModal({ materials, initial, onClose, onCreated }: { materials: M
   return (
     <Modal title="Приход на склад" onClose={onClose} wide>
       <form className="form-grid" onSubmit={(event) => void submit(event)}>
-        <div className="form-field span-2"><span>Складская позиция</span><CustomSelect ariaLabel="Складская позиция для прихода" value={form.materialId} onChange={(materialId) => { const next = materials.find((item) => item.id === materialId); setForm({ ...form, materialId, unit: next?.baseUnit ?? form.unit }); }} options={materials.map((item) => ({ value: item.id, label: item.name, description: `${item.code} · остаток ${formatNumber(item.currentStock)} ${unitLabel[item.baseUnit]}` }))} /></div>
+        <div className="form-field span-2"><span>Складская позиция</span><CustomSelect required ariaLabel="Складская позиция для прихода" value={form.materialId} onChange={(materialId) => { const next = materials.find((item) => item.id === materialId); setForm({ ...form, materialId, unit: next?.baseUnit ?? form.unit }); }} options={materials.map((item) => ({ value: item.id, label: item.name, description: `${item.code} · остаток ${formatNumber(item.currentStock)} ${unitLabel[item.baseUnit]}` }))} /></div>
         <label><span>Номер партии</span><input required value={form.lotNumber} onChange={(event) => setForm({ ...form, lotNumber: event.target.value })} /></label>
         <label><span>Поставщик</span><input value={form.supplierName} onChange={(event) => setForm({ ...form, supplierName: event.target.value })} /></label>
-        <div className="form-field"><span>Дата и время поступления</span><DateTimePicker ariaLabel="Дата и время поступления" value={form.receivedAt} onChange={(receivedAt) => setForm({ ...form, receivedAt })} /></div>
+        <div className="form-field"><span>Дата и время поступления</span><DateTimePicker required ariaLabel="Дата и время поступления" value={form.receivedAt} onChange={(receivedAt) => setForm({ ...form, receivedAt })} /></div>
         <div className="form-field"><span>Срок годности</span><DateTimePicker mode="date" ariaLabel="Срок годности партии" value={form.expiresAt} onChange={(expiresAt) => setForm({ ...form, expiresAt })} align="right" /></div>
         <label><span>Количество, {unitLabel[material.baseUnit]}</span><input type="number" min="0.001" step="0.001" required value={form.quantity} onChange={(event) => setForm({ ...form, quantity: event.target.value })} /></label>
         <label><span>Цена единицы</span><input type="number" min="0" step="0.01" required value={form.unitCost} onChange={(event) => setForm({ ...form, unitCost: event.target.value })} /></label>
@@ -332,9 +654,9 @@ function ConsumptionModal({ materials, initial, onClose, onCreated }: { material
   return (
     <Modal title="Расход со склада" onClose={onClose} wide>
       <form className="form-grid" onSubmit={(event) => void submit(event)}>
-        <div className="form-field span-2"><span>Складская позиция</span><CustomSelect ariaLabel="Складская позиция для расхода" value={form.materialId} onChange={(materialId) => { const next = materials.find((item) => item.id === materialId); setForm({ ...form, materialId, unit: next?.baseUnit ?? form.unit }); }} options={materials.map((item) => ({ value: item.id, label: item.name, description: `Свободно ${formatNumber(Number(item.currentStock) - Number(item.reservedStock))} ${unitLabel[item.baseUnit]}` }))} /></div>
+        <div className="form-field span-2"><span>Складская позиция</span><CustomSelect required ariaLabel="Складская позиция для расхода" value={form.materialId} onChange={(materialId) => { const next = materials.find((item) => item.id === materialId); setForm({ ...form, materialId, unit: next?.baseUnit ?? form.unit }); }} options={materials.map((item) => ({ value: item.id, label: item.name, description: `Свободно ${formatNumber(Number(item.currentStock) - Number(item.reservedStock))} ${unitLabel[item.baseUnit]}` }))} /></div>
         <label><span>Количество, {unitLabel[material.baseUnit]}</span><input type="number" min="0.001" step="0.001" required value={form.quantity} onChange={(event) => setForm({ ...form, quantity: event.target.value })} /></label>
-        <div className="form-field"><span>Дата и время расхода</span><DateTimePicker ariaLabel="Дата и время расхода" value={form.consumedAt} onChange={(consumedAt) => setForm({ ...form, consumedAt })} align="right" /></div>
+        <div className="form-field"><span>Дата и время расхода</span><DateTimePicker required ariaLabel="Дата и время расхода" value={form.consumedAt} onChange={(consumedAt) => setForm({ ...form, consumedAt })} align="right" /></div>
         <label><span>Основание</span><input required minLength={3} value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} /></label>
         <label><span>Документ / заявка</span><input value={form.reference} onChange={(event) => setForm({ ...form, reference: event.target.value })} placeholder="Необязательно" /></label>
         <div className="consumption-warning span-2"><ShieldCheck size={17} /><span>Расход спишется по FEFO-партиям. Зарезервированный под замесы объём останется защищён.</span></div>
