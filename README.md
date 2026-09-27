@@ -6,6 +6,7 @@
 
 - `apps/web` — React CRM-интерфейс и аналитика.
 - `apps/api` — NestJS API на стандартном Express-адаптере, транзакционные производственные операции и экспорт.
+- `apps/one-c-sync-agent` — Windows-агент: принимает дельты от локальной 1С на loopback, сохраняет очередь и отправляет её в CRM по HTTPS.
 - `packages/domain` — Decimal-расчёты, единицы измерения и безопасный движок формул.
 - PostgreSQL + Prisma — основное хранилище; количество и деньги не используют `float`.
 
@@ -36,15 +37,17 @@ npm audit --audit-level=low
 
 ## Production-контур
 
-`compose.production.yaml` собирает отдельные API и web-образы, выполняет `prisma migrate deploy`, включает healthcheck, security headers, rate limit, постоянное хранилище вложений и ежедневный бэкап PostgreSQL. Перед запуском задайте как минимум `POSTGRES_USER`, `POSTGRES_PASSWORD`, `AUTH_SESSION_SECRET` (32+ случайных символа) и внешний `WEB_ORIGIN`:
+`compose.production.yaml` собирает отдельные API и web-образы, однократно выполняет `prisma migrate deploy` через отдельный контейнер, включает HTTPS-прокси Caddy, healthcheck, security headers, rate limit, постоянное хранилище вложений и ежедневный бэкап PostgreSQL. Перед запуском задайте как минимум `POSTGRES_USER`, `POSTGRES_PASSWORD`, `AUTH_SESSION_SECRET` (32+ случайных символа), `ONE_C_SYNC_API_KEY`, `CRM_DOMAIN`, `API_DOMAIN` и `WEB_ORIGIN=https://<CRM_DOMAIN>`:
+
+На чистом VPS root может создать случайные секреты через `MIRACLE_CRM_DOMAIN=... MIRACLE_API_DOMAIN=... bash deploy/bootstrap-vps.sh`. Скрипт откажется перезаписывать существующий `.env` или начальный пароль администратора. После первого применения миграций выполните seed **один раз** с `DEFAULT_ADMIN_PASSWORD` из `.admin-initial-password`; повторный seed сбрасывает пароль администратора.
 
 ```bash
 docker compose -f compose.production.yaml up -d --build
 ```
 
-Production API работает в `session`-режиме: пароль проверяется API, а браузер получает подписанную `HttpOnly`-сессию. Секрет сессии должен быть уникальным и передаваться только через окружение сервера. Режим `trusted-gateway` оставлен для отдельной корпоративной интеграции, но не нужен для штатной страницы входа CRM.
+Production API работает в `session`-режиме: пароль проверяется API, а браузер получает подписанную `HttpOnly; Secure`-сессию. Поэтому CRM должна открываться по HTTPS, а DNS обоих доменов — указывать на сервер. Секрет сессии должен быть уникальным и передаваться только через окружение сервера. Режим `trusted-gateway` оставлен для отдельной корпоративной интеграции, но не нужен для штатной страницы входа CRM.
 
-Чеки и вложения сохраняются в отдельном постоянном томе `betonflow_storage`; ежедневные дампы PostgreSQL хранятся 30 дней в `betonflow_backups`. Для рабочего контура с несколькими серверами этот том следует заменить на S3/MinIO или корпоративное файловое хранилище с тем же сроком хранения.
+Чеки и вложения сохраняются в отдельном постоянном томе `betonflow_storage`; ежедневные дампы PostgreSQL и архивы вложений хранятся 30 дней в `betonflow_backups`. Эти копии всё ещё находятся на том же VPS: для защиты от потери сервера необходима внешняя зашифрованная копия и периодическая проверка восстановления. Для рабочего контура с несколькими серверами хранилище следует заменить на S3/MinIO или корпоративное файловое хранилище.
 
 Проверка и восстановление резервной копии:
 
@@ -82,4 +85,4 @@ docker compose -f compose.production.yaml exec -T backup sh -c 'cat /backups/mir
 - `/api/integrations/1c` — идемпотентный обмен изменениями с офлайн 1С и ручная проверка спорной номенклатуры;
 - `/api/reports` — выпуск, расход сырья, финансовые расходы, баланс, эффективность рецептур, отгрузки, CSV/XLSX и trace партии.
 
-Подробности: [архитектура](docs/architecture.md) · [обмен с офлайн 1С](docs/one-c-offline-sync.md).
+Подробности: [архитектура](docs/architecture.md) · [обмен с офлайн 1С](docs/one-c-offline-sync.md) · [установка Windows-агента](docs/one-c-windows-agent.md).

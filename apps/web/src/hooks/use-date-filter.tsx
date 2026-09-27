@@ -80,6 +80,7 @@ function isDateOnly(value: string): boolean {
 function usesOperationalDate(path: string): boolean {
   const pathname = path.split("?")[0] ?? path;
   return pathname === "/dashboard"
+    || pathname === "/dashboard/analytics"
     || pathname === "/batches"
     || pathname === "/transfers"
     || pathname === "/wagons"

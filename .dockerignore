@@ -1,9 +1,13 @@
 .git
 .env
 **/.env
+.admin-initial-password
 node_modules
 **/node_modules
 **/dist
 **/coverage
+**/src/generated/prisma
+**/storage
+**/release
 graphify-out
 *.log

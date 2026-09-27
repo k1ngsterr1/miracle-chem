@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "./api-error.js";
-import { dayPeriodFromQuery } from "./date-filter.js";
+import { dayPeriodFromQuery, startOfAlmatyDay } from "./date-filter.js";
 
 describe("dayPeriodFromQuery", () => {
   it("creates the full Almaty production day", () => {
@@ -15,5 +15,9 @@ describe("dayPeriodFromQuery", () => {
 
   it("rejects an invalid calendar value", () => {
     expect(() => dayPeriodFromQuery("29.08.2026")).toThrow(ApiError);
+  });
+
+  it("keeps warehouse lots valid through the stated Almaty expiry date", () => {
+    expect(startOfAlmatyDay(new Date("2026-09-01T18:00:00.000Z")).toISOString()).toBe("2026-08-31T19:00:00.000Z");
   });
 });

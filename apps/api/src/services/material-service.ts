@@ -11,6 +11,7 @@ import { prisma } from "../lib/prisma.js";
 import { ApiError } from "../lib/api-error.js";
 import { runIdempotent } from "../lib/idempotency.js";
 import { writeAudit } from "../lib/audit.js";
+import { startOfAlmatyDay } from "../lib/date-filter.js";
 
 export interface CreateMaterialInput {
   code: string;
@@ -258,7 +259,7 @@ export async function consumeMaterial(
             workspaceId,
             materialId: material.id,
             availableQuantity: { gt: 0 },
-            OR: [{ expiresAt: null }, { expiresAt: { gt: input.consumedAt } }],
+            OR: [{ expiresAt: null }, { expiresAt: { gte: startOfAlmatyDay(input.consumedAt) } }],
           },
           orderBy: [{ expiresAt: "asc" }, { receivedAt: "asc" }],
         });

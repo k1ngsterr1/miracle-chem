@@ -6,6 +6,7 @@ import { ApiError } from "../lib/api-error.js";
 import { createXlsx } from "../lib/xlsx.js";
 import {
   getDashboard,
+  getDashboardAnalytics,
   getExpenseReport,
   getMaterialConsumptionReport,
   getLrtTransferReport,
@@ -28,10 +29,17 @@ const balanceGroups: BalanceGroupBy[] = ["productLot", "batch", "grade", "line",
 @Controller()
 export class ReportController {
   @Get("dashboard")
-  async dashboard(@Req() request: ApiRequest, @Query("date") date?: string) {
+  async dashboard(@Req() request: ApiRequest, @Query() query: { date?: string; analytics?: string }) {
     const { workspaceId } = await getRequestContext(request, prisma);
     const workspace = await prisma.workspace.findUniqueOrThrow({ where: { id: workspaceId } });
-    return getDashboard(workspaceId, workspace.timezone, dayPeriodFromQuery(date));
+    return getDashboard(workspaceId, workspace.timezone, dayPeriodFromQuery(query.date), query.analytics !== "false");
+  }
+
+  @Get("dashboard/analytics")
+  async dashboardAnalytics(@Req() request: ApiRequest, @Query("date") date?: string) {
+    const { workspaceId } = await getRequestContext(request, prisma);
+    const workspace = await prisma.workspace.findUniqueOrThrow({ where: { id: workspaceId } });
+    return getDashboardAnalytics(workspaceId, workspace.timezone, dayPeriodFromQuery(date));
   }
 
   @Get("reports/production")

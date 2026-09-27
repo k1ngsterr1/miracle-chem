@@ -164,7 +164,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
   const page = useMemo(() => {
     switch (currentView) {
       case "batches":
-        return <BatchesPage meta={meta} />;
+        return <BatchesPage meta={meta} actorRole={actorRole} />;
       case "materials":
         return <MaterialsPage actorRole={actorRole} />;
       case "recipes":
@@ -172,7 +172,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
       case "formulas":
         return <FormulaPage />;
       case "transfers":
-        return <TransfersPage meta={meta} />;
+        return <TransfersPage meta={meta} actorRole={actorRole} />;
       case "wagons":
         return <WagonsPage />;
       case "expenses":
@@ -180,7 +180,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
       case "accounting":
         return <AccountingPage actorRole={actorRole} />;
       case "clients":
-        return <ClientsPage />;
+        return <ClientsPage actorRole={actorRole} />;
       case "reports":
         return <ReportsPage />;
       case "settings":

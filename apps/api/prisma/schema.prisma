@@ -263,6 +263,7 @@ model Workspace {
   oneCSyncRuns            OneCSyncRun[]
   oneCExternalReferences  OneCExternalReference[]
   oneCSyncReviews         OneCSyncReview[]
+  oneCSourceSnapshots     OneCSourceSnapshot[]
 
   @@map("workspaces")
 }
@@ -321,6 +322,22 @@ model OneCSyncReview {
   @@unique([workspaceId, source, entityType, externalId])
   @@index([workspaceId, status, createdAt])
   @@map("one_c_sync_reviews")
+}
+
+model OneCSourceSnapshot {
+  id                     String    @id @default(uuid()) @db.Uuid
+  workspaceId            String    @db.Uuid
+  workspace              Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sourceInstanceId       String    @db.Uuid
+  organizationExternalId String    @db.Uuid
+  generatedAt            DateTime
+  sha256                 String    @db.VarChar(64)
+  payload                Json
+  createdAt              DateTime  @default(now())
+
+  @@unique([workspaceId, sourceInstanceId, sha256])
+  @@index([workspaceId, generatedAt])
+  @@map("one_c_source_snapshots")
 }
 
 model CompanyProfile {

@@ -22,6 +22,9 @@ export const config = {
   authSessionHours: Number(process.env.AUTH_SESSION_HOURS ?? 12),
   internalApiKey: process.env.INTERNAL_API_KEY ?? "",
   oneCSyncApiKey: process.env.ONE_C_SYNC_API_KEY ?? (nodeEnv === "test" ? "one-c-integration-test-key-must-be-long" : ""),
+  oneCSyncWorkspaceId: process.env.ONE_C_SYNC_WORKSPACE_ID ?? "",
+  oneCSyncSourceInstanceId: process.env.ONE_C_SYNC_SOURCE_INSTANCE_ID ?? "",
+  oneCSyncOrganizationId: process.env.ONE_C_SYNC_ORGANIZATION_ID ?? "",
   rateLimitMax: Number(process.env.RATE_LIMIT_MAX ?? 600),
   storageDir: resolve(process.env.UPLOAD_STORAGE_DIR ?? "./storage"),
 };

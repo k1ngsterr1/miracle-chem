@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form xmlns="http://v8.1c.ru/8.3/xcf/logform"
+      xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config"
+      xmlns:v8="http://v8.1c.ru/8.1/data/core"
+      xmlns:xs="http://www.w3.org/2001/XMLSchema"
+      version="2.16">
+  <Title><v8:item><v8:lang>ru</v8:lang><v8:content>Miracle Chem: обмен с CRM</v8:content></v8:item></Title>
+  <AutoTitle>false</AutoTitle>
+  <AutoCommandBar name="ФормаКоманднаяПанель" id="-1">
+    <Autofill>false</Autofill>
+  </AutoCommandBar>
+  <ChildItems>
+    <Button name="ПроверитьДанные" id="1">
+      <Type>UsualButton</Type>
+      <Title><v8:item><v8:lang>ru</v8:lang><v8:content>Проверить данные 1С</v8:content></v8:item></Title>
+      <CommandName>Form.Command.ПроверитьДанные</CommandName>
+      <ExtendedTooltip name="ПроверитьДанныеExtendedTooltip" id="101"/>
+    </Button>
+    <Button name="ПередатьСнимок" id="2">
+      <Type>UsualButton</Type>
+      <Title><v8:item><v8:lang>ru</v8:lang><v8:content>Передать снимок в локальный агент</v8:content></v8:item></Title>
+      <CommandName>Form.Command.ПередатьСнимок</CommandName>
+      <ExtendedTooltip name="ПередатьСнимокExtendedTooltip" id="102"/>
+    </Button>
+  </ChildItems>
+  <Attributes>
+    <Attribute name="Объект" id="1">
+      <Type><v8:Type>cfg:ExternalDataProcessorObject.MiracleChemFullSnapshot</v8:Type></Type>
+      <MainAttribute>true</MainAttribute>
+    </Attribute>
+  </Attributes>
+  <Commands>
+    <Command name="ПроверитьДанные" id="1">
+      <Title><v8:item><v8:lang>ru</v8:lang><v8:content>Проверить данные 1С</v8:content></v8:item></Title>
+      <Action>ПроверитьДанные</Action>
+      <CurrentRowUse>DontUse</CurrentRowUse>
+    </Command>
+    <Command name="ПередатьСнимок" id="2">
+      <Title><v8:item><v8:lang>ru</v8:lang><v8:content>Передать снимок</v8:content></v8:item></Title>
+      <Action>ПередатьСнимок</Action>
+      <CurrentRowUse>DontUse</CurrentRowUse>
+    </Command>
+  </Commands>
+</Form>

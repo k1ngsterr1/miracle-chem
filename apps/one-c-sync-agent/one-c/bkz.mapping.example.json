@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "workspaceId": "REPLACE_WITH_CRM_WORKSPACE_UUID",
+  "sourceInstanceId": "REPLACE_WITH_A_FIXED_UUID_FOR_THIS_INFOBASE",
+  "organizationId": "REPLACE_WITH_ORGANIZATION_GUID_FROM_SNAPSHOT",
+  "approvedBy": "",
+  "approvedAt": "",
+  "sourceUtcOffset": "+05:00",
+  "currency": "KZT",
+  "materials": [
+    {
+      "externalId": "REPLACE_WITH_1C_MATERIAL_GUID",
+      "code": "REPLACE_WITH_RECONCILED_CRM_CODE",
+      "type": "REAGENT",
+      "baseUnit": "KG",
+      "sourceBaseUnitId": "REPLACE_WITH_1C_BASE_UNIT_GUID",
+      "receiptUnits": [
+        { "externalId": "REPLACE_WITH_1C_RECEIPT_UNIT_GUID", "coefficient": "1" }
+      ]
+    }
+  ],
+  "counterparties": [
+    { "externalId": "REPLACE_WITH_1C_COUNTERPARTY_GUID", "roles": ["supplier"] }
+  ]
+}

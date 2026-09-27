@@ -68,7 +68,7 @@ function emptyComponent(): ComponentDraft {
   return { key, name: "", quantity: "", unit: "", note: "" };
 }
 
-export function ClientsPage() {
+export function ClientsPage({ actorRole }: { actorRole: string | undefined }) {
   const customers = useApi<CustomerResponse>("/customers");
   const formulas = useApi<{ items: AdditiveFormulaOption[] }>("/formulas");
   const [search, setSearch] = useState("");
@@ -81,6 +81,7 @@ export function ClientsPage() {
   const [components, setComponents] = useState<ComponentDraft[]>(() => [emptyComponent()]);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const canManageCustomers = ["ADMIN", "DIRECTOR", "MANAGER", "TECHNOLOGIST"].includes(actorRole ?? "");
 
   const selectedFromList = customers.data?.items.find((customer) => customer.id === selectedId) ?? null;
   const customerDetail = useApi<Customer>(selectedId === null ? null : `/customers/${selectedId}`);
@@ -203,7 +204,7 @@ export function ClientsPage() {
           eyebrow="Клиент · бетонное производство"
           title={selected.name}
           description={selected.contactPerson ?? selected.taxId ?? "Составы бетона и дозировки добавок"}
-          actions={<><button className="button secondary" onClick={openEditCustomerModal}><Pencil size={16} /> Редактировать</button><button className="button primary" disabled={formulaOptions.length === 0} onClick={openRecipeModal}><Plus size={17} /> Добавить состав бетона</button></>}
+          actions={canManageCustomers ? <><button className="button secondary" onClick={openEditCustomerModal}><Pencil size={16} /> Редактировать</button><button className="button primary" disabled={formulaOptions.length === 0} onClick={openRecipeModal}><Plus size={17} /> Добавить состав бетона</button></> : undefined}
         />
 
         <section className="client-profile-strip">
@@ -301,7 +302,7 @@ export function ClientsPage() {
         eyebrow="Продажи и сопровождение"
         title="Клиенты"
         description="Бетонные производства, их составы и фактическая дозировка ваших добавок."
-        actions={<button className="button primary" onClick={openCustomerModal}><Plus size={17} /> Новый клиент</button>}
+        actions={canManageCustomers ? <button className="button primary" onClick={openCustomerModal}><Plus size={17} /> Новый клиент</button> : undefined}
       />
       <section className="client-summary-grid">
         <SummaryCard icon={UsersRound} label="Активные клиенты" value={customers.data?.summary.activeCustomers ?? 0} />

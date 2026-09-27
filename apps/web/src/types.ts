@@ -664,6 +664,7 @@ export interface AccountingDocument {
   transfer: { id: string; number: string } | null;
   expense: { id: string; number: string } | null;
   details: null | {
+    source?: string;
     representativeName?: string;
     representativePosition?: string;
     representativeIin?: string;

@@ -79,22 +79,39 @@ export function RecipesPage() {
           })}
         </div>
       )}
-      {selected === null ? null : <RecipeDetail recipe={selected} onClose={() => setSelected(null)} onNewVersion={() => { setSelected(null); setVersionRecipe(selected); }} />}
+      {selected === null ? null : <RecipeDetail recipe={selected} onClose={() => setSelected(null)} onNewVersion={() => { setSelected(null); setVersionRecipe(selected); }} onStatusChanged={async () => { setSelected(null); await recipes.reload(); }} />}
       {versionRecipe === null ? null : <NewVersionModal recipe={versionRecipe} onClose={() => setVersionRecipe(null)} onCreated={async () => { setVersionRecipe(null); await recipes.reload(); }} />}
       {createOpen ? <NewRecipeModal materials={warehouse} customers={meta.data?.customers ?? []} onClose={() => setCreateOpen(false)} onCreated={async () => { setCreateOpen(false); await recipes.reload(); }} /> : null}
     </>
   );
 }
 
-function RecipeDetail({ recipe, onClose, onNewVersion }: { recipe: Recipe; onClose: () => void; onNewVersion: () => void }) {
+function RecipeDetail({ recipe, onClose, onNewVersion, onStatusChanged }: { recipe: Recipe; onClose: () => void; onNewVersion: () => void; onStatusChanged: () => Promise<void> }) {
   const version = recipe.versions[0];
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   if (version === undefined) return null;
+
+  async function changeStatus(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      await apiMutation(`/recipes/${recipe.id}/status`, { status: recipe.status === "ARCHIVED" ? "ACTIVE" : "ARCHIVED" }, { method: "PATCH" });
+      await onStatusChanged();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Не удалось изменить статус рецептуры");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <Modal title={recipe.name} onClose={onClose} wide>
       <div className="recipe-detail-head"><div><span className="recipe-code">{recipe.code}</span><h3>{version.concreteGrade}</h3><p>{recipe.customer?.name ?? "Клиент не назначен"} · версия {version.version} · с {version.publishedAt === null ? "не опубликована" : formatDate(version.publishedAt, true)}</p></div><div className="recipe-detail-stats"><span><Droplets size={17} /><small>В/Ц</small><strong>{version.waterCementRatio ?? "—"}</strong></span><span><Scale size={17} /><small>Базовый замес</small><strong>{formatNumber(version.baseBatchVolume)} {unitLabel[version.volumeUnit]}</strong></span></div></div>
-      <div className="section-title"><h3>Состав на 1 м³</h3><button className="button ghost small" onClick={onNewVersion}><CopyPlus size={15} /> Создать версию</button></div>
+      <div className="section-title"><h3>Состав на 1 м³</h3><div className="section-actions"><button className="button ghost small" disabled={busy} onClick={() => void changeStatus()}>{recipe.status === "ARCHIVED" ? "Активировать" : "В архив"}</button><button className="button ghost small" disabled={busy || recipe.status !== "ACTIVE"} onClick={onNewVersion}><CopyPlus size={15} /> Создать версию</button></div></div>
       <div className="recipe-components-table"><div className="recipe-component header"><span>Компонент</span><span>Норма</span><span>Допуск</span><span>Влажность</span><span>Поглощение</span></div>{version.components.map((component) => <div className="recipe-component" key={component.id}><span><i />{component.material.name}<small>{component.material.code}</small></span><strong>{formatNumber(component.normPerM3)} {unitLabel[component.unit]}</strong><span>±{formatNumber(component.allowedDeviationPercent)}%</span><span>{formatNumber(component.moisturePercent)}%</span><span>{formatNumber(component.absorptionPercent)}%</span></div>)}</div>
       <div className="technology-note"><strong>Технологическая инструкция</strong><p>{version.technologyInstructions}</p></div>
+      {error === null ? null : <div className="form-error">{error}</div>}
       <div className="immutability-note"><History size={18} /><span><strong>Версия неизменяема</strong><small>Новый состав выпускается отдельной версией или отдельной рецептурой; прошлые замесы сохраняют свой snapshot.</small></span></div>
     </Modal>
   );

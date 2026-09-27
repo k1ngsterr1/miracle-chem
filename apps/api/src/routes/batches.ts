@@ -118,8 +118,18 @@ export class BatchController {
         operator: { select: { id: true, name: true } },
         productionLine: { select: { id: true, code: true, name: true } },
         productionTank: { select: { id: true, code: true, name: true } },
-        recipeVersion: { include: { recipe: { select: { name: true, code: true } } } },
-        _count: { select: { qualityChecks: true } },
+        // The list is rendered very frequently (date changes, filters, dashboard).
+        // A recipe version also holds all formula components, which belong only on
+        // the detail screen; returning that graph here needlessly enlarges every
+        // list response.
+        recipeVersion: {
+          select: {
+            id: true,
+            version: true,
+            concreteGrade: true,
+            recipe: { select: { name: true, code: true } },
+          },
+        },
       },
       orderBy: { scheduledAt: "desc" },
       take: 500,

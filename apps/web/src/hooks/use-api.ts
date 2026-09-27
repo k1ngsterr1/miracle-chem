@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "../api.js";
 import { applySelectedDate, useDateFilter } from "./use-date-filter.js";
 
@@ -13,25 +13,34 @@ export function useApi<T>(path: string | null): {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const activeRequest = useRef<AbortController | null>(null);
 
   const reload = useCallback(async () => {
+    activeRequest.current?.abort();
     if (datedPath === null) {
+      activeRequest.current = null;
       setLoading(false);
       return;
     }
+    const controller = new AbortController();
+    activeRequest.current = controller;
     setLoading(true);
     setError(null);
     try {
-      setData(await apiFetch<T>(datedPath));
+      const next = await apiFetch<T>(datedPath, { signal: controller.signal });
+      if (activeRequest.current === controller) setData(next);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Не удалось загрузить данные");
+      if (!controller.signal.aborted && activeRequest.current === controller) {
+        setError(cause instanceof Error ? cause.message : "Не удалось загрузить данные");
+      }
     } finally {
-      setLoading(false);
+      if (activeRequest.current === controller) setLoading(false);
     }
   }, [datedPath]);
 
   useEffect(() => {
     void reload();
+    return () => activeRequest.current?.abort();
   }, [reload]);
 
   return { data, loading, error, reload };

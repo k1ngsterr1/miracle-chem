@@ -85,7 +85,6 @@ export class MaterialController {
           orderBy: [{ expiresAt: "asc" }, { receivedAt: "asc" }],
           take: 5,
         },
-        priceHistory: { orderBy: { effectiveAt: "desc" }, take: 6 },
       },
       orderBy: [{ type: "asc" }, { name: "asc" }],
     });

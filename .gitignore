@@ -3,6 +3,7 @@ dist/
 .vite/
 .env
 .env.local
+.admin-initial-password
 coverage/
 *.log
 *.tsbuildinfo
@@ -11,3 +12,4 @@ apps/api/src/generated/prisma/
 apps/api/prisma/dev.db*
 graphify-out/
 apps/api/storage/
+apps/one-c-sync-agent/release/

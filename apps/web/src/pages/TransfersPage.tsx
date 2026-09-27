@@ -8,8 +8,10 @@ import {
   MapPin,
   PackageCheck,
   Plus,
+  RotateCcw,
   Send,
   Truck,
+  X,
 } from "lucide-react";
 import { apiFetch, apiMutation } from "../api.js";
 import { CustomSelect } from "../components/CustomSelect.js";
@@ -34,7 +36,7 @@ const DELIVERY_METHOD_OPTIONS = [
   { value: "Контейнер", label: "Контейнер", description: "Контейнерная перевозка" },
 ];
 
-export function TransfersPage({ meta }: { meta: MetaData | null }) {
+export function TransfersPage({ meta, actorRole }: { meta: MetaData | null; actorRole: string | undefined }) {
   const transfers = useApi<{ items: Transfer[] }>("/transfers");
   const [createOpen, setCreateOpen] = useState(false);
   const [template, setTemplate] = useState<Transfer | null>(null);
@@ -65,7 +67,7 @@ export function TransfersPage({ meta }: { meta: MetaData | null }) {
         <div className="transfer-cards">{(transfers.data?.items ?? []).map((transfer) => <article key={transfer.id} onClick={() => setSelectedId(transfer.id)}><div className="transfer-route"><span className="route-point source"><MapPin size={15} /></span><i /><span className="route-truck"><Truck size={17} /></span><i /><span className="route-point destination"><MapPin size={15} /></span></div><div className="transfer-card-head"><div><span>{transfer.number}</span><h3>{transfer.items[0]?.productLot.concreteGrade ?? "Продукт"}</h3></div><StatusBadge status={transfer.status} /></div><div className="transfer-points"><span><small>Отправитель</small><strong>{transfer.sender.name}</strong></span><ChevronRight size={17} /><span><small>Получатель</small><strong>{transfer.customer?.name ?? "Клиент не указан"}</strong></span></div><div className="transfer-meta"><span><small>Дата</small><strong>{formatDate(transfer.transferAt, true)}</strong></span><span><small>Количество</small><strong>{formatNumber(transfer.items.reduce((sum, item) => sum + Number(item.requestedQuantity), 0))} {unitLabel[transfer.items[0]?.unit ?? "M3"]}</strong></span><span><small>Транспорт</small><strong>{transfer.transport ?? "Не указан"}</strong></span></div><button type="button" className="card-link" onClick={(event) => { event.stopPropagation(); setSelectedId(transfer.id); }}>Открыть документ <ChevronRight size={15} /></button></article>)}</div>
       </Panel>
       {createOpen ? <CreateTransferModal meta={meta} template={template} onClose={() => setCreateOpen(false)} onCreated={async () => { setCreateOpen(false); setTemplate(null); await transfers.reload(); }} /> : null}
-      {selectedId === null ? null : <TransferDetailModal id={selectedId} onClose={() => setSelectedId(null)} onChanged={transfers.reload} onDuplicate={(transfer) => { setSelectedId(null); setTemplate(transfer); setCreateOpen(true); }} />}
+      {selectedId === null ? null : <TransferDetailModal id={selectedId} actorRole={actorRole} onClose={() => setSelectedId(null)} onChanged={transfers.reload} onDuplicate={(transfer) => { setSelectedId(null); setTemplate(transfer); setCreateOpen(true); }} />}
     </>
   );
 }
@@ -94,15 +96,59 @@ function CreateTransferModal({ meta, template, onClose, onCreated }: { meta: Met
   return <Modal title={template === null ? "Новая отгрузка" : `Повторить отгрузку ${template.number}`} onClose={onClose} wide><form className="form-grid" onSubmit={(event) => void submit(event)}><label><span>Номер документа</span><input required value={form.number} onChange={(event) => setForm({ ...form, number: event.target.value })} /></label><div className="form-field"><span>Дата и время</span><DateTimePicker required ariaLabel="Дата и время отгрузки" value={form.transferAt} onChange={(transferAt) => setForm({ ...form, transferAt })} /></div><div className="form-field span-2"><span>Производственная партия</span><CustomSelect required ariaLabel="Производственная партия" value={form.productLotId} onChange={(productLotId) => setForm({ ...form, productLotId, quantity: "" })} options={(meta?.productLots ?? []).map((item) => ({ value: item.id, label: `${item.number} · ${item.concreteGrade}`, description: `Доступно ${formatNumber(item.availableQuantity)} ${unitLabel[item.unit]}` }))} /></div><label><span>Количество</span><input required type="number" min="0.001" step="0.001" value={form.quantity} onChange={(event) => setForm({ ...form, quantity: event.target.value })} /></label><div className="form-field"><span>Получатель</span><CustomSelect required ariaLabel="Получатель отгрузки" value={form.customerId} onChange={(customerId) => setForm({ ...form, customerId })} options={customerOptions} placeholder="Выберите клиента" /></div><div className="form-field span-2"><span>Способ отгрузки</span><CustomSelect required ariaLabel="Способ отгрузки" value={form.transport} onChange={(transport) => setForm({ ...form, transport })} options={DELIVERY_METHOD_OPTIONS} /></div><label className="span-2"><span>Комментарий</span><textarea rows={3} value={form.comments} onChange={(event) => setForm({ ...form, comments: event.target.value })} /></label>{error === null ? null : <div className="form-error span-2">{error}</div>}<div className="modal-actions span-2"><button type="button" className="button ghost" onClick={onClose}>Отмена</button><button className="button primary"><FileText size={16} /> Создать отгрузку</button></div></form></Modal>;
 }
 
-function TransferDetailModal({ id, onClose, onChanged, onDuplicate }: { id: string; onClose: () => void; onChanged: () => Promise<void>; onDuplicate: (transfer: Transfer) => void }) {
+function TransferDetailModal({ id, actorRole, onClose, onChanged, onDuplicate }: { id: string; actorRole: string | undefined; onClose: () => void; onChanged: () => Promise<void>; onDuplicate: (transfer: Transfer) => void }) {
   const [transfer, setTransfer] = useState<Transfer | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  async function load() { try { setTransfer(await apiFetch<Transfer>(`/transfers/${id}`)); } catch (cause) { setError(cause instanceof Error ? cause.message : "Ошибка"); } }
+  const [cancelReason, setCancelReason] = useState("");
+  const [acceptanceOpen, setAcceptanceOpen] = useState(false);
+  const [acceptance, setAcceptance] = useState<Record<string, { accepted: string; rejected: string }>>({});
+  const [returnOpen, setReturnOpen] = useState(false);
+  const [returnReason, setReturnReason] = useState("");
+  const [returnQuantities, setReturnQuantities] = useState<Record<string, string>>({});
+
+  async function load() {
+    try {
+      const value = await apiFetch<Transfer>(`/transfers/${id}`);
+      setTransfer(value);
+      setAcceptance(Object.fromEntries(value.items.map((item) => [item.id, { accepted: item.sentQuantity, rejected: "0" }])));
+      setReturnQuantities(Object.fromEntries(value.items.map((item) => [item.id, ""])));
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Ошибка"); }
+  }
+
   useEffect(() => { void load(); }, [id]);
-  async function action(path: string, body: unknown = {}, idempotent = false) { setBusy(true); setError(null); try { await apiMutation(path, body, { idempotent }); await load(); await onChanged(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Операция не выполнена"); } finally { setBusy(false); } }
+
+  async function action(path: string, body: unknown = {}, idempotent = false) {
+    setBusy(true); setError(null);
+    try { await apiMutation(path, body, { idempotent }); await load(); await onChanged(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Операция не выполнена"); }
+    finally { setBusy(false); }
+  }
+
   if (transfer === null) return <Modal title="Документ отгрузки" onClose={onClose} wide><LoadingState /></Modal>;
-  return <Modal title={transfer.number} onClose={onClose} wide><div className="detail-hero"><div><StatusBadge status={transfer.status} /><h3>Отгрузка готового продукта</h3><p className="transfer-direction"><span>{transfer.sender.name}</span><ChevronRight size={13} /><span>{transfer.customer?.name ?? "Клиент не указан"}</span></p></div><div className="detail-volume"><strong>{formatNumber(transfer.items.reduce((sum, item) => sum + Number(item.requestedQuantity), 0))} {unitLabel[transfer.items[0]?.unit ?? "M3"]}</strong><span>по документу</span></div></div><div className="transfer-document"><div><small>Дата отгрузки</small><strong>{formatDate(transfer.transferAt, true)}</strong></div><div><small>Транспорт</small><strong>{transfer.transport ?? "—"}</strong></div><div><small>Отправлено</small><strong>{formatNumber(transfer.items.reduce((sum, item) => sum + Number(item.sentQuantity), 0))}</strong></div><div><small>Принято</small><strong>{formatNumber(transfer.items.reduce((sum, item) => sum + Number(item.acceptedQuantity), 0))}</strong></div></div><div className="section-title"><h3>Позиции</h3><span>{transfer.items.length}</span></div><div className="transfer-items">{transfer.items.map((item) => <div key={item.id}><span><PackageCheck size={17} /></span><div><strong>{item.productLot.number}</strong><small>Замес {item.batch.number} · {item.productLot.concreteGrade}</small></div><span><small>Заявлено</small><strong>{formatNumber(item.requestedQuantity)} {unitLabel[item.unit]}</strong></span><span><small>Принято</small><strong>{formatNumber(item.acceptedQuantity)} {unitLabel[item.unit]}</strong></span></div>)}</div>{error === null ? null : <div className="form-error">{error}</div>}<div className="workflow-actions"><button className="button ghost" onClick={() => onDuplicate(transfer)}><CopyPlus size={16} /> Создать на основе</button>{transfer.status === "DRAFT" ? <button disabled={busy} className="button ghost" onClick={() => void action(`/transfers/${transfer.id}/prepare`)}><Check size={16} /> Подготовить</button> : null}{["DRAFT", "PREPARED"].includes(transfer.status) ? <button disabled={busy} className="button primary" onClick={() => void action(`/transfers/${transfer.id}/send`, {}, true)}><Send size={16} /> Подтвердить отправку</button> : null}{transfer.status === "SENT" ? <button disabled={busy} className="button primary" onClick={() => void action(`/transfers/${transfer.id}/accept`, { items: transfer.items.map((item) => ({ transferItemId: item.id, acceptedQuantity: item.sentQuantity, rejectedQuantity: "0", unit: item.unit })) }, true)}><PackageCheck size={16} /> Принять полностью</button> : null}</div></Modal>;
+  const canManage = ["ADMIN", "DIRECTOR", "MANAGER", "STOREKEEPER", "LRT_RECEIVER"].includes(actorRole ?? "");
+  const canAccept = ["ADMIN", "DIRECTOR", "STOREKEEPER", "LRT_RECEIVER"].includes(actorRole ?? "");
+  const canCancel = canManage && ["DRAFT", "PREPARED"].includes(transfer.status);
+  const canReturn = canAccept && ["SENT", "ACCEPTED", "PARTIALLY_ACCEPTED", "REJECTED"].includes(transfer.status);
+  const hasReturnQuantity = transfer.items.some((item) => Number(returnQuantities[item.id] ?? 0) > 0);
+
+  return <Modal title={transfer.number} onClose={onClose} wide>
+    <div className="detail-hero"><div><StatusBadge status={transfer.status} /><h3>Отгрузка готового продукта</h3><p className="transfer-direction"><span>{transfer.sender.name}</span><ChevronRight size={13} /><span>{transfer.customer?.name ?? "Клиент не указан"}</span></p></div><div className="detail-volume"><strong>{formatNumber(transfer.items.reduce((sum, item) => sum + Number(item.requestedQuantity), 0))} {unitLabel[transfer.items[0]?.unit ?? "M3"]}</strong><span>по документу</span></div></div>
+    <div className="transfer-document"><div><small>Дата отгрузки</small><strong>{formatDate(transfer.transferAt, true)}</strong></div><div><small>Транспорт</small><strong>{transfer.transport ?? "—"}</strong></div><div><small>Отправлено</small><strong>{formatNumber(transfer.items.reduce((sum, item) => sum + Number(item.sentQuantity), 0))}</strong></div><div><small>Принято</small><strong>{formatNumber(transfer.items.reduce((sum, item) => sum + Number(item.acceptedQuantity), 0))}</strong></div></div>
+    <div className="section-title"><h3>Позиции</h3><span>{transfer.items.length}</span></div>
+    <div className="transfer-items">{transfer.items.map((item) => <div key={item.id}><span><PackageCheck size={17} /></span><div><strong>{item.productLot.number}</strong><small>Замес {item.batch.number} · {item.productLot.concreteGrade}</small></div><span><small>Заявлено</small><strong>{formatNumber(item.requestedQuantity)} {unitLabel[item.unit]}</strong></span><span><small>Принято</small><strong>{formatNumber(item.acceptedQuantity)} {unitLabel[item.unit]}</strong></span></div>)}</div>
+    {error === null ? null : <div className="form-error">{error}</div>}
+    <div className="workflow-actions">
+      {canManage ? <button className="button ghost" onClick={() => onDuplicate(transfer)}><CopyPlus size={16} /> Создать на основе</button> : null}
+      {canManage && transfer.status === "DRAFT" ? <button disabled={busy} className="button ghost" onClick={() => void action(`/transfers/${transfer.id}/prepare`)}><Check size={16} /> Подготовить</button> : null}
+      {canManage && ["DRAFT", "PREPARED"].includes(transfer.status) ? <button disabled={busy} className="button primary" onClick={() => void action(`/transfers/${transfer.id}/send`, {}, true)}><Send size={16} /> Подтвердить отправку</button> : null}
+      {canCancel ? <div className="workflow-inline-form"><label><span>Причина отмены</span><input minLength={3} value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} placeholder="Причина отмены документа" /></label><button type="button" disabled={busy || cancelReason.trim().length < 3} className="button danger" onClick={() => void action(`/transfers/${transfer.id}/cancel`, { reason: cancelReason.trim() }, true)}><X size={16} /> Отменить отгрузку</button></div> : null}
+      {canAccept && transfer.status === "SENT" ? <><button disabled={busy} className="button primary" onClick={() => void action(`/transfers/${transfer.id}/accept`, { items: transfer.items.map((item) => ({ transferItemId: item.id, acceptedQuantity: item.sentQuantity, rejectedQuantity: "0", unit: item.unit })) }, true)}><PackageCheck size={16} /> Принять полностью</button><button type="button" disabled={busy} className="button ghost" onClick={() => setAcceptanceOpen((current) => !current)}>Принять с расхождениями</button></> : null}
+      {acceptanceOpen && transfer.status === "SENT" ? <div className="workflow-inline-form transfer-resolution-form"><div className="transfer-resolution-head"><strong>Фактическая приёмка</strong><small>Принятое и отклонённое количество по каждой позиции должно равняться отправленному.</small></div>{transfer.items.map((item) => <div className="transfer-resolution-row" key={item.id}><strong>{item.productLot.number}</strong><label><span>Принято, {unitLabel[item.unit]}</span><input type="number" min="0" step="0.001" value={acceptance[item.id]?.accepted ?? ""} onChange={(event) => setAcceptance((current) => ({ ...current, [item.id]: { accepted: event.target.value, rejected: current[item.id]?.rejected ?? "0" } }))} /></label><label><span>Отклонено, {unitLabel[item.unit]}</span><input type="number" min="0" step="0.001" value={acceptance[item.id]?.rejected ?? ""} onChange={(event) => setAcceptance((current) => ({ ...current, [item.id]: { accepted: current[item.id]?.accepted ?? "0", rejected: event.target.value } }))} /></label></div>)}<button type="button" disabled={busy || transfer.items.some((item) => (acceptance[item.id]?.accepted ?? "") === "" || (acceptance[item.id]?.rejected ?? "") === "")} className="button primary" onClick={() => void action(`/transfers/${transfer.id}/accept`, { items: transfer.items.map((item) => ({ transferItemId: item.id, acceptedQuantity: acceptance[item.id]?.accepted ?? "0", rejectedQuantity: acceptance[item.id]?.rejected ?? "0", unit: item.unit })) }, true)}><PackageCheck size={16} /> Подтвердить приёмку</button></div> : null}
+      {canReturn ? <button type="button" disabled={busy} className="button ghost" onClick={() => setReturnOpen((current) => !current)}><RotateCcw size={16} /> Оформить возврат</button> : null}
+      {returnOpen && canReturn ? <div className="workflow-inline-form transfer-resolution-form"><div className="transfer-resolution-head"><strong>Возврат продукции</strong><small>Укажите фактически возвращённое количество. Остаток вернётся на склад готовой продукции.</small></div>{transfer.items.map((item) => <div className="transfer-resolution-row" key={item.id}><strong>{item.productLot.number}</strong><label><span>Количество, {unitLabel[item.unit]}</span><input type="number" min="0" max={Math.max(0, Number(item.sentQuantity) - Number(item.returnedQuantity))} step="0.001" value={returnQuantities[item.id] ?? ""} placeholder="0" onChange={(event) => setReturnQuantities((current) => ({ ...current, [item.id]: event.target.value }))} /></label><small>Доступно для возврата: {formatNumber(Math.max(0, Number(item.sentQuantity) - Number(item.returnedQuantity)))} {unitLabel[item.unit]}</small></div>)}<label><span>Причина возврата</span><input value={returnReason} onChange={(event) => setReturnReason(event.target.value)} placeholder="Необязательно" /></label><button type="button" disabled={busy || !hasReturnQuantity} className="button primary" onClick={() => void action(`/transfers/${transfer.id}/return`, { items: transfer.items.filter((item) => Number(returnQuantities[item.id] ?? 0) > 0).map((item) => ({ transferItemId: item.id, quantity: returnQuantities[item.id], unit: item.unit, reason: returnReason.trim() || undefined })) }, true)}><RotateCcw size={16} /> Подтвердить возврат</button></div> : null}
+    </div>
+  </Modal>;
 }
 
 function transferDraftFromTemplate(template: Transfer | null) {

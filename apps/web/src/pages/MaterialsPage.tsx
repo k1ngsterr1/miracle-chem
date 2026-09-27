@@ -109,6 +109,18 @@ interface OneCSyncReview {
   resolutionNote: string | null;
 }
 
+interface AdjustmentDocument {
+  id: string;
+  number: string;
+  status: "DRAFT" | "APPROVED" | "APPLIED" | "CANCELLED";
+  targetType: string;
+  targetId: string;
+  reason: string;
+  createdAt: string;
+  createdBy: { name: string };
+  approvedBy: { name: string } | null;
+}
+
 export function MaterialsPage({ actorRole }: { actorRole: string | undefined }) {
   const materials = useApi<MaterialListResponse>("/materials");
   const purchaseBatches = useApi<{ items: PurchaseBatch[]; suppliers: SupplierSummary[] }>("/materials/purchase-batches");
@@ -127,6 +139,7 @@ export function MaterialsPage({ actorRole }: { actorRole: string | undefined }) 
   const [receiptMaterial, setReceiptMaterial] = useState<Material | null>(null);
   const [consumptionMaterial, setConsumptionMaterial] = useState<Material | null>(null);
   const [reviewAction, setReviewAction] = useState<OneCSyncReview | null>(null);
+  const [adjustmentsOpen, setAdjustmentsOpen] = useState(false);
   const [reviewBusy, setReviewBusy] = useState(false);
   const filtered = useMemo(
     () => (materials.data?.items ?? []).filter((material) => {
@@ -147,6 +160,8 @@ export function MaterialsPage({ actorRole }: { actorRole: string | undefined }) 
   const recipeItems = recipes.data?.items ?? [];
   const pendingReviews = (oneCSyncReviews.data?.items ?? []).filter((review) => review.status === "PENDING");
   const canManageOneC = canManageMaterials;
+  const canViewAdjustments = ["ADMIN", "DIRECTOR", "TECHNOLOGIST"].includes(actorRole ?? "");
+  const canApplyAdjustments = ["ADMIN", "TECHNOLOGIST"].includes(actorRole ?? "");
 
   async function approveReview(review: OneCSyncReview): Promise<void> {
     setReviewBusy(true);
@@ -186,6 +201,9 @@ export function MaterialsPage({ actorRole }: { actorRole: string | undefined }) 
             </button> : null}
             {canManageMaterials ? <button className="button ghost" onClick={() => setCreateOpen(true)}>
               <PackagePlus size={17} /> Новая позиция
+            </button> : null}
+            {canViewAdjustments ? <button className="button ghost" onClick={() => setAdjustmentsOpen(true)}>
+              <History size={17} /> Корректировки
             </button> : null}
             {canManageMaterials && canViewRecipes ? <button className="button primary" disabled={all.length === 0} onClick={() => setPurchaseOpen(true)}>
               <PackageOpen size={17} /> Новая партия
@@ -308,6 +326,7 @@ export function MaterialsPage({ actorRole }: { actorRole: string | undefined }) 
       {receiptMaterial === null ? null : <ReceiptModal materials={all} initial={receiptMaterial} onClose={() => setReceiptMaterial(null)} onCreated={async () => { setReceiptMaterial(null); await materials.reload(); }} />}
       {consumptionMaterial === null ? null : <ConsumptionModal materials={all} initial={consumptionMaterial} onClose={() => setConsumptionMaterial(null)} onCreated={async () => { setConsumptionMaterial(null); await materials.reload(); }} />}
       {reviewAction === null ? null : <RejectOneCReviewModal review={reviewAction} busy={reviewBusy} onClose={() => setReviewAction(null)} onReject={rejectReview} />}
+      {adjustmentsOpen ? <AdjustmentsModal materials={all} canApply={canApplyAdjustments} onClose={() => setAdjustmentsOpen(false)} /> : null}
     </>
   );
 }
@@ -316,6 +335,77 @@ function RejectOneCReviewModal({ review, busy, onClose, onReject }: { review: On
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   return <Modal title="Отклонить запись из 1С" onClose={onClose}><form onSubmit={(event) => { event.preventDefault(); if (note.trim().length < 3) { setError("Укажите причину не короче трёх символов"); return; } void onReject(note.trim()).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Не удалось отклонить запись")); }}><div className="form-grid"><label className="span-2"><span>Причина <b>*</b></span><textarea required minLength={3} value={note} placeholder={`Почему «${oneCPayloadDetails(review.payload).name ?? review.externalId}» не нужно добавлять на склад`} onChange={(event) => setNote(event.target.value)} /></label></div>{error === null ? null : <p className="form-error">{error}</p>}<div className="modal-actions"><button type="button" className="button ghost" onClick={onClose}>Назад</button><button className="button primary" disabled={busy}>{busy ? "Сохраняем…" : "Отклонить запись"}</button></div></form></Modal>;
+}
+
+function AdjustmentsModal({ materials, canApply, onClose }: { materials: Material[]; canApply: boolean; onClose: () => void }) {
+  const adjustments = useApi<{ items: AdjustmentDocument[] }>("/adjustments?targetType=MATERIAL_LOT");
+  const lots = useMemo(() => materials.flatMap((material) => (material.lots ?? []).map((lot) => ({ ...lot, materialName: material.name }))), [materials]);
+  const [draft, setDraft] = useState({ materialLotId: "", quantityDelta: "", reason: "" });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const selectedLot = lots.find((lot) => lot.id === draft.materialLotId) ?? null;
+
+  async function create(event: React.FormEvent): Promise<void> {
+    event.preventDefault();
+    if (selectedLot === null || !/^-?\d+(?:\.\d+)?$/u.test(draft.quantityDelta) || Number(draft.quantityDelta) === 0 || draft.reason.trim().length < 5) {
+      setError("Выберите партию, укажите ненулевое изменение остатка и причину от 5 символов");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await apiMutation("/adjustments", {
+        targetType: "MATERIAL_LOT",
+        targetId: selectedLot.id,
+        reason: draft.reason.trim(),
+        changes: { quantityDelta: draft.quantityDelta, unit: selectedLot.unit },
+      }, { idempotent: true });
+      setDraft({ materialLotId: "", quantityDelta: "", reason: "" });
+      await adjustments.reload();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Не удалось создать корректировку");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function progress(adjustment: AdjustmentDocument, action: "approve" | "apply"): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      await apiMutation(`/adjustments/${adjustment.id}/${action}`, {}, { idempotent: true });
+      await adjustments.reload();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Не удалось обновить корректировку");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title="Корректировки остатков" onClose={onClose} wide>
+      <div className="adjustment-notice"><ShieldCheck size={18} /><span><strong>Корректировка создаётся отдельно от исходных документов.</strong><small>После согласования она изменит остаток выбранной складской партии и оставит запись в журнале.</small></span></div>
+      <form className="form-grid" onSubmit={(event) => void create(event)}>
+        <div className="form-field span-2"><span>Складская партия</span><CustomSelect required ariaLabel="Партия для корректировки" value={draft.materialLotId} onChange={(materialLotId) => setDraft({ ...draft, materialLotId })} options={lots.map((lot) => ({ value: lot.id, label: `${lot.materialName} · ${lot.lotNumber}`, description: `Свободно ${formatNumber(Number(lot.availableQuantity) - Number(lot.reservedQuantity))} ${unitLabel[lot.unit]}` }))} /></div>
+        <label><span>Изменение остатка, {selectedLot === null ? "ед." : unitLabel[selectedLot.unit]}</span><input required inputMode="decimal" placeholder="Например, -2.5 или 10" value={draft.quantityDelta} onChange={(event) => setDraft({ ...draft, quantityDelta: event.target.value })} /></label>
+        <label><span>Причина</span><input required minLength={5} value={draft.reason} onChange={(event) => setDraft({ ...draft, reason: event.target.value })} placeholder="Недостача, пересчёт, излишек…" /></label>
+        {error === null ? null : <div className="form-error span-2">{error}</div>}
+        <div className="modal-actions span-2"><button type="button" className="button ghost" onClick={onClose}>Закрыть</button><button className="button primary" disabled={busy || lots.length === 0}>{busy ? "Сохраняем…" : "Создать корректировку"}</button></div>
+      </form>
+      <div className="adjustment-list">
+        <div className="section-title"><h3>Журнал корректировок</h3><span>{adjustments.data?.items.length ?? 0}</span></div>
+        {adjustments.loading ? <LoadingState /> : adjustments.error !== null ? <ErrorState message={adjustments.error} retry={adjustments.reload} /> : (adjustments.data?.items.length ?? 0) === 0 ? <EmptyState title="Корректировок пока нет" text="Созданные документы появятся здесь до и после применения." /> : adjustments.data?.items.map((adjustment) => {
+          const lot = lots.find((item) => item.id === adjustment.targetId);
+          return <article key={adjustment.id}>
+            <div><strong>{adjustment.number}</strong><small>{lot === undefined ? "Складская партия" : `${lot.materialName} · ${lot.lotNumber}`} · {formatDate(adjustment.createdAt, true)}</small><p>{adjustment.reason}</p></div>
+            <StatusBadge status={adjustment.status} />
+            {canApply && adjustment.status === "DRAFT" ? <button className="button ghost small" disabled={busy} onClick={() => void progress(adjustment, "approve")}>Согласовать</button> : null}
+            {canApply && adjustment.status === "APPROVED" ? <button className="button primary small" disabled={busy} onClick={() => void progress(adjustment, "apply")}>Применить</button> : null}
+          </article>;
+        })}
+      </div>
+    </Modal>
+  );
 }
 
 function oneCPayloadDetails(payload: unknown): { name?: string; code?: string } {

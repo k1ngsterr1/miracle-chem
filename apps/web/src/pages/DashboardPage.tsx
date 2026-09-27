@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import {
   AlertTriangle,
   BadgeDollarSign,
@@ -11,22 +11,8 @@ import {
   PackageCheck,
   TrendingDown,
   Truck,
-  WalletCards,
 } from "lucide-react";
-import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { type ExpenseTrendPoint, type LineStatPoint, type ProductionTrendPoint, type StatusStatPoint } from "../components/DashboardCharts.js";
 import { useApi } from "../hooks/use-api.js";
 import { useDateFilter } from "../hooks/use-date-filter.js";
 import { useMobileLayout } from "../hooks/use-mobile-layout.js";
@@ -42,12 +28,20 @@ import {
   StatusBadge,
 } from "../components/ui.js";
 
+const ProductionTrendChart = lazy(() => import("../components/DashboardCharts.js").then((module) => ({ default: module.ProductionTrendChart })));
+const DashboardAnalyticsCharts = lazy(() => import("../components/DashboardCharts.js").then((module) => ({ default: module.DashboardAnalyticsCharts })));
+
 export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" | "materials" | "transfers" | "expenses" | "accounting") => void }) {
   const { selectedDate } = useDateFilter();
-  const dashboard = useApi<DashboardData>("/dashboard");
+  const dashboard = useApi<DashboardData>("/dashboard?analytics=false");
   const batches = useApi<{ items: Batch[] }>("/batches");
   const compactDashboard = useMobileLayout();
   const [showMobileDetails, setShowMobileDetails] = useState(false);
+  const [trendViewport, trendVisible] = useViewportHydration();
+  const [analyticsViewport, analyticsVisible] = useViewportHydration();
+  const dashboardAnalytics = useApi<Pick<DashboardData, "productionTrend" | "analytics">>(
+    trendVisible || analyticsVisible ? "/dashboard/analytics" : null,
+  );
   if (dashboard.loading || batches.loading) return <LoadingState />;
   if (dashboard.error !== null) return <ErrorState message={dashboard.error} retry={dashboard.reload} />;
   if (dashboard.data === null) return null;
@@ -55,9 +49,9 @@ export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" |
   const stockWarnings = data.stockWarnings ?? [];
   const missingReagents = (data.mainReagents ?? []).filter((reagent) => reagent.missing);
   const stockAlertCount = stockWarnings.length + missingReagents.length;
-  const analytics = data.analytics ?? { productionByLine: [], batchStatuses: [], expenseTrend: [] };
+  const analytics = dashboardAnalytics.data?.analytics ?? { productionByLine: [], batchStatuses: [], expenseTrend: [] };
   const active = batches.data?.items.filter((batch) => ["PLANNED", "PREPARATION", "IN_PROGRESS"].includes(batch.status)) ?? [];
-  const trend = data.productionTrend.map((point) => ({
+  const trend = (dashboardAnalytics.data?.productionTrend ?? []).map((point) => ({
     ...point,
     produced: Number(point.produced),
     sent: Number(point.sent),
@@ -159,25 +153,7 @@ export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" |
       </Panel>
 
       <div className="dashboard-grid">
-        <Panel className="chart-panel">
-          <PanelHeader title="Динамика производства" description="Выпуск, отгрузка и потери за последние 7 дней" action={<div className="chart-legend"><span className="produced">Выпуск</span><span className="sent">Отгрузка</span></div>} />
-          <div className="chart-wrap">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={trend} margin={{ top: 8, right: 6, left: -22, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="producedFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#b9f24d" stopOpacity={0.28} /><stop offset="100%" stopColor="#b9f24d" stopOpacity={0} /></linearGradient>
-                  <linearGradient id="sentFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#8da2fb" stopOpacity={0.18} /><stop offset="100%" stopColor="#8da2fb" stopOpacity={0} /></linearGradient>
-                </defs>
-                <CartesianGrid vertical={false} stroke="#e5e8df" strokeDasharray="3 5" />
-                <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "#7d8375", fontSize: 12 }} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fill: "#9ba092", fontSize: 11 }} />
-                <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e0e4d8", boxShadow: "0 12px 32px rgba(24,29,17,.12)" }} />
-                <Area type="monotone" dataKey="produced" name="Создано" stroke="#7daa27" strokeWidth={2.5} fill="url(#producedFill)" />
-                <Area type="monotone" dataKey="sent" name="Отправлено" stroke="#6375ca" strokeWidth={2} fill="url(#sentFill)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </Panel>
+        <div ref={trendViewport} className="dashboard-chart-deferred">{trendVisible && dashboardAnalytics.data !== null ? <Suspense fallback={<TrendChartPlaceholder />}><ProductionTrendChart trend={trend} /></Suspense> : <TrendChartPlaceholder />}</div>
 
         <Panel className="balance-panel">
           <PanelHeader title="Баланс смены" description="Готовый продукт · м³" />
@@ -195,21 +171,7 @@ export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" |
       </div>
 
       {compactDashboard && !showMobileDetails ? <Panel className="dashboard-mobile-disclosure"><div><strong>Аналитика и очередь</strong><span>Графики, текущие замесы и контроль рисков</span></div><button className="button ghost" onClick={() => setShowMobileDetails(true)}>Показать <ChevronRight size={15} /></button></Panel> : <>
-      <div className="dashboard-analytics-grid">
-        <Panel className="mini-chart-panel">
-          <PanelHeader title="Выпуск по линиям" description="Объём и потери за 30 дней" />
-          <div className="mini-chart-wrap"><ResponsiveContainer width="100%" height="100%"><BarChart data={lineStats} margin={{ top: 8, right: 10, left: -22, bottom: 0 }}><CartesianGrid vertical={false} stroke="#e5e8df" strokeDasharray="3 5" /><XAxis dataKey="line" axisLine={false} tickLine={false} tick={{ fill: "#7d8375", fontSize: 10 }} /><YAxis axisLine={false} tickLine={false} tick={{ fill: "#9ba092", fontSize: 10 }} /><Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e0e4d8" }} /><Bar dataKey="produced" name="Выпуск" fill="#91bb36" radius={[6, 6, 0, 0]} /><Bar dataKey="loss" name="Потери" fill="#e7a28f" radius={[6, 6, 0, 0]} /></BarChart></ResponsiveContainer></div>
-        </Panel>
-        <Panel className="mini-chart-panel">
-          <PanelHeader title="Статусы замесов" description="Структура документов за 30 дней" />
-          <div className="mini-chart-wrap"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={statusStats} dataKey="count" nameKey="label" innerRadius={45} outerRadius={76} paddingAngle={3}>{statusStats.map((point, index) => <Cell key={point.status} fill={CHART_COLORS[index % CHART_COLORS.length] ?? "#91bb36"} />)}</Pie><Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e0e4d8" }} /></PieChart></ResponsiveContainer></div>
-          <div className="mini-chart-legend">{statusStats.slice(0, 5).map((point, index) => <span key={point.status}><i style={{ background: CHART_COLORS[index % CHART_COLORS.length] }} />{point.label} <strong>{point.count}</strong></span>)}</div>
-        </Panel>
-        <Panel className="mini-chart-panel">
-          <PanelHeader title="Динамика расходов" description="Операционные затраты за 7 дней" action={<WalletCards size={17} />} />
-          <div className="mini-chart-wrap"><ResponsiveContainer width="100%" height="100%"><BarChart data={expenseTrend} margin={{ top: 8, right: 10, left: -12, bottom: 0 }}><CartesianGrid vertical={false} stroke="#e5e8df" strokeDasharray="3 5" /><XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "#7d8375", fontSize: 10 }} /><YAxis axisLine={false} tickLine={false} tick={{ fill: "#9ba092", fontSize: 10 }} /><Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e0e4d8" }} /><Bar dataKey="amount" name="Расходы" fill="#6375ca" radius={[6, 6, 0, 0]} /></BarChart></ResponsiveContainer></div>
-        </Panel>
-      </div>
+      <div ref={analyticsViewport} className="dashboard-analytics-grid">{analyticsVisible && dashboardAnalytics.data !== null ? <Suspense fallback={<AnalyticsChartPlaceholder />}><DashboardAnalyticsCharts lineStats={lineStats} statusStats={statusStats} expenseTrend={expenseTrend} /></Suspense> : <AnalyticsChartPlaceholder />}</div>
 
       <div className="dashboard-lower-grid">
         <Panel>
@@ -249,7 +211,6 @@ export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" |
   );
 }
 
-const CHART_COLORS = ["#91bb36", "#6375ca", "#d39b45", "#55a06a", "#d97161", "#8a6fc2"];
 const BATCH_STATUS_LABELS: Record<string, string> = {
   PLANNED: "Запланировано",
   PREPARATION: "Подготовка",
@@ -260,6 +221,31 @@ const BATCH_STATUS_LABELS: Record<string, string> = {
   CANCELLED: "Отменено",
   REJECTED: "Брак",
 };
+
+function TrendChartPlaceholder() {
+  return <Panel className="chart-panel"><div className="chart-wrap dashboard-chart-placeholder"><span className="skeleton-block" /><span className="skeleton-block" /></div></Panel>;
+}
+
+function AnalyticsChartPlaceholder() {
+  return <>{[0, 1, 2].map((index) => <Panel className="mini-chart-panel" key={index}><div className="mini-chart-wrap dashboard-chart-placeholder"><span className="skeleton-block" /><span className="skeleton-block" /></div></Panel>)}</>;
+}
+
+function useViewportHydration(): [(node: HTMLDivElement | null) => void, boolean] {
+  const [target, setTarget] = useState<HTMLDivElement | null>(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    if (target === null || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        setVisible(true);
+        observer.disconnect();
+      }
+    }, { rootMargin: "240px 0px" });
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [target]);
+  return [setTarget, visible];
+}
 
 function formatExpenseTotals(values: Array<{ amount: string; currency: string }>): string {
   if (values.length === 0) return formatMoney(0);

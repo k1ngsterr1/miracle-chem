@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses"
+                xmlns:v8="http://v8.1c.ru/8.1/data/core"
+                xmlns:xr="http://v8.1c.ru/8.3/xcf/readable"
+                version="2.16">
+  <ExternalDataProcessor uuid="88ec39fd-b9f4-4080-9d62-445ad221e1ae">
+    <InternalInfo>
+      <xr:ContainedObject>
+        <xr:ClassId>c3831ec8-d8d5-4f93-8a22-f9bfae07327f</xr:ClassId>
+        <xr:ObjectId>a60c2375-ec50-4d15-b9b6-e4ad474c3c5a</xr:ObjectId>
+      </xr:ContainedObject>
+      <xr:GeneratedType name="ExternalDataProcessorObject.MiracleChemFullSnapshot" category="Object">
+        <xr:TypeId>2c99b859-b6f3-40ac-be20-a53773db29d3</xr:TypeId>
+        <xr:ValueId>780d3f35-923c-4a3b-b221-004e725ab21c</xr:ValueId>
+      </xr:GeneratedType>
+    </InternalInfo>
+    <Properties>
+      <Name>MiracleChemFullSnapshot</Name>
+      <Synonym>
+        <v8:item>
+          <v8:lang>ru</v8:lang>
+          <v8:content>Miracle Chem: полный снимок</v8:content>
+        </v8:item>
+      </Synonym>
+      <Comment/>
+      <DefaultForm>ExternalDataProcessor.MiracleChemFullSnapshot.Form.MainForm</DefaultForm>
+      <AuxiliaryForm/>
+    </Properties>
+    <ChildObjects>
+      <Form>MainForm</Form>
+    </ChildObjects>
+  </ExternalDataProcessor>
+</MetaDataObject>

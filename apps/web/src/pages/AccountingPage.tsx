@@ -68,6 +68,18 @@ interface DraftLine {
   unitPrice: string;
 }
 
+interface OneCFinance {
+  available: boolean;
+  snapshotAt?: string;
+  totalReceivables?: string;
+  totalPrepayments?: string;
+  receivedPayments?: string;
+  paidPayments?: string;
+  receivables?: Array<{ counterparty: string; amount: string; currency: string }>;
+  incomingPayments?: Array<{ externalId: string; number: string; documentAt: string; counterparty: string; amount: string; currency: string; posted: boolean; deleted: boolean }>;
+  outgoingPayments?: Array<{ externalId: string; number: string; documentAt: string; counterparty: string; amount: string; currency: string; posted: boolean; deleted: boolean }>;
+}
+
 export function AccountingPage({ actorRole }: { actorRole: string | undefined }) {
   const mobileLayout = useMobileLayout();
   const { selectedDate } = useDateFilter();
@@ -92,6 +104,7 @@ export function AccountingPage({ actorRole }: { actorRole: string | undefined })
     return search.toString();
   }, [from, to, query, status, type]);
   const documents = useApi<AccountingResponse>(`/accounting?${params}`);
+  const oneCFinance = useApi<OneCFinance>("/integrations/1c/finance");
 
   if (documents.loading && documents.data === null) return <LoadingState />;
   if (documents.error !== null) return <ErrorState message={documents.error} retry={documents.reload} />;
@@ -114,6 +127,25 @@ export function AccountingPage({ actorRole }: { actorRole: string | undefined })
         <Panel><span className="blue"><Send size={19} /></span><div><strong>{statusCount("ISSUED")}</strong><small>выставлено</small></div></Panel>
         <Panel><span className="green"><CheckCircle2 size={19} /></span><div><strong>{statusCount("PAID")}</strong><small>оплачено</small></div></Panel>
       </div>
+
+      {oneCFinance.data?.available ? <Panel className="one-c-finance-panel">
+        <div className="table-toolbar"><div><h2>Данные из 1С</h2><p>Срез на {formatDate(oneCFinance.data.snapshotAt ?? "", true)} · бухгалтерская база — источник остатков и взаиморасчётов</p></div></div>
+        <div className="one-c-finance-kpis">
+          <div><small>Дебиторская задолженность</small><strong>{formatMoney(oneCFinance.data.totalReceivables ?? "0", "KZT")}</strong></div>
+          <div><small>Поступившие платежи</small><strong>{formatMoney(oneCFinance.data.receivedPayments ?? "0", "KZT")}</strong></div>
+          <div><small>Исходящие платежи</small><strong>{formatMoney(oneCFinance.data.paidPayments ?? "0", "KZT")}</strong></div>
+          <div><small>Авансы клиентов</small><strong>{formatMoney(oneCFinance.data.totalPrepayments ?? "0", "KZT")}</strong></div>
+        </div>
+        <div className="one-c-finance-columns">
+          <div><h3>Долги клиентов</h3>{(oneCFinance.data.receivables ?? []).length === 0 ? <p>Задолженности нет</p> :
+            oneCFinance.data.receivables?.map((row) => <div className="one-c-finance-row" key={row.counterparty}><span>{row.counterparty}</span><strong>{formatMoney(row.amount, row.currency)}</strong></div>)}</div>
+          <div><h3>Последние платежи</h3>{[...(oneCFinance.data.incomingPayments ?? []).map((row) => ({ ...row, direction: "Поступление" })),
+            ...(oneCFinance.data.outgoingPayments ?? []).map((row) => ({ ...row, direction: "Оплата" }))]
+            .filter((row) => row.posted && !row.deleted).sort((a, b) => b.documentAt.localeCompare(a.documentAt)).slice(0, 8)
+            .map((row) => <div className="one-c-finance-row" key={`${row.direction}:${row.externalId}`}><span><b>{row.direction}</b> · {row.counterparty}<small>{formatDate(row.documentAt)} · №{row.number}</small></span><strong>{formatMoney(row.amount, row.currency)}</strong></div>)}</div>
+        </div>
+      </Panel> : null}
+      {oneCFinance.error !== null ? <Panel className="one-c-finance-panel"><p>Данные 1С сейчас недоступны: {oneCFinance.error}</p></Panel> : null}
 
       <Panel className="accounting-filter-panel">
         <div className="accounting-filters">
@@ -347,6 +379,7 @@ function AccountingDetail({ id, actorRole, onClose, onChanged, onDuplicate }: { 
 
   if (loading || document === null) return <Modal title="Бухгалтерский документ" onClose={onClose} wide>{error === null ? <LoadingState /> : <ErrorState message={error} retry={load} />}</Modal>;
   const isPowerOfAttorney = document.type === "POWER_OF_ATTORNEY";
+  const isOneCDocument = document.details?.source === "1C";
   const hasPdf = true;
   const powerOfAttorney = document.details ?? {};
   return (
@@ -372,14 +405,14 @@ function AccountingDetail({ id, actorRole, onClose, onChanged, onDuplicate }: { 
       {document.notes === null ? null : <div className="expense-note"><FileText size={16} /><div><strong>Комментарий</strong><p>{document.notes}</p></div></div>}
       {error === null ? null : <div className="form-error modal-inline-error">{error}</div>}
       <div className="workflow-actions">
-        <button className="button ghost" onClick={() => onDuplicate(document)}><CopyPlus size={16} /> Создать на основе</button>
+        {!isOneCDocument ? <button className="button ghost" onClick={() => onDuplicate(document)}><CopyPlus size={16} /> Создать на основе</button> : null}
         {hasPdf ? <a className="button primary" href={apiUrl(`/accounting/${document.id}/pdf`)} target="_blank" rel="noreferrer"><FileDown size={16} /> Скачать PDF</a> : null}
-        {document.status === "DRAFT" && canIssueDirectly(actorRole) ? <button className="button primary" disabled={busy} onClick={() => void action(`/accounting/${document.id}/issue`)}><Send size={16} /> {isPowerOfAttorney ? "Выдать доверенность" : "Выпустить документ"}</button> : null}
-        {document.status === "DRAFT" && canSubmitForApproval(actorRole) ? <button className="button primary" disabled={busy} onClick={() => void action(`/accounting/${document.id}/submit`)}><Send size={16} /> {actorRole === "DIRECTOR" ? "Передать бухгалтеру" : "Отправить руководителю"}</button> : null}
-        {document.status === "PENDING_DIRECTOR_APPROVAL" && (actorRole === "DIRECTOR" || actorRole === "ADMIN") ? <button className="button primary" disabled={busy} onClick={() => void action(`/accounting/${document.id}/approve`)}><CheckCircle2 size={16} /> Согласовать и передать бухгалтеру</button> : null}
-        {document.status === "PENDING_ACCOUNTANT_APPROVAL" && (actorRole === "ACCOUNTANT" || actorRole === "ADMIN") ? <button className="button primary" disabled={busy} onClick={() => void action(`/accounting/${document.id}/approve`)}><CheckCircle2 size={16} /> Проверить и выпустить</button> : null}
-        {document.type === "PAYMENT_INVOICE" && document.status === "ISSUED" && canMarkPaid(actorRole) ? <button className="button primary" disabled={busy} onClick={() => void action(`/accounting/${document.id}/pay`)}><ClipboardCheck size={16} /> Отметить оплату</button> : null}
-        {["DRAFT", "ISSUED"].includes(document.status) ? <button className="button ghost" disabled={busy} onClick={() => setCancelOpen(true)}><Ban size={16} /> Отменить документ</button> : null}
+        {!isOneCDocument && document.status === "DRAFT" && canIssueDirectly(actorRole) ? <button className="button primary" disabled={busy} onClick={() => void action(`/accounting/${document.id}/issue`)}><Send size={16} /> {isPowerOfAttorney ? "Выдать доверенность" : "Выпустить документ"}</button> : null}
+        {!isOneCDocument && document.status === "DRAFT" && canSubmitForApproval(actorRole) ? <button className="button primary" disabled={busy} onClick={() => void action(`/accounting/${document.id}/submit`)}><Send size={16} /> {actorRole === "DIRECTOR" ? "Передать бухгалтеру" : "Отправить руководителю"}</button> : null}
+        {!isOneCDocument && document.status === "PENDING_DIRECTOR_APPROVAL" && (actorRole === "DIRECTOR" || actorRole === "ADMIN") ? <button className="button primary" disabled={busy} onClick={() => void action(`/accounting/${document.id}/approve`)}><CheckCircle2 size={16} /> Согласовать и передать бухгалтеру</button> : null}
+        {!isOneCDocument && document.status === "PENDING_ACCOUNTANT_APPROVAL" && (actorRole === "ACCOUNTANT" || actorRole === "ADMIN") ? <button className="button primary" disabled={busy} onClick={() => void action(`/accounting/${document.id}/approve`)}><CheckCircle2 size={16} /> Проверить и выпустить</button> : null}
+        {!isOneCDocument && document.type === "PAYMENT_INVOICE" && document.status === "ISSUED" && canMarkPaid(actorRole) ? <button className="button primary" disabled={busy} onClick={() => void action(`/accounting/${document.id}/pay`)}><ClipboardCheck size={16} /> Отметить оплату</button> : null}
+        {!isOneCDocument && ["DRAFT", "ISSUED"].includes(document.status) ? <button className="button ghost" disabled={busy} onClick={() => setCancelOpen(true)}><Ban size={16} /> Отменить документ</button> : null}
       </div>
       {cancelOpen ? <CancelAccountingModal onClose={() => setCancelOpen(false)} onConfirm={async (reason) => { setCancelOpen(false); await action(`/accounting/${document.id}/cancel`, { reason }); }} /> : null}
     </Modal>

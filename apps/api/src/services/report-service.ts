@@ -10,6 +10,7 @@ import {
 } from "../generated/prisma/index.js";
 import { prisma } from "../lib/prisma.js";
 import { MAIN_REAGENTS, matchesMaterial, quantityInKilograms } from "../lib/material-identity.js";
+import { loadOneCFinance } from "./one-c-finance-service.js";
 
 export interface Period {
   from: Date;
@@ -19,15 +20,17 @@ export interface Period {
 export type ProductionGroupBy = "day" | "week" | "month" | "shift" | "grade" | "line" | "operator";
 export type BalanceGroupBy = "productLot" | "batch" | "grade" | "line" | "operator";
 
-export async function getDashboard(workspaceId: string, timezone: string, selectedDay?: Period) {
+export async function getDashboard(workspaceId: string, timezone: string, selectedDay?: Period, includeAnalytics = true) {
   const today = selectedDay ?? currentDayRange(timezone);
   const activeStatuses: ProductionBatchStatus[] = [
     ProductionBatchStatus.PLANNED,
     ProductionBatchStatus.PREPARATION,
     ProductionBatchStatus.IN_PROGRESS,
   ];
-  const analyticsFrom = new Date(today.from.getTime() - 29 * 24 * 60 * 60 * 1000);
-  const [consumption, completedBatches, dispatches, availableLots, activeBatches, criticalMaterials, plannedMaterialDemand, deviations, expenses, analyticsBatches, analyticsExpenses, dailyRevenue, receivableDocuments] =
+  // Analytics is deliberately independent of the operational summary: a caller
+  // may paint the actionable dashboard first and hydrate charts afterwards.
+  const analyticsRequest = includeAnalytics ? getDashboardAnalytics(workspaceId, timezone, today) : null;
+  const [consumption, completedBatches, dispatches, availableLots, activeBatches, criticalMaterials, plannedMaterialDemand, deviations, expenses, dailyRevenue, receivableDocuments, oneCFinance] =
     await Promise.all([
       prisma.materialMovement.findMany({
         where: {
@@ -71,10 +74,6 @@ export async function getDashboard(workspaceId: string, timezone: string, select
           reservedStock: true,
           minimumStock: true,
           baseUnit: true,
-          lots: {
-            where: { availableQuantity: { gt: 0 } },
-            select: { availableQuantity: true, reservedQuantity: true, unit: true },
-          },
         },
       }),
       prisma.batchComponent.findMany({
@@ -110,24 +109,6 @@ export async function getDashboard(workspaceId: string, timezone: string, select
         },
         _sum: { amount: true },
       }),
-      prisma.productionBatch.findMany({
-        where: { workspaceId, scheduledAt: { gte: analyticsFrom, lt: today.to } },
-        select: {
-          status: true,
-          actualOutput: true,
-          actualOutputUnit: true,
-          technologicalLoss: true,
-          productionLine: { select: { name: true } },
-        },
-      }),
-      prisma.expense.findMany({
-        where: {
-          workspaceId,
-          status: ExpenseStatus.RECORDED,
-          incurredAt: { gte: new Date(today.from.getTime() - 6 * 24 * 60 * 60 * 1000), lt: today.to },
-        },
-        select: { incurredAt: true, amount: true, currency: true },
-      }),
       prisma.accountingDocument.groupBy({
         by: ["currency"],
         where: {
@@ -157,7 +138,28 @@ export async function getDashboard(workspaceId: string, timezone: string, select
         },
         orderBy: { documentAt: "desc" },
       }),
+      loadOneCFinance(workspaceId),
     ]);
+  const analytics = analyticsRequest === null ? null : await analyticsRequest;
+
+  // A dashboard only needs lots for the seven highlighted reagents.  Loading
+  // every available lot for every active material makes this endpoint grow with
+  // warehouse history and wastes both PostgreSQL and browser memory.
+  const mainReagentMaterialIds = criticalMaterials
+    .filter((material) => MAIN_REAGENTS.some((definition) => matchesMaterial(material, definition)))
+    .map((material) => material.id);
+  const mainReagentLots = mainReagentMaterialIds.length === 0
+    ? []
+    : await prisma.materialLot.findMany({
+      where: { workspaceId, materialId: { in: mainReagentMaterialIds }, availableQuantity: { gt: 0 } },
+      select: { materialId: true, availableQuantity: true, reservedQuantity: true, unit: true },
+    });
+  const mainReagentLotsByMaterial = mainReagentLots.reduce((lots, lot) => {
+    const current = lots.get(lot.materialId) ?? [];
+    current.push(lot);
+    lots.set(lot.materialId, current);
+    return lots;
+  }, new Map<string, typeof mainReagentLots>());
 
   const outputTotal = sumDecimals(completedBatches.map((batch) => batch.actualOutput?.toString() ?? "0"));
   const lossTotal = sumDecimals(completedBatches.map((batch) => batch.technologicalLoss.toString()));
@@ -223,7 +225,7 @@ export async function getDashboard(workspaceId: string, timezone: string, select
         missing: true,
       };
     }
-    const lots = materials.flatMap((material) => material.lots);
+    const lots = materials.flatMap((material) => mainReagentLotsByMaterial.get(material.id) ?? []);
     const currentStock = lots.length === 0
       ? sumDecimals(materials.map((material) => quantityInKilograms(material.currentStock, material.baseUnit).toString()))
       : sumDecimals(lots.map((lot) => quantityInKilograms(lot.availableQuantity, lot.unit).toString()));
@@ -275,18 +277,52 @@ export async function getDashboard(workspaceId: string, timezone: string, select
         amount: expense._sum.amount?.toString() ?? "0",
         currency: expense.currency,
       })),
-      dailyRevenue: dailyRevenue.map((revenue) => ({
+      dailyRevenue: oneCFinance === null ? dailyRevenue.map((revenue) => ({
         amount: revenue._sum.totalAmount?.toString() ?? "0",
         currency: revenue.currency,
-      })),
-      accountsReceivable: groupMoneyByCurrency(receivableDocuments),
+      })) : [{ amount: oneCFinance.sales.filter((sale) => {
+        const date = new Date(sale.documentAt);
+        return date >= today.from && date < today.to;
+      }).reduce((sum, sale) => sum.add(sale.amount), new Decimal(0)).toString(), currency: "KZT" }],
+      accountsReceivable: oneCFinance === null ? groupMoneyByCurrency(receivableDocuments)
+        : [{ amount: oneCFinance.totalReceivables, currency: "KZT" }],
     },
-    receivables: summarizeReceivables(receivableDocuments, today.to),
+    receivables: oneCFinance === null ? summarizeReceivables(receivableDocuments, today.to) : oneCFinance.receivables,
     criticalMaterials: critical,
     stockWarnings,
     mainReagents,
     deviations,
-    productionTrend: await productionTrend(workspaceId, today.from, timezone),
+    productionTrend: analytics?.productionTrend ?? [],
+    analytics: analytics?.analytics ?? { batchStatuses: [], productionByLine: [], expenseTrend: [] },
+  };
+}
+
+export async function getDashboardAnalytics(workspaceId: string, timezone: string, selectedDay?: Period) {
+  const today = selectedDay ?? currentDayRange(timezone);
+  const analyticsFrom = new Date(today.from.getTime() - 29 * 24 * 60 * 60 * 1000);
+  const [analyticsBatches, analyticsExpenses, trend] = await Promise.all([
+    prisma.productionBatch.findMany({
+      where: { workspaceId, scheduledAt: { gte: analyticsFrom, lt: today.to } },
+      select: {
+        status: true,
+        actualOutput: true,
+        actualOutputUnit: true,
+        technologicalLoss: true,
+        productionLine: { select: { name: true } },
+      },
+    }),
+    prisma.expense.findMany({
+      where: {
+        workspaceId,
+        status: ExpenseStatus.RECORDED,
+        incurredAt: { gte: new Date(today.from.getTime() - 6 * 24 * 60 * 60 * 1000), lt: today.to },
+      },
+      select: { incurredAt: true, amount: true, currency: true },
+    }),
+    productionTrend(workspaceId, today.from, timezone),
+  ]);
+  return {
+    productionTrend: trend,
     analytics: {
       batchStatuses: summarizeBatchStatuses(analyticsBatches),
       productionByLine: summarizeProductionByLine(analyticsBatches),

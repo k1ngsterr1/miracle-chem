@@ -43,7 +43,7 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
 export async function apiMutation<T>(
   path: string,
   body: unknown,
-  options: { method?: "POST" | "PATCH"; idempotent?: boolean } = {},
+  options: { method?: "POST" | "PATCH" | "PUT"; idempotent?: boolean } = {},
 ): Promise<T> {
   return apiFetch<T>(path, {
     method: options.method ?? "POST",

@@ -104,6 +104,21 @@ export function requireOneCSyncKey(value: string | string[] | undefined): void {
   }
 }
 
+export function requireOneCSyncBinding(input: { workspaceId: string; sourceInstanceId?: string; organizationExternalId?: string }): void {
+  if (config.nodeEnv === "production" && (!config.oneCSyncWorkspaceId || !config.oneCSyncSourceInstanceId || !config.oneCSyncOrganizationId)) {
+    throw new ApiError(503, "ONE_C_BINDING_NOT_CONFIGURED", "Привязка агента 1С к контуру не настроена");
+  }
+  if (config.oneCSyncWorkspaceId && input.workspaceId.toLowerCase() !== config.oneCSyncWorkspaceId.toLowerCase()) {
+    throw new ApiError(403, "ONE_C_WORKSPACE_FORBIDDEN", "Ключ 1С не привязан к этому контуру CRM");
+  }
+  if (input.sourceInstanceId && config.oneCSyncSourceInstanceId && input.sourceInstanceId.toLowerCase() !== config.oneCSyncSourceInstanceId.toLowerCase()) {
+    throw new ApiError(403, "ONE_C_SOURCE_FORBIDDEN", "Ключ 1С не привязан к этой базе 1С");
+  }
+  if (input.organizationExternalId && config.oneCSyncOrganizationId && input.organizationExternalId.toLowerCase() !== config.oneCSyncOrganizationId.toLowerCase()) {
+    throw new ApiError(403, "ONE_C_ORGANIZATION_FORBIDDEN", "Ключ 1С не привязан к этой организации");
+  }
+}
+
 export async function syncOneCDelta(input: OneCDelta) {
   const workspace = await prisma.workspace.findUnique({ where: { id: input.workspaceId }, select: { id: true } });
   if (workspace === null) throw new ApiError(404, "WORKSPACE_NOT_FOUND", "Контур CRM не найден");
@@ -238,17 +253,22 @@ async function syncCustomer(
 ) {
   const reference = await getReference(tx, workspaceId, source, OneCSyncEntityType.CUSTOMER, input.externalId);
   if (shouldSkip(reference, input.updatedAt)) return void (summary.skipped += 1);
+  if (reference === null && await tx.customer.findUnique({ where: { workspaceId_name: { workspaceId, name: input.name } }, select: { id: true } }) !== null) {
+    await quarantine(tx, workspaceId, source, OneCSyncEntityType.CUSTOMER, input.externalId, input, "Клиент с таким именем уже существует без этой связи 1С — требуется явное сопоставление");
+    summary.quarantined += 1;
+    return;
+  }
   const data = {
     name: input.name,
-    taxId: input.taxId ?? null,
-    contactPerson: input.contactPerson ?? null,
-    phone: input.phone ?? null,
-    email: input.email ?? null,
-    address: input.address ?? null,
+    ...(input.taxId === undefined ? {} : { taxId: input.taxId }),
+    ...(input.contactPerson === undefined ? {} : { contactPerson: input.contactPerson }),
+    ...(input.phone === undefined ? {} : { phone: input.phone }),
+    ...(input.email === undefined ? {} : { email: input.email }),
+    ...(input.address === undefined ? {} : { address: input.address }),
     active: input.active ?? true,
   };
   const record = reference === null
-    ? await tx.customer.upsert({ where: { workspaceId_name: { workspaceId, name: input.name } }, create: { workspaceId, ...data }, update: data })
+    ? await tx.customer.create({ data: { workspaceId, ...data } })
     : await tx.customer.update({ where: { id: reference.internalId }, data });
   await saveReference(tx, workspaceId, source, OneCSyncEntityType.CUSTOMER, input.externalId, record.id, input.updatedAt, input);
   summary[reference === null ? "created" : "updated"] += 1;
@@ -263,9 +283,14 @@ async function syncSupplier(
 ) {
   const reference = await getReference(tx, workspaceId, source, OneCSyncEntityType.SUPPLIER, input.externalId);
   if (shouldSkip(reference, input.updatedAt)) return void (summary.skipped += 1);
-  const data = { name: input.name, taxId: input.taxId ?? null, contact: input.contact ?? null, active: input.active ?? true };
+  if (reference === null && await tx.supplier.findUnique({ where: { workspaceId_name: { workspaceId, name: input.name } }, select: { id: true } }) !== null) {
+    await quarantine(tx, workspaceId, source, OneCSyncEntityType.SUPPLIER, input.externalId, input, "Поставщик с таким именем уже существует без этой связи 1С — требуется явное сопоставление");
+    summary.quarantined += 1;
+    return;
+  }
+  const data = { name: input.name, ...(input.taxId === undefined ? {} : { taxId: input.taxId }), ...(input.contact === undefined ? {} : { contact: input.contact }), active: input.active ?? true };
   const record = reference === null
-    ? await tx.supplier.upsert({ where: { workspaceId_name: { workspaceId, name: input.name } }, create: { workspaceId, ...data }, update: data })
+    ? await tx.supplier.create({ data: { workspaceId, ...data } })
     : await tx.supplier.update({ where: { id: reference.internalId }, data });
   await saveReference(tx, workspaceId, source, OneCSyncEntityType.SUPPLIER, input.externalId, record.id, input.updatedAt, input);
   summary[reference === null ? "created" : "updated"] += 1;
@@ -298,14 +323,14 @@ async function syncMaterial(
     name: input.name,
     type: input.type,
     baseUnit: input.baseUnit as Unit,
-    costPerBaseUnit: input.costPerBaseUnit ?? "0",
-    currency: input.currency ?? "KZT",
-    minimumStock: input.minimumStock ?? "0",
-    densityKgPerM3: input.densityKgPerM3 ?? null,
+    ...(input.costPerBaseUnit === undefined ? {} : { costPerBaseUnit: input.costPerBaseUnit }),
+    ...(input.currency === undefined ? {} : { currency: input.currency }),
+    ...(input.minimumStock === undefined ? {} : { minimumStock: input.minimumStock }),
+    ...(input.densityKgPerM3 === undefined ? {} : { densityKgPerM3: input.densityKgPerM3 }),
     active: true,
   };
   const record = reference === null
-    ? await tx.material.create({ data: { workspaceId, ...data } })
+    ? await tx.material.create({ data: { workspaceId, ...data, costPerBaseUnit: input.costPerBaseUnit ?? "0" } })
     : await tx.material.update({ where: { id: reference.internalId }, data });
   await saveReference(tx, workspaceId, source, OneCSyncEntityType.MATERIAL, input.externalId, record.id, input.updatedAt, input);
   summary[reference === null ? "created" : "updated"] += 1;

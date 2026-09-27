@@ -10,6 +10,7 @@ import {
   ExpensePaymentMethod,
   ExpenseStatus,
   MaterialType,
+  OneCSyncEntityType,
   ProductMovementType,
   ProductionBatchStatus,
   RecipeStatus,
@@ -220,6 +221,182 @@ afterAll(async () => {
 }, 30_000);
 
 describe("Miracle Chem NestJS API integration", () => {
+  it("accepts every 1C financial collection as an immutable full snapshot without changing stock", async () => {
+    const organizationId = "88888888-8888-4888-8888-888888888881";
+    const sourceInstanceId = "88888888-8888-4888-8888-888888888882";
+    const counterpartyId = "88888888-8888-4888-8888-888888888883";
+    const paymentId = "88888888-8888-4888-8888-888888888884";
+    const snapshot = {
+      schemaVersion: 1, source: "1C", configuration: "БухгалтерияДляКазахстана",
+      configurationVersion: "3.0.74.2", consistency: "SEQUENTIAL_READ_ONLY_NOT_ACCOUNTING_CLOSE",
+      readStartedAt: "2026-09-26T07:59:00Z", generatedAt: "2026-09-26T08:00:00Z",
+      organizations: [{ externalId: organizationId, code: "1", name: "Integration organization" }],
+      counterparties: [{ externalId: counterpartyId, code: "2", name: "Integration customer",
+        groupName: null, taxId: "", deleted: false }],
+      materials: [], receipts: [], balances: [], accountingInventory: [],
+      receivables: [{ organizationId, counterpartyId, contractId: paymentId,
+        amountDebit: "3575000", amountCredit: "0" }],
+      sales: [], saleLines: [], invoices: [], invoiceLines: [],
+      incomingPayments: [{ externalId: paymentId, number: "IN-1", documentAt: "2026-09-26T10:00:00",
+        organizationId, counterpartyId, amount: "150000", currencyName: "KZT", purpose: "Payment",
+        posted: true, deleted: false }],
+      outgoingPayments: [{ externalId: "88888888-8888-4888-8888-888888888885", number: "OUT-1",
+        documentAt: "2026-09-26T11:00:00", organizationId, counterpartyId, amount: "40000",
+        currencyName: "KZT", purpose: "Supplier payment", posted: true, deleted: false }],
+    };
+    const envelope = { kind: "FULL_SNAPSHOT", source: "1C", workspaceId: testIds.workspace,
+      sourceInstanceId, organizationExternalId: organizationId, batchId: "full-snapshot-integration-001",
+      generatedAt: snapshot.generatedAt, snapshot };
+    const headers = { "x-one-c-sync-key": "one-c-integration-test-key-must-be-long" };
+    const withoutKey = await app.inject({ method: "POST", url: "/api/integrations/1c/snapshot", payload: envelope });
+    expect(withoutKey.statusCode).toBe(401);
+    const malformedWithoutKey = await app.inject({ method: "POST", url: "/api/integrations/1c/snapshot",
+      headers: { "content-type": "application/json" }, payload: "{ invalid JSON" });
+    expect(malformedWithoutKey.statusCode).toBe(401);
+    const withoutApprovedSource = await app.inject({ method: "POST", url: "/api/integrations/1c/snapshot", headers, payload: envelope });
+    expect(withoutApprovedSource.statusCode).toBe(409);
+    await prisma.oneCSourceSnapshot.create({ data: { workspaceId: testIds.workspace, sourceInstanceId,
+      organizationExternalId: organizationId, generatedAt: new Date("2026-09-26T07:00:00Z"),
+      sha256: "0".repeat(64), payload: { baseline: true } } });
+    const stockBefore = await prisma.material.findUniqueOrThrow({ where: { id: testIds.scarceMaterial }, select: { currentStock: true } });
+    const first = await app.inject({ method: "POST", url: "/api/integrations/1c/snapshot", headers, payload: envelope });
+    expect(first.statusCode).toBe(201);
+    expect(first.json()).toMatchObject({ status: "COMPLETED", replayed: false,
+      summary: { counts: { receivables: 1, incomingPayments: 1, outgoingPayments: 1 }, appliedToOperationalTables: false } });
+    const replay = await app.inject({ method: "POST", url: "/api/integrations/1c/snapshot", headers, payload: envelope });
+    expect(replay.statusCode).toBe(201);
+    expect(replay.json()).toMatchObject({ status: "COMPLETED", replayed: true, runId: first.json().runId });
+    const changed = await app.inject({ method: "POST", url: "/api/integrations/1c/snapshot", headers,
+      payload: { ...envelope, snapshot: { ...snapshot, receivables: [{ ...snapshot.receivables[0], amountDebit: "1" }] } } });
+    expect(changed.statusCode).toBe(409);
+    const incomplete = await app.inject({ method: "POST", url: "/api/integrations/1c/snapshot", headers,
+      payload: { ...envelope, snapshot: { ...snapshot, outgoingPayments: undefined } } });
+    expect(incomplete.statusCode).toBe(400);
+    const stored = await prisma.oneCSourceSnapshot.findFirstOrThrow({ where: { workspaceId: testIds.workspace, sha256: first.json().sha256 as string } });
+    expect((stored.payload as typeof snapshot).receivables[0]?.amountDebit).toBe("3575000");
+    expect((stored.payload as typeof snapshot).incomingPayments).toHaveLength(1);
+    expect((stored.payload as typeof snapshot).outgoingPayments).toHaveLength(1);
+    const stockAfter = await prisma.material.findUniqueOrThrow({ where: { id: testIds.scarceMaterial }, select: { currentStock: true } });
+    expect(stockAfter.currentStock.toString()).toBe(stockBefore.currentStock.toString());
+  });
+
+  it("projects a verified 1C snapshot, replays it once, and separates debtor balances from advances", async () => {
+    const workspaceId = "77777777-7777-4777-8777-777777777779";
+    const actorId = "77777777-7777-4777-8777-777777777770";
+    const customerId = "77777777-7777-4777-8777-77777777777a";
+    const sourceId = "77777777-7777-4777-8777-777777777771";
+    const organizationId = "77777777-7777-4777-8777-777777777772";
+    const materialExternalId = "77777777-7777-4777-8777-777777777773";
+    const customerExternalId = "77777777-7777-4777-8777-777777777774";
+    const warehouseId = "77777777-7777-4777-8777-777777777775";
+    const documentId = "77777777-7777-4777-8777-777777777776";
+    const invoiceId = "77777777-7777-4777-8777-777777777779";
+    const materialId = "77777777-7777-4777-8777-777777777777";
+    const technicalUserId = "77777777-7777-4777-8777-777777777778";
+    const snapshot = (generatedAt: string, quantity: string, debit: string, credit: string) => ({
+      schemaVersion: 1 as const, source: "1C" as const, configuration: "БухгалтерияДляКазахстана" as const,
+      configurationVersion: "3.0.74.2", consistency: "SEQUENTIAL_READ_ONLY_NOT_ACCOUNTING_CLOSE" as const,
+      readStartedAt: generatedAt, generatedAt,
+      organizations: [{ externalId: organizationId, code: "1", name: "Verified 1C organization" }],
+      counterparties: [{ externalId: customerExternalId, code: "C1", name: "Verified customer",
+        groupName: "Продажа", taxId: "", deleted: false }],
+      materials: [{ externalId: materialExternalId, code: "M1", name: "Verified reagent", groupName: "Материалы",
+        unitId: materialExternalId, unitName: "кг", service: false, deleted: false }],
+      receipts: [], balances: [],
+      accountingInventory: [{ organizationId, accountCode: "1310", materialId: materialExternalId, warehouseId,
+        quantityDebit: quantity, quantityCredit: "0", amountDebit: "150", amountCredit: "0" }],
+      receivables: [{ organizationId, counterpartyId: customerExternalId, contractId: documentId,
+        amountDebit: debit, amountCredit: credit }],
+      sales: [{ externalId: documentId, number: "SALE-1", documentAt: "2026-09-27T09:00:00",
+        organizationId, counterpartyId: customerExternalId, amount: "150", posted: true, deleted: false }],
+      saleLines: [{ documentId, lineNumber: 1, materialId: materialExternalId, unitId: materialExternalId,
+        unitName: "кг", quantity: "1", unitPrice: "150", amount: "150", vatAmount: "0" }],
+      invoices: [{ externalId: invoiceId, number: "INV-1", documentAt: "2026-09-27T09:00:00",
+        organizationId, counterpartyId: customerExternalId, amount: "150", posted: false, deleted: false }],
+      invoiceLines: [{ documentId: invoiceId, lineNumber: 1, materialId: materialExternalId,
+        unitId: materialExternalId, unitName: "кг", quantity: "1", unitPrice: "150", amount: "150", vatAmount: "0" }],
+      incomingPayments: [], outgoingPayments: [],
+    });
+    const firstSnapshot = snapshot("2026-09-27T08:00:00Z", "10", "100", "0");
+    const headers = { "x-one-c-sync-key": "one-c-integration-test-key-must-be-long" };
+    const financeHeaders = { "x-workspace-id": workspaceId, "x-actor-id": actorId };
+    const envelope = (batchId: string, source: ReturnType<typeof snapshot>) => ({
+      workspaceId, sourceInstanceId: sourceId, organizationExternalId: organizationId,
+      batchId, generatedAt: source.generatedAt, source: "1C", kind: "FULL_SNAPSHOT", snapshot: source,
+    });
+    try {
+      await prisma.workspace.create({ data: { id: workspaceId, name: "1C projection test" } });
+      await prisma.user.create({ data: { id: actorId, workspaceId, name: "1C projection admin",
+        email: "1c-projection-admin@miracle-chem.test", role: UserRole.ADMIN } });
+      await prisma.customer.create({ data: { id: customerId, workspaceId, name: "Verified customer" } });
+      await prisma.user.create({ data: { id: technicalUserId, workspaceId,
+        name: "1C Test Import", email: `1c-import-${workspaceId}@miracle-chem.local`,
+        role: UserRole.ADMIN, active: false } });
+      await prisma.material.create({ data: { id: materialId, workspaceId, code: "1C-PROJECTION-TEST",
+        name: "Verified reagent", type: MaterialType.REAGENT, baseUnit: Unit.KG, costPerBaseUnit: "10" } });
+      await prisma.oneCExternalReference.createMany({ data: [
+        { workspaceId, source: "1C", entityType: OneCSyncEntityType.MATERIAL,
+          externalId: `${sourceId}:${materialExternalId}`, internalId: materialId,
+          sourceUpdatedAt: new Date("2026-09-27T07:00:00Z"), payloadHash: "0".repeat(64) },
+        { workspaceId, source: "1C", entityType: OneCSyncEntityType.CUSTOMER,
+          externalId: `${sourceId}:${customerExternalId}`, internalId: customerId,
+          sourceUpdatedAt: new Date("2026-09-27T07:00:00Z"), payloadHash: "0".repeat(64) },
+      ] });
+      await prisma.oneCSourceSnapshot.create({ data: { workspaceId,
+        sourceInstanceId: sourceId, organizationExternalId: organizationId,
+        generatedAt: new Date("2026-09-27T07:00:00Z"), sha256: "1".repeat(64), payload: firstSnapshot } });
+      const first = await app.inject({ method: "POST", url: "/api/integrations/1c/snapshot", headers,
+        payload: envelope("projected-1c-001", firstSnapshot) });
+      expect(first.statusCode).toBe(201);
+      expect(first.json()).toMatchObject({ status: "COMPLETED", summary: { appliedToOperationalTables: true,
+        projection: { inventoryChanges: 1, documentChanges: 2 } } });
+      const replay = await app.inject({ method: "POST", url: "/api/integrations/1c/snapshot", headers,
+        payload: envelope("projected-1c-001", firstSnapshot) });
+      expect(replay.json()).toMatchObject({ replayed: true, runId: first.json().runId });
+      expect((await prisma.material.findUniqueOrThrow({ where: { id: materialId } })).currentStock.toString()).toBe("10");
+      expect(await prisma.materialMovement.count({ where: { workspaceId,
+        materialLot: { materialId } } })).toBe(1);
+      const importedInvoice = await prisma.accountingDocument.findFirstOrThrow({ where: { workspaceId,
+        details: { path: ["externalId"], equals: invoiceId } } });
+      expect(importedInvoice.status).toBe(AccountingDocumentStatus.ISSUED);
+      await prisma.accountingDocument.update({ where: { id: importedInvoice.id },
+        data: { status: AccountingDocumentStatus.DRAFT } });
+      const forbiddenEdit = await app.inject({ method: "POST", url: `/api/accounting/${importedInvoice.id}/issue`,
+        headers: { ...financeHeaders, "idempotency-key": "1c-read-only-invoice" } });
+      expect(forbiddenEdit.statusCode).toBe(409);
+      expect(forbiddenEdit.json().error.code).toBe("ONE_C_DOCUMENT_READ_ONLY");
+      const finance = await app.inject({ method: "GET", url: "/api/integrations/1c/finance", headers: financeHeaders });
+      expect(finance.json()).toMatchObject({ available: true, totalReceivables: "100", totalPrepayments: "0" });
+
+      const secondSnapshot = snapshot("2026-09-27T08:15:00Z", "12", "0", "20");
+      const second = await app.inject({ method: "POST", url: "/api/integrations/1c/snapshot", headers,
+        payload: envelope("projected-1c-002", secondSnapshot) });
+      expect(second.statusCode).toBe(201);
+      expect(second.json()).toMatchObject({ summary: { projection: { inventoryChanges: 1, documentChanges: 1 } } });
+      expect((await prisma.accountingDocument.findUniqueOrThrow({ where: { id: importedInvoice.id } })).status)
+        .toBe(AccountingDocumentStatus.ISSUED);
+      expect((await prisma.material.findUniqueOrThrow({ where: { id: materialId } })).currentStock.toString()).toBe("12");
+      const advance = await app.inject({ method: "GET", url: "/api/integrations/1c/finance", headers: financeHeaders });
+      expect(advance.json()).toMatchObject({ totalReceivables: "0", totalPrepayments: "20" });
+    } finally {
+      await prisma.accountingDocument.deleteMany({ where: { workspaceId,
+        details: { path: ["source"], equals: "1C" } } });
+      await prisma.materialMovement.deleteMany({ where: { workspaceId,
+        materialLot: { materialId } } });
+      await prisma.materialLot.deleteMany({ where: { workspaceId, materialId } });
+      await prisma.oneCSyncRun.deleteMany({ where: { workspaceId,
+        batchId: { in: ["projected-1c-001", "projected-1c-002"] } } });
+      await prisma.oneCSourceSnapshot.deleteMany({ where: { workspaceId, sourceInstanceId: sourceId } });
+      await prisma.oneCExternalReference.deleteMany({ where: { workspaceId,
+        externalId: { startsWith: `${sourceId}:` } } });
+      await prisma.material.deleteMany({ where: { id: materialId, workspaceId } });
+      await prisma.customer.deleteMany({ where: { id: customerId, workspaceId } });
+      await prisma.auditLog.deleteMany({ where: { workspaceId } });
+      await prisma.user.deleteMany({ where: { workspaceId } });
+      await prisma.workspace.deleteMany({ where: { id: workspaceId } });
+    }
+  });
+
   it("synchronizes an offline 1C delta idempotently and quarantines unapproved nomenclature", async () => {
     const delta = {
       workspaceId: testIds.workspace,
@@ -686,6 +863,23 @@ describe("Miracle Chem NestJS API integration", () => {
   });
 
   it("returns all main warehouse reagents on the dashboard", async () => {
+    const summaryOnly = await app.inject({
+      method: "GET",
+      url: "/api/dashboard?analytics=false",
+      headers: contextHeaders,
+    });
+    expect(summaryOnly.statusCode).toBe(200);
+    expect(summaryOnly.json()).toMatchObject({ productionTrend: [], analytics: { batchStatuses: [], productionByLine: [], expenseTrend: [] } });
+
+    const analytics = await app.inject({
+      method: "GET",
+      url: "/api/dashboard/analytics",
+      headers: contextHeaders,
+    });
+    expect(analytics.statusCode).toBe(200);
+    expect(analytics.json()).toHaveProperty("productionTrend");
+    expect(analytics.json()).toHaveProperty("analytics.expenseTrend");
+
     const response = await app.inject({
       method: "GET",
       url: "/api/dashboard",
@@ -927,6 +1121,11 @@ describe("Miracle Chem NestJS API integration", () => {
   });
 
   it("calculates actual batch reagent cost from consumed warehouse lots", async () => {
+    const firstExpiry = new Date();
+    firstExpiry.setUTCDate(firstExpiry.getUTCDate() + 1);
+    firstExpiry.setUTCHours(0, 0, 0, 0);
+    const secondExpiry = new Date(firstExpiry);
+    secondExpiry.setUTCDate(secondExpiry.getUTCDate() + 1);
     const material = await prisma.material.create({
       data: {
         workspaceId: testIds.workspace,
@@ -945,7 +1144,7 @@ describe("Miracle Chem NestJS API integration", () => {
           materialId: material.id,
           lotNumber: "ACTUAL-PRICE-10",
           receivedAt: new Date("2026-08-01T00:00:00.000Z"),
-          expiresAt: new Date("2026-09-01T00:00:00.000Z"),
+          expiresAt: firstExpiry,
           initialQuantity: "3",
           availableQuantity: "3",
           unit: Unit.KG,
@@ -956,7 +1155,7 @@ describe("Miracle Chem NestJS API integration", () => {
           materialId: material.id,
           lotNumber: "ACTUAL-PRICE-20",
           receivedAt: new Date("2026-08-02T00:00:00.000Z"),
-          expiresAt: new Date("2026-10-01T00:00:00.000Z"),
+          expiresAt: secondExpiry,
           initialQuantity: "7",
           availableQuantity: "7",
           unit: Unit.KG,

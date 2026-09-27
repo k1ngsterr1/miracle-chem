@@ -278,6 +278,10 @@ async function transitionAccountingDocument(
   }, async () => {
     const document = await tx.accountingDocument.findFirst({ where: { id: documentId, workspaceId } });
     if (document === null) throw new ApiError(404, "ACCOUNTING_DOCUMENT_NOT_FOUND", "Бухгалтерский документ не найден");
+    if (document.details && typeof document.details === "object" && !Array.isArray(document.details)
+      && (document.details as Record<string, unknown>).source === "1C") {
+      throw new ApiError(409, "ONE_C_DOCUMENT_READ_ONLY", "Документ получен из 1С. Измените его в 1С и дождитесь синхронизации");
+    }
     if (!transition.allowed.includes(document.status)) {
       throw new ApiError(409, "INVALID_ACCOUNTING_DOCUMENT_STATUS", "Операция недоступна для текущего статуса документа");
     }

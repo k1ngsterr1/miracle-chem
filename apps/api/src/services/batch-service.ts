@@ -19,6 +19,7 @@ import { prisma } from "../lib/prisma.js";
 import { ApiError } from "../lib/api-error.js";
 import { runIdempotent } from "../lib/idempotency.js";
 import { writeAudit } from "../lib/audit.js";
+import { startOfAlmatyDay } from "../lib/date-filter.js";
 
 export interface CreateBatchInput {
   number: string;
@@ -238,7 +239,7 @@ export async function startBatch(
               workspaceId,
               materialId: component.materialId,
               availableQuantity: { gt: 0 },
-              OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+              OR: [{ expiresAt: null }, { expiresAt: { gte: startOfAlmatyDay(new Date()) } }],
             },
             orderBy: [{ expiresAt: "asc" }, { receivedAt: "asc" }],
           });

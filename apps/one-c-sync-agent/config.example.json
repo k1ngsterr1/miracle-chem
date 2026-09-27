@@ -1,0 +1,11 @@
+{
+  "crmSyncUrl": "https://crm.example.kz/api/integrations/1c/sync",
+  "apiKey": "PASTE_THE_32_CHARACTER_ONE_C_SYNC_API_KEY_HERE",
+  "queueDirectory": "C:\\ProgramData\\MiracleChem\\OneCSyncAgent\\queue",
+  "listenHost": "127.0.0.1",
+  "listenPort": 8261,
+  "localIngestKey": "GENERATED_BY_INIT_COMMAND",
+  "syncIntervalSeconds": 300,
+  "requestTimeoutSeconds": 30,
+  "sentRetentionDays": 30
+}

@@ -5,6 +5,7 @@ describe("applySelectedDate", () => {
   it("adds the global working date to operational lists", () => {
     expect(applySelectedDate("/batches", "2026-08-29")).toBe("/batches?date=2026-08-29");
     expect(applySelectedDate("/transfers?status=SENT", "2026-08-29")).toBe("/transfers?status=SENT&date=2026-08-29");
+    expect(applySelectedDate("/dashboard/analytics", "2026-08-29")).toBe("/dashboard/analytics?date=2026-08-29");
   });
 
   it("preserves a manually selected report period", () => {

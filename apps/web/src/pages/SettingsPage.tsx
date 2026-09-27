@@ -49,7 +49,7 @@ export function SettingsPage({ actorRole }: { actorRole: string | undefined }) {
       await apiMutation("/admin/company-profile", {
         ...companyDraft,
         phone: companyDraft.phone === null || companyDraft.phone === "" ? undefined : normalizeKzPhone(companyDraft.phone),
-      }, { idempotent: true });
+      }, { method: "PUT", idempotent: true });
       await company.reload();
     } catch (cause) {
       setCompanyError(cause instanceof Error ? cause.message : "Не удалось сохранить реквизиты");
@@ -129,7 +129,7 @@ function UserModal({ title, user, onClose, onSaved }: { title: string; user?: Ma
           role: form.role,
           active: form.active,
           ...(form.password === "" ? {} : { password: form.password }),
-        });
+        }, { method: "PATCH" });
       } else {
         await apiMutation("/admin/users", { name: form.name, email: form.email, role: form.role, password: form.password });
       }

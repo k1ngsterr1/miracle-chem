@@ -43,7 +43,7 @@ const FILTERS = [
 
 type BatchFilter = (typeof FILTERS)[number]["id"];
 
-export function BatchesPage({ meta }: { meta: MetaData | null }) {
+export function BatchesPage({ meta, actorRole }: { meta: MetaData | null; actorRole: string | undefined }) {
   const batches = useApi<{ items: Batch[] }>("/batches");
   const recipes = useApi<{ items: Recipe[] }>("/recipes");
   const [filter, setFilter] = useState<BatchFilter>("ALL");
@@ -51,6 +51,7 @@ export function BatchesPage({ meta }: { meta: MetaData | null }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [template, setTemplate] = useState<Batch | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const canManageBatches = ["ADMIN", "DIRECTOR", "TECHNOLOGIST", "OPERATOR"].includes(actorRole ?? "");
   const filtered = useMemo(() => {
     const normalized = query.toLocaleLowerCase("ru");
     return (batches.data?.items ?? []).filter((batch) => {
@@ -70,7 +71,7 @@ export function BatchesPage({ meta }: { meta: MetaData | null }) {
         eyebrow="Производственный контур"
         title="Замесы"
         description="Планируйте, резервируйте сырьё, фиксируйте факт и выпуск партии в одном журнале."
-        actions={<button className="button primary" onClick={() => { setTemplate(null); setCreateOpen(true); }}><Plus size={17} /> Запланировать замес</button>}
+        actions={canManageBatches ? <button className="button primary" onClick={() => { setTemplate(null); setCreateOpen(true); }}><Plus size={17} /> Запланировать замес</button> : undefined}
       />
 
       <div className="summary-strip">
@@ -132,6 +133,8 @@ export function BatchesPage({ meta }: { meta: MetaData | null }) {
       {selectedId === null ? null : (
         <BatchDetailModal
           id={selectedId}
+          actorRole={actorRole}
+          actorId={meta?.actor.id}
           onClose={() => setSelectedId(null)}
           onChanged={batches.reload}
           onDuplicate={(batch) => { setSelectedId(null); setTemplate(batch); setCreateOpen(true); }}
@@ -229,12 +232,29 @@ function CreateBatchModal({
   );
 }
 
-function BatchDetailModal({ id, onClose, onChanged, onDuplicate }: { id: string; onClose: () => void; onChanged: () => Promise<void>; onDuplicate: (batch: Batch) => void }) {
+function BatchDetailModal({
+  id,
+  actorRole,
+  actorId,
+  onClose,
+  onChanged,
+  onDuplicate,
+}: {
+  id: string;
+  actorRole: string | undefined;
+  actorId: string | undefined;
+  onClose: () => void;
+  onChanged: () => Promise<void>;
+  onDuplicate: (batch: Batch) => void;
+}) {
   const [batch, setBatch] = useState<Batch | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [actuals, setActuals] = useState<Record<string, string>>({});
   const [completion, setCompletion] = useState({ actualOutput: "", goodOutput: "", rejectedOutput: "0", loss: "0", lot: "" });
+  const [qualityDraft, setQualityDraft] = useState({ status: "PASSED", comments: "" });
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
 
   async function load(): Promise<void> {
     try {
@@ -272,6 +292,9 @@ function BatchDetailModal({ id, onClose, onChanged, onDuplicate }: { id: string;
     ?? false;
   const economics = batch.economics;
   const stockWarnings = batch.stockReadiness?.warnings ?? [];
+  const canManageBatches = ["ADMIN", "DIRECTOR", "TECHNOLOGIST", "OPERATOR"].includes(actorRole ?? "");
+  const canManageQuality = ["ADMIN", "DIRECTOR", "TECHNOLOGIST", "QUALITY_MANAGER"].includes(actorRole ?? "");
+  const canCancel = canManageBatches && ["PLANNED", "PREPARATION", "IN_PROGRESS"].includes(batch.status) && !consumptionConfirmed;
 
   return (
     <Modal title={`${batch.number} · ${batch.concreteGrade}`} onClose={onClose} wide>
@@ -330,7 +353,7 @@ function BatchDetailModal({ id, onClose, onChanged, onDuplicate }: { id: string;
                 <div className="component-name"><strong>{component.materialNameSnapshot}</strong><small>Допуск ±{formatNumber(component.allowedDeviationPercent)}%</small></div>
                 <div className="component-metrics">
                   <span><small>План</small><strong>{formatNumber(component.plannedQuantity)} {unitLabel[component.plannedUnit]}</strong></span>
-                  {consumptionConfirmed || batch.status !== "IN_PROGRESS"
+                  {consumptionConfirmed || batch.status !== "IN_PROGRESS" || !canManageBatches
                     ? <span><small>Потрачено по факту</small><strong>{formatNumber(component.actualQuantity)} {unitLabel[component.actualUnit]}</strong></span>
                     : <label><small>Факт</small><input type="number" min="0" step="0.001" value={actuals[component.id] ?? ""} onChange={(event) => setActuals({ ...actuals, [component.id]: event.target.value })} /></label>}
                   <span><small>Отклонение</small><strong className={component.withinTolerance ? "deviation-ok" : "deviation-bad"}>{consumptionConfirmed ? `${formatNumber(component.deviationPercent)}%` : "—"}</strong></span>
@@ -354,12 +377,14 @@ function BatchDetailModal({ id, onClose, onChanged, onDuplicate }: { id: string;
 
       {error === null ? null : <div className="form-error">{error}</div>}
       <div className="workflow-actions">
-        <button className="button ghost" onClick={() => onDuplicate(batch)}><CopyPlus size={16} /> Создать на основе</button>
-        {batch.status === "PLANNED" ? <button disabled={busy} className="button primary" onClick={() => void action(() => apiMutation(`/batches/${batch.id}/start`, {}, { idempotent: true }))}><Play size={16} /> Запустить и зарезервировать</button> : null}
-        {batch.status === "IN_PROGRESS" && !consumptionConfirmed ? <button disabled={busy} className="button primary" onClick={() => void action(() => apiMutation(`/batches/${batch.id}/consumption`, { components: batch.components?.map((component) => ({ batchComponentId: component.id, actualQuantity: actuals[component.id] ?? component.plannedQuantity, actualUnit: component.actualUnit, lossQuantity: "0", lossUnit: component.actualUnit })) }, { idempotent: true }))}><Check size={16} /> Подтвердить расход</button> : null}
-        {batch.status === "IN_PROGRESS" && consumptionConfirmed ? (
+        {canManageBatches ? <button className="button ghost" onClick={() => onDuplicate(batch)}><CopyPlus size={16} /> Создать на основе</button> : null}
+        {canManageBatches && batch.status === "PLANNED" ? <button disabled={busy} className="button primary" onClick={() => void action(() => apiMutation(`/batches/${batch.id}/start`, {}, { idempotent: true }))}><Play size={16} /> Запустить и зарезервировать</button> : null}
+        {canManageBatches && batch.status === "IN_PROGRESS" && !consumptionConfirmed ? <button disabled={busy} className="button primary" onClick={() => void action(() => apiMutation(`/batches/${batch.id}/consumption`, { components: batch.components?.map((component) => ({ batchComponentId: component.id, actualQuantity: actuals[component.id] ?? component.plannedQuantity, actualUnit: component.actualUnit, lossQuantity: "0", lossUnit: component.actualUnit })) }, { idempotent: true }))}><Check size={16} /> Подтвердить расход</button> : null}
+        {canManageBatches && batch.status === "IN_PROGRESS" && consumptionConfirmed ? (
           <div className="completion-inline"><label><span>Партия</span><input required value={completion.lot} onChange={(event) => setCompletion({ ...completion, lot: event.target.value })} /></label><label><span>Получено, м³</span><input required type="number" step="0.001" value={completion.actualOutput} onChange={(event) => setCompletion({ ...completion, actualOutput: event.target.value, goodOutput: event.target.value })} /></label><label><span>Брак, м³</span><input required type="number" step="0.001" value={completion.rejectedOutput} onChange={(event) => setCompletion({ ...completion, rejectedOutput: event.target.value, goodOutput: String(Math.max(0, Number(completion.actualOutput) - Number(event.target.value))) })} /></label><button disabled={busy} className="button primary" onClick={() => void action(() => apiMutation(`/batches/${batch.id}/complete`, { productLotNumber: completion.lot, actualVolume: completion.actualOutput, actualVolumeUnit: "M3", actualOutput: completion.actualOutput, goodOutput: completion.goodOutput, rejectedOutput: completion.rejectedOutput, technologicalLoss: completion.loss, outputUnit: "M3", densityKgPerM3: "2400" }, { idempotent: true }))}><ShieldCheck size={16} /> Завершить замес</button></div>
         ) : null}
+        {canCancel ? (cancelling ? <div className="workflow-inline-form"><label><span>Причина отмены</span><input autoFocus minLength={3} value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} placeholder="Например, изменился производственный план" /></label><button type="button" className="button ghost" onClick={() => { setCancelling(false); setCancelReason(""); }}>Назад</button><button type="button" className="button danger" disabled={busy || cancelReason.trim().length < 3} onClick={() => void action(async () => { await apiMutation(`/batches/${batch.id}/cancel`, { reason: cancelReason.trim() }, { idempotent: true }); setCancelling(false); setCancelReason(""); })}><X size={16} /> Отменить замес</button></div> : <button type="button" className="button ghost danger" disabled={busy} onClick={() => setCancelling(true)}><X size={16} /> Отменить замес</button>) : null}
+        {canManageQuality ? <div className="workflow-inline-form quality-check-form"><div className="form-field"><span>Результат контроля</span><CustomSelect required ariaLabel="Результат контроля качества" value={qualityDraft.status} options={[{ value: "PASSED", label: "Пройден" }, { value: "CONDITIONAL", label: "Условно пройден" }, { value: "FAILED", label: "Не пройден" }, { value: "PENDING", label: "Ожидает решения" }]} onChange={(status) => setQualityDraft({ ...qualityDraft, status })} /></div><label><span>Комментарий</span><input value={qualityDraft.comments} onChange={(event) => setQualityDraft({ ...qualityDraft, comments: event.target.value })} placeholder="Замеры и замечания" /></label><button type="button" className="button ghost" disabled={busy || actorId === undefined} onClick={() => void action(async () => { if (actorId === undefined) return; await apiMutation(`/batches/${batch.id}/quality-checks`, { performedById: actorId, status: qualityDraft.status, comments: qualityDraft.comments.trim() || undefined }, { idempotent: true }); setQualityDraft({ status: "PASSED", comments: "" }); })}><ShieldCheck size={16} /> Записать контроль</button></div> : null}
         {["COMPLETED", "PARTIALLY_TRANSFERRED", "FULLY_TRANSFERRED"].includes(batch.status) ? <span className="locked-note"><ShieldCheck size={16} /> Расчётные данные зафиксированы и защищены от изменения</span> : null}
       </div>
     </Modal>

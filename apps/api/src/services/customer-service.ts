@@ -3,6 +3,7 @@ import { AccountingDocumentStatus, AccountingDocumentType, AuditEntityType, Pris
 import { ApiError } from "../lib/api-error.js";
 import { writeAudit } from "../lib/audit.js";
 import { prisma } from "../lib/prisma.js";
+import { loadOneCFinance } from "./one-c-finance-service.js";
 
 export interface CreateCustomerInput {
   name: string;
@@ -51,7 +52,7 @@ const customerInclude = {
 type CustomerWithRecipes = Prisma.CustomerGetPayload<{ include: typeof customerInclude }>;
 
 export async function listCustomers(workspaceId: string) {
-  const [customers, receivables] = await Promise.all([
+  const [customers, receivables, oneCFinance] = await Promise.all([
     prisma.customer.findMany({
       where: { workspaceId },
       include: customerInclude,
@@ -66,8 +67,9 @@ export async function listCustomers(workspaceId: string) {
       },
       select: { customerId: true, currency: true, totalAmount: true, dueAt: true },
     }),
+    loadOneCFinance(workspaceId),
   ]);
-  const receivableByCustomer = summarizeReceivables(receivables);
+  const receivableByCustomer = oneCFinance === null ? summarizeReceivables(receivables) : oneCReceivablesByCustomer(oneCFinance);
   const items = customers.map((customer) => ({
     ...serializeCustomer(customer),
     receivables: receivableByCustomer.get(customer.id) ?? [],
@@ -83,7 +85,7 @@ export async function listCustomers(workspaceId: string) {
 }
 
 export async function getCustomer(workspaceId: string, customerId: string) {
-  const [customer, receivables, transfers, documents] = await Promise.all([
+  const [customer, receivables, transfers, documents, oneCFinance] = await Promise.all([
     prisma.customer.findFirst({
       where: { id: customerId, workspaceId },
       include: customerInclude,
@@ -126,9 +128,10 @@ export async function getCustomer(workspaceId: string, customerId: string) {
         transfer: { select: { id: true, number: true } },
       },
     }),
+    loadOneCFinance(workspaceId),
   ]);
   if (customer === null) throw new ApiError(404, "CUSTOMER_NOT_FOUND", "Клиент не найден");
-  const customerReceivables = summarizeReceivables(receivables).get(customerId) ?? [];
+  const customerReceivables = (oneCFinance === null ? summarizeReceivables(receivables) : oneCReceivablesByCustomer(oneCFinance)).get(customerId) ?? [];
   return {
     ...serializeCustomer(customer),
     receivables: customerReceivables,
@@ -247,6 +250,17 @@ function summarizeReceivables(rows: Array<{ customerId: string | null; currency:
     invoiceCount: value.invoiceCount,
     nearestDueAt: value.nearestDueAt?.toISOString() ?? null,
   }))]));
+}
+
+function oneCReceivablesByCustomer(finance: NonNullable<Awaited<ReturnType<typeof loadOneCFinance>>>) {
+  const grouped = new Map<string, Array<{ currency: string; amount: string; overdueAmount: string;
+    invoiceCount: number; nearestDueAt: string | null }>>();
+  for (const row of finance.receivables) {
+    if (row.customerId === null) continue;
+    grouped.set(row.customerId, [{ currency: row.currency, amount: row.amount,
+      overdueAmount: row.overdueAmount, invoiceCount: row.invoiceCount, nearestDueAt: row.nearestDueAt }]);
+  }
+  return grouped;
 }
 
 function buildCustomerTimeline(
