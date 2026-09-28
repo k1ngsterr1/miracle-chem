@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseConfig } from "./config.js";
+import { makeInitialConfig, parseConfig } from "./config.js";
 
 const base = {
   crmSyncUrl: "https://crm.example.kz/api/integrations/1c/sync",
@@ -14,6 +14,9 @@ const base = {
 };
 
 describe("agent config", () => {
+  it("allows a full snapshot transaction to finish with the default timeout", () => {
+    expect(makeInitialConfig().requestTimeoutSeconds).toBeGreaterThan(120);
+  });
   it("accepts a secure CRM endpoint", () => {
     expect(parseConfig(base)).toMatchObject({ crmSyncUrl: base.crmSyncUrl, listenPort: 8261 });
   });

@@ -3,7 +3,8 @@ import { fullSnapshotCounts } from "./full-snapshot.js";
 import type { AgentConfig, AgentLogger, OneCDelta, OneCFullSnapshotEnvelope, SyncResponse } from "./types.js";
 
 export class CrmSyncError extends Error {
-  public constructor(message: string, public readonly retryable: boolean, public readonly statusCode?: number) {
+  public constructor(message: string, public readonly retryable: boolean, public readonly statusCode?: number,
+    public readonly code?: string) {
     super(message);
     this.name = "CrmSyncError";
   }
@@ -14,10 +15,13 @@ export async function sendDelta(config: AgentConfig, delta: OneCDelta): Promise<
 }
 
 export async function sendFullSnapshot(config: AgentConfig, snapshot: OneCFullSnapshotEnvelope): Promise<SyncResponse> {
-  return sendPayload(config, config.crmSyncUrl.replace(/\/sync$/u, "/snapshot"), snapshot);
+  // The API may spend up to 120 seconds applying a full snapshot transaction.
+  return sendPayload(config, config.crmSyncUrl.replace(/\/sync$/u, "/snapshot"), snapshot,
+    Math.max(config.requestTimeoutSeconds, 180));
 }
 
-async function sendPayload(config: AgentConfig, url: string, payload: OneCDelta | OneCFullSnapshotEnvelope): Promise<SyncResponse> {
+async function sendPayload(config: AgentConfig, url: string, payload: OneCDelta | OneCFullSnapshotEnvelope,
+    timeoutSeconds = config.requestTimeoutSeconds): Promise<SyncResponse> {
   let response: Response;
   try {
     response = await fetch(url, {
@@ -28,7 +32,7 @@ async function sendPayload(config: AgentConfig, url: string, payload: OneCDelta 
         "user-agent": "MiracleChem-OneCSyncAgent/0.1",
       },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(config.requestTimeoutSeconds * 1_000),
+      signal: AbortSignal.timeout(timeoutSeconds * 1_000),
     });
   } catch (error) {
     throw new CrmSyncError(`CRM недоступна: ${error instanceof Error ? error.message : String(error)}`, true);
@@ -43,7 +47,8 @@ async function sendPayload(config: AgentConfig, url: string, payload: OneCDelta 
   }
   if (!response.ok) {
     const message = apiMessage(parsed) ?? `CRM вернула HTTP ${response.status}`;
-    throw new CrmSyncError(message, response.status === 408 || response.status === 425 || response.status === 429 || response.status >= 500, response.status);
+    throw new CrmSyncError(message, response.status === 408 || response.status === 425 || response.status === 429 || response.status >= 500,
+      response.status, apiCode(parsed));
   }
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new CrmSyncError("CRM вернула некорректный ответ синхронизации", true, response.status);
   const result = parsed as SyncResponse;
@@ -62,6 +67,17 @@ export async function logSentFullSnapshot(logger: AgentLogger, snapshot: OneCFul
 
 function apiMessage(value: unknown): string | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
-  const candidate = (value as Record<string, unknown>).message;
+  const body = value as Record<string, unknown>;
+  const nested = body.error;
+  const candidate = nested !== null && typeof nested === "object" && !Array.isArray(nested)
+    ? (nested as Record<string, unknown>).message : body.message;
   return typeof candidate === "string" && candidate.trim() !== "" ? candidate : null;
+}
+
+function apiCode(value: unknown): string | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const nested = (value as Record<string, unknown>).error;
+  if (nested === null || typeof nested !== "object" || Array.isArray(nested)) return undefined;
+  const code = (nested as Record<string, unknown>).code;
+  return typeof code === "string" ? code : undefined;
 }

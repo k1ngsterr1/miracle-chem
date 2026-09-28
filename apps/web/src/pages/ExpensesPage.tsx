@@ -116,9 +116,7 @@ export function ExpensesPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Финансовый контур"
         title="Расходы"
-        description="Операционные затраты предприятия по категориям, центрам ответственности и способам оплаты."
         actions={<button className="button primary" onClick={() => { setTemplate(null); setCreateOpen(true); }}><Plus size={17} /> Добавить расход</button>}
       />
 
@@ -140,7 +138,7 @@ export function ExpensesPage() {
       </Panel>
 
       <Panel className="table-panel">
-        <div className="table-toolbar"><div><h2>Журнал расходов</h2><p>Отменённые записи остаются в истории и не входят в итоговые суммы</p></div><span className="expense-count">{data.items.length} записей</span></div>
+        <div className="table-toolbar"><div><h2>Журнал расходов</h2></div><span className="expense-count">{data.items.length} записей</span></div>
         {data.items.length === 0 ? <EmptyState title="Расходов за период нет" text="Измените фильтры или добавьте первую операционную затрату." /> : (
           <>
           <div className="data-table-wrap desktop-document-table">

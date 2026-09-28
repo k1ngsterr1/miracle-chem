@@ -14,7 +14,6 @@ import {
 } from "lucide-react";
 import { type ExpenseTrendPoint, type LineStatPoint, type ProductionTrendPoint, type StatusStatPoint } from "../components/DashboardCharts.js";
 import { useApi } from "../hooks/use-api.js";
-import { useDateFilter } from "../hooks/use-date-filter.js";
 import { useMobileLayout } from "../hooks/use-mobile-layout.js";
 import type { Batch, DashboardData } from "../types.js";
 import { formatDate, formatMetric, formatMoney, formatNumber, unitLabel } from "../lib/format.js";
@@ -32,7 +31,6 @@ const ProductionTrendChart = lazy(() => import("../components/DashboardCharts.js
 const DashboardAnalyticsCharts = lazy(() => import("../components/DashboardCharts.js").then((module) => ({ default: module.DashboardAnalyticsCharts })));
 
 export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" | "materials" | "transfers" | "expenses" | "accounting") => void }) {
-  const { selectedDate } = useDateFilter();
   const dashboard = useApi<DashboardData>("/dashboard?analytics=false");
   const batches = useApi<{ items: Batch[] }>("/batches");
   const compactDashboard = useMobileLayout();
@@ -67,7 +65,7 @@ export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" |
   return (
     <>
       <div className="dashboard-heading">
-        <div><span className="eyebrow">Оперативная сводка</span><h1>Добрый день, производство</h1><p>{new Intl.DateTimeFormat("ru-RU", { weekday: "long", day: "numeric", month: "long" }).format(new Date(`${selectedDate}T12:00:00`))} · данные за выбранную дату</p></div>
+        <div><h1>Дашборд</h1></div>
         <button className="button primary" onClick={() => onNavigate("batches")}><Factory size={17} /> Новый замес</button>
       </div>
 
@@ -76,7 +74,6 @@ export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" |
           <span className="stock-warning-banner-icon"><AlertTriangle size={20} /></span>
           <div className="stock-warning-banner-copy">
             <strong>Требуют внимания: {stockPositionLabel(stockAlertCount)}</strong>
-            <p>Свободного остатка недостаточно либо после ближайших замесов он опустится ниже установленного минимума.</p>
           </div>
           <div className="stock-warning-banner-items">
             {stockWarnings.slice(0, 3).map((warning) => <span key={warning.id}><b>{warning.name}</b><small>{stockWarningSummary(warning)}</small></span>)}
@@ -101,7 +98,6 @@ export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" |
       <Panel className="receivables-panel">
         <PanelHeader
           title="Дебиторская задолженность"
-          description="Сколько отгружено и выставлено клиентам, но ещё не оплачено"
           action={<button className="text-button" onClick={() => onNavigate("accounting")}>Открыть бухгалтерию <ChevronRight size={15} /></button>}
         />
         {(data.receivables ?? []).length === 0 ? (
@@ -126,7 +122,7 @@ export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" |
       </Panel>
 
       <Panel className="main-reagents-panel">
-        <PanelHeader title="Основные реагенты на складе" description="Текущий и свободный остаток по ключевым компонентам" action={<button className="text-button" onClick={() => onNavigate("materials")}>Открыть склад <ChevronRight size={15} /></button>} />
+        <PanelHeader title="Основные реагенты на складе" action={<button className="text-button" onClick={() => onNavigate("materials")}>Открыть склад <ChevronRight size={15} /></button>} />
         <div className="main-reagents-grid">
           {(data.mainReagents ?? []).map((reagent) => {
             const current = Number(reagent.currentStock);
@@ -156,7 +152,7 @@ export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" |
         <div ref={trendViewport} className="dashboard-chart-deferred">{trendVisible && dashboardAnalytics.data !== null ? <Suspense fallback={<TrendChartPlaceholder />}><ProductionTrendChart trend={trend} /></Suspense> : <TrendChartPlaceholder />}</div>
 
         <Panel className="balance-panel">
-          <PanelHeader title="Баланс смены" description="Готовый продукт · м³" />
+          <PanelHeader title="Баланс смены" />
           <div className="balance-ring" style={{ "--progress": "78%" } as React.CSSProperties}>
             <div><strong>{formatMetric(data.metrics.availableProduct).replace(" м³", "")}</strong><span>доступно</span></div>
           </div>
@@ -175,7 +171,7 @@ export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" |
 
       <div className="dashboard-lower-grid">
         <Panel>
-          <PanelHeader title="Текущая очередь" description="Ближайшие и активные производственные замесы" action={<button className="text-button" onClick={() => onNavigate("batches")}>Все замесы <ChevronRight size={15} /></button>} />
+          <PanelHeader title="Текущая очередь" action={<button className="text-button" onClick={() => onNavigate("batches")}>Все замесы <ChevronRight size={15} /></button>} />
           <div className="batch-cards">
             {active.slice(0, 4).map((batch) => (
               <article className="batch-mini-card" key={batch.id}>
@@ -188,7 +184,7 @@ export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" |
         </Panel>
 
         <Panel>
-          <PanelHeader title="Контроль и риски" description="Отклонения и критические остатки" />
+          <PanelHeader title="Контроль и риски" />
           {stockWarnings.length === 0 && missingReagents.length === 0 && data.deviations.length === 0 ? (
             <EmptyState title="Отклонений нет" text="Все остатки и дозировки находятся в допустимых пределах." />
           ) : (

@@ -41,7 +41,10 @@ function Read-OneCQuery([string]$Text, [string[]]$Fields, [string[]]$ReferenceFi
           $row[$field] = ([decimal]$value).ToString([Globalization.CultureInfo]::InvariantCulture)
         } elseif ($DateFields -contains $field) {
           # A 1C date has no offset. Preserve source wall time, do not invent UTC.
-          $row[$field] = ([datetime]$value).ToString('yyyy-MM-ddTHH:mm:ss', [Globalization.CultureInfo]::InvariantCulture)
+          $date = [datetime]$value
+          $row[$field] = if ($date.Year -le 100) { $null } else {
+            $date.ToString('yyyy-MM-ddTHH:mm:ss', [Globalization.CultureInfo]::InvariantCulture)
+          }
         } else {
           $row[$field] = $value
         }
@@ -114,6 +117,54 @@ try {
 ИЗ Справочник.Номенклатура КАК Н ГДЕ НЕ Н.ЭтоГруппа
 УПОРЯДОЧИТЬ ПО Н.Код
 '@ @('externalId', 'code', 'name', 'groupName', 'unitId', 'unitName', 'service', 'deleted') @('externalId', 'unitId'))
+
+  $warehouses = @(Read-OneCQuery @'
+ВЫБРАТЬ ПЕРВЫЕ 2001 Н.Ссылка КАК externalId, Н.Код КАК code,
+Н.Наименование КАК name, Н.ПометкаУдаления КАК deleted
+ИЗ Справочник.Склады КАК Н ГДЕ НЕ Н.ЭтоГруппа
+УПОРЯДОЧИТЬ ПО Н.Код
+'@ @('externalId', 'code', 'name', 'deleted') @('externalId'))
+
+  $contracts = @(Read-OneCQuery @'
+ВЫБРАТЬ ПЕРВЫЕ 2001 Н.Ссылка КАК externalId, Н.Код КАК code,
+Н.Наименование КАК name, Н.Владелец КАК counterpartyId,
+Н.Организация КАК organizationId, Н.НомерДоговора КАК contractNumber,
+Н.ДатаДоговора КАК contractAt, Н.ПометкаУдаления КАК deleted
+ИЗ Справочник.ДоговорыКонтрагентов КАК Н
+УПОРЯДОЧИТЬ ПО Н.Код, Н.Ссылка
+'@ @('externalId', 'code', 'name', 'counterpartyId', 'organizationId', 'contractNumber', 'contractAt', 'deleted') @('externalId', 'counterpartyId', 'organizationId') @() @('contractAt'))
+
+  $specifications = @(Read-OneCQuery @'
+ВЫБРАТЬ ПЕРВЫЕ 2001 Н.Ссылка КАК externalId, Н.Код КАК code,
+Н.Наименование КАК name, Н.Владелец КАК materialId,
+Н.Количество КАК quantity, Н.ПометкаУдаления КАК deleted
+ИЗ Справочник.СпецификацииНоменклатуры КАК Н
+УПОРЯДОЧИТЬ ПО Н.Код, Н.Ссылка
+'@ @('externalId', 'code', 'name', 'materialId', 'quantity', 'deleted') @('externalId', 'materialId') @('quantity'))
+
+  $specificationComponents = @(Read-OneCQuery @'
+ВЫБРАТЬ ПЕРВЫЕ 2001 Т.Ссылка КАК specificationId, Т.НомерСтроки КАК lineNumber,
+Т.Номенклатура КАК materialId, Т.Количество КАК quantity
+ИЗ Справочник.СпецификацииНоменклатуры.ИсходныеКомплектующие КАК Т
+УПОРЯДОЧИТЬ ПО Т.Ссылка, Т.НомерСтроки
+'@ @('specificationId', 'lineNumber', 'materialId', 'quantity') @('specificationId', 'materialId') @('quantity'))
+
+  $productionReports = @(Read-OneCQuery @'
+ВЫБРАТЬ ПЕРВЫЕ 2001 Д.Ссылка КАК externalId, Д.Номер КАК number,
+Д.Дата КАК documentAt, Д.Организация КАК organizationId,
+Д.Склад КАК warehouseId, Д.Проведен КАК posted, Д.ПометкаУдаления КАК deleted
+ИЗ Документ.ОтчетПроизводстваЗаСмену КАК Д
+УПОРЯДОЧИТЬ ПО Д.Дата, Д.Ссылка
+'@ @('externalId', 'number', 'documentAt', 'organizationId', 'warehouseId', 'posted', 'deleted') @('externalId', 'organizationId', 'warehouseId') @() @('documentAt'))
+
+  $productionProducts = @(Read-OneCQuery @'
+ВЫБРАТЬ ПЕРВЫЕ 2001 Т.Ссылка КАК documentId, Т.НомерСтроки КАК lineNumber,
+Т.Номенклатура КАК materialId, Т.ЕдиницаИзмерения КАК unitId,
+Т.Количество КАК quantity, Т.ПлановаяСтоимость КАК plannedUnitCost,
+Т.СуммаПлановая КАК plannedAmount, Т.Спецификация КАК specificationId
+ИЗ Документ.ОтчетПроизводстваЗаСмену.Продукция КАК Т
+УПОРЯДОЧИТЬ ПО Т.Ссылка, Т.НомерСтроки
+'@ @('documentId', 'lineNumber', 'materialId', 'unitId', 'quantity', 'plannedUnitCost', 'plannedAmount', 'specificationId') @('documentId', 'materialId', 'unitId', 'specificationId') @('quantity', 'plannedUnitCost', 'plannedAmount'))
 
   $receipts = @(Read-OneCQuery @'
 ВЫБРАТЬ ПЕРВЫЕ 2001 Т.Ссылка КАК documentId, Т.НомерСтроки КАК lineNumber,
@@ -223,6 +274,12 @@ try {
     organizations = $organizations
     counterparties = $counterparties
     materials = $materials
+    warehouses = $warehouses
+    contracts = $contracts
+    specifications = $specifications
+    specificationComponents = $specificationComponents
+    productionReports = $productionReports
+    productionProducts = $productionProducts
     receipts = $receipts
     balances = $balances
     accountingInventory = $accountingInventory
@@ -251,7 +308,7 @@ try {
   } finally { $stream.Dispose() }
   [IO.File]::Move($temporary, $destination)
   $temporary = $null
-  [ordered]@{status = 'EXPORTED_READ_ONLY'; path = $destination; configurationVersion = $snapshot.configurationVersion; organizations = $organizations.Count; counterparties = $counterparties.Count; materials = $materials.Count; receiptLines = $receipts.Count; diagnosticBalances = $balances.Count; accountingInventory = $accountingInventory.Count; receivables = $receivables.Count; sales = $sales.Count; invoices = $invoices.Count; incomingPayments = $incomingPayments.Count; outgoingPayments = $outgoingPayments.Count} | ConvertTo-Json -Compress
+  [ordered]@{status = 'EXPORTED_READ_ONLY'; path = $destination; configurationVersion = $snapshot.configurationVersion; organizations = $organizations.Count; counterparties = $counterparties.Count; materials = $materials.Count; warehouses = $warehouses.Count; contracts = $contracts.Count; specifications = $specifications.Count; specificationComponents = $specificationComponents.Count; productionReports = $productionReports.Count; productionProducts = $productionProducts.Count; receiptLines = $receipts.Count; diagnosticBalances = $balances.Count; accountingInventory = $accountingInventory.Count; receivables = $receivables.Count; sales = $sales.Count; invoices = $invoices.Count; incomingPayments = $incomingPayments.Count; outgoingPayments = $outgoingPayments.Count} | ConvertTo-Json -Compress
 } finally {
   $password = $null
   $connectionString = $null

@@ -22,4 +22,14 @@ describe("native 1C full snapshot boundary", () => {
     }
     expect(bsl).toContain('Новый HTTPЗапрос("/v1/snapshot")');
   });
+
+  it("accepts extended BKZ collections but rejects malformed or truncated collections", () => {
+    const envelope = sampleFullSnapshot();
+    envelope.snapshot.productionReports = [{ externalId: "source-report" }];
+    expect(fullSnapshotCounts(parseFullSnapshot(envelope)).productionReports).toBe(1);
+    envelope.snapshot.productionReports = "invalid";
+    expect(() => parseFullSnapshot(envelope)).toThrow("productionReports");
+    envelope.snapshot.productionReports = Array.from({ length: 2_001 }, () => ({}));
+    expect(() => parseFullSnapshot(envelope)).toThrow("productionReports");
+  });
 });

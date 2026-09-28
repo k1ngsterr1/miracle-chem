@@ -20,6 +20,7 @@ import {
 import { apiFetch, apiMutation } from "../api.js";
 import { CustomSelect } from "../components/CustomSelect.js";
 import { DateTimePicker } from "../components/DateTimePicker.js";
+import { OneCProductionPanel } from "../components/OneCOperationalRecords.js";
 import { useApi } from "../hooks/use-api.js";
 import type { Batch, MetaData, Recipe } from "../types.js";
 import { formatDate, formatMoney, formatNumber, unitLabel } from "../lib/format.js";
@@ -68,9 +69,7 @@ export function BatchesPage({ meta, actorRole }: { meta: MetaData | null; actorR
   return (
     <>
       <PageHeader
-        eyebrow="Производственный контур"
         title="Замесы"
-        description="Планируйте, резервируйте сырьё, фиксируйте факт и выпуск партии в одном журнале."
         actions={canManageBatches ? <button className="button primary" onClick={() => { setTemplate(null); setCreateOpen(true); }}><Plus size={17} /> Запланировать замес</button> : undefined}
       />
 
@@ -118,8 +117,10 @@ export function BatchesPage({ meta, actorRole }: { meta: MetaData | null; actorR
             </tbody>
           </table>
         </div>
-        <div className="table-footer"><span>Показано {filtered.length} из {batches.data?.items.length ?? 0}</span><span>Нажмите на строку, чтобы открыть карту замеса</span></div>
+        <div className="table-footer"><span>Показано {filtered.length} из {batches.data?.items.length ?? 0}</span></div>
       </Panel>
+
+      {["ADMIN", "DIRECTOR", "TECHNOLOGIST"].includes(actorRole ?? "") ? <OneCProductionPanel /> : null}
 
       {createOpen ? (
         <CreateBatchModal

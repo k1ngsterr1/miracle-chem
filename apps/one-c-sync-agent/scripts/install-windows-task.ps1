@@ -37,7 +37,7 @@ if (-not (Test-Path $ConfigPath)) {
   exit 0
 }
 
-& $node $cli status --config $ConfigPath
+& $node $cli validate-config --config $ConfigPath
 if ($LASTEXITCODE -ne 0) {
   throw "config.json не прошёл проверку. Проверьте crmSyncUrl, apiKey и localIngestKey."
 }

@@ -8,6 +8,8 @@ import { initializeBkzState, parseBkzMapping, parseBkzSnapshot, prepareBkzPlan }
 import { proposeBkzAuthorityMapping } from "./bkz-authority.js";
 import { initializeBkzCollector, readJsonFile, syncBkzSnapshot } from "./bkz-collector.js";
 import { buildBkzFullEnvelope } from "./bkz-full-envelope.js";
+import { prepareBkzArchive, uploadBkzArchive } from "./bkz-archive.js";
+import { readLocalAgentStatus, readLocalBatchState, requestLocalDrain, submitSnapshotToAgent } from "./local-client.js";
 
 async function main(): Promise<void> {
   const [command = "help", ...argumentsList] = process.argv.slice(2);
@@ -20,6 +22,11 @@ async function main(): Promise<void> {
   }
   if (command === "help" || command === "--help" || command === "-h") {
     process.stdout.write(help());
+    return;
+  }
+  if (command === "validate-config") {
+    await loadConfig(configPath);
+    process.stdout.write("Конфигурация агента корректна.\n");
     return;
   }
   if (command === "bkz-propose-mapping") {
@@ -45,15 +52,27 @@ async function main(): Promise<void> {
     const mapping = parseBkzMapping(await readJsonFile(requiredPath(argumentsList, "--mapping")));
     const envelope = buildBkzFullEnvelope(snapshot, mapping);
     const config = await loadConfig(configPath);
-    const agent = new SyncAgent(config);
-    await agent.initialize();
-    const queued = await agent.enqueueSnapshot(envelope);
-    await agent.drain();
-    const status = await agent.status();
+    const queued = await submitSnapshotToAgent(config, envelope);
+    const status = await readLocalAgentStatus(config);
     const queue = status.queue as { pending: number; sending: number; sent: number; failed: number };
-    if (queue.failed > 0) throw new Error(`Пакет ${envelope.batchId} отклонён CRM; проверьте журнал агента`);
-    process.stdout.write(`${JSON.stringify({ status: queue.pending + queue.sending > 0 ? "QUEUED_FOR_RETRY" : "DELIVERED",
+    const batchState = await readLocalBatchState(config, envelope.batchId);
+    if (batchState === "failed") throw new Error(`Пакет ${envelope.batchId} отклонён CRM; проверьте журнал агента`);
+    if (batchState === null) throw new Error(`Пакет ${envelope.batchId} не найден в очереди агента`);
+    process.stdout.write(`${JSON.stringify({ status: batchState === "sent" ? "DELIVERED" : "QUEUED_FOR_RETRY",
       batchId: envelope.batchId, duplicate: queued.duplicate, queue })}\n`);
+    return;
+  }
+  if (command === "bkz-archive-preview" || command === "bkz-archive-upload") {
+    const directory = requiredPath(argumentsList, "--directory");
+    if (command === "bkz-archive-preview") {
+      const { manifest, chunks } = await prepareBkzArchive(directory);
+      process.stdout.write(`${JSON.stringify({ status: "READY_FOR_UPLOAD", collections: manifest.collections.length,
+        rows: manifest.collections.reduce((sum, item) => sum + item.rowCount, 0), chunks: chunks.length })}\n`);
+      return;
+    }
+    const mapping = parseBkzMapping(await readJsonFile(requiredPath(argumentsList, "--mapping")));
+    const config = await loadConfig(configPath);
+    process.stdout.write(`${JSON.stringify(await uploadBkzArchive(directory, mapping, config))}\n`);
     return;
   }
   if (["bkz-preview", "bkz-baseline", "bkz-sync"].includes(command)) {
@@ -96,20 +115,22 @@ async function main(): Promise<void> {
     }
     return;
   }
+  if (command === "status" || command === "sync") {
+    const config = await loadConfig(configPath);
+    const result = command === "sync" ? await requestLocalDrain(config) : await readLocalAgentStatus(config);
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return;
+  }
   const config = await loadConfig(configPath);
   const agent = new SyncAgent(config);
-  await agent.initialize();
-  if (command === "sync") {
-    await agent.drain();
-    process.stdout.write(`${JSON.stringify(await agent.status())}\n`);
-    return;
-  }
-  if (command === "status") {
-    process.stdout.write(`${JSON.stringify(await agent.status(), null, 2)}\n`);
-    return;
-  }
   if (command === "serve") {
     const server = await agent.serve();
+    try {
+      await agent.initialize();
+    } catch (error) {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      throw error;
+    }
     await agent.drain();
     const timer = setInterval(() => { void agent.drain(); }, config.syncIntervalSeconds * 1_000);
     const shutdown = (): void => {
@@ -150,11 +171,14 @@ function help(): string {
     "",
     "Команды:",
     "  init [--config <path>]   Создать безопасный шаблон config.json",
+    "  validate-config [--config <path>]  Проверить конфигурацию без запуска агента",
     "  serve [--config <path>]  Слушать 127.0.0.1 и отправлять очередь по расписанию",
-    "  sync [--config <path>]   Однократно отправить локальную очередь",
-    "  status [--config <path>] Показать состояние очереди",
+    "  sync [--config <path>]   Попросить работающий локальный агент отправить очередь",
+    "  status [--config <path>] Показать состояние работающего агента без изменения очереди",
     "  bkz-propose-mapping --snapshot <json> --workspace-id <uuid> --organization-id <uuid> --source-instance-id <uuid> --approved-by <text> --source-utc-offset <+05:00> --output <json>",
-    "  bkz-full-sync --snapshot <json> --mapping <json> [--config <agent-config.json>]  Поставить полный снимок в надёжную очередь и отправить",
+    "  bkz-full-sync --snapshot <json> --mapping <json> [--config <agent-config.json>]  Передать полный снимок работающему локальному агенту",
+    "  bkz-archive-preview --directory <path>  Проверить порционную выгрузку всех объектов 1С без отправки",
+    "  bkz-archive-upload --directory <path> --mapping <json> [--config <agent-config.json>]  Отправить проверенный архив 1С",
     "  bkz-preview --snapshot <json> --mapping <json>  Проверить mapping, без отправки",
     "  bkz-baseline --snapshot <json> --mapping <json> --state-directory <path> --accept-reviewed-baseline [--config <path>]",
     "  bkz-sync --snapshot <json> --mapping <json> --state-directory <path> [--config <path>]",

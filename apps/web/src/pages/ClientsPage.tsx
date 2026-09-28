@@ -201,9 +201,7 @@ export function ClientsPage({ actorRole }: { actorRole: string | undefined }) {
           <button type="button" onClick={() => setSelectedId(null)}><ChevronLeft size={17} /> Все клиенты</button>
         </div>
         <PageHeader
-          eyebrow="Клиент · бетонное производство"
           title={selected.name}
-          description={selected.contactPerson ?? selected.taxId ?? "Составы бетона и дозировки добавок"}
           actions={canManageCustomers ? <><button className="button secondary" onClick={openEditCustomerModal}><Pencil size={16} /> Редактировать</button><button className="button primary" disabled={formulaOptions.length === 0} onClick={openRecipeModal}><Plus size={17} /> Добавить состав бетона</button></> : undefined}
         />
 
@@ -254,7 +252,7 @@ export function ClientsPage({ actorRole }: { actorRole: string | undefined }) {
 
         <section className="client-timeline-section" aria-label="Лента клиента">
           <div className="client-timeline-head">
-            <div><span>История работы</span><h2>Лента клиента</h2><p>Составы бетона, отгрузки, документы, оплаты и текущая задолженность.</p></div>
+            <div><h2>Лента клиента</h2></div>
             <small>{selected.timeline?.length ?? 0} событий</small>
           </div>
           {customerDetail.error !== null ? <ErrorState message={customerDetail.error} retry={customerDetail.reload} /> : null}
@@ -276,7 +274,7 @@ export function ClientsPage({ actorRole }: { actorRole: string | undefined }) {
                 <label className="span-2"><span>Комментарий</span><textarea value={recipeDraft.notes} placeholder="Особенности бетона или применения добавки" onChange={(event) => setRecipeDraft({ ...recipeDraft, notes: event.target.value })} /></label>
               </div>
               <div className="client-components-builder">
-                <div className="client-components-title"><div><strong>Состав чужого бетона</strong><p>Добавьте цемент, воду, песок, щебень и остальные компоненты без ограничения в пять строк.</p></div><button type="button" className="button secondary" onClick={() => setComponents((current) => [...current, emptyComponent()])}><Plus size={15} /> Компонент</button></div>
+                <div className="client-components-title"><div><strong>Состав бетона клиента</strong></div><button type="button" className="button secondary" onClick={() => setComponents((current) => [...current, emptyComponent()])}><Plus size={15} /> Компонент</button></div>
                 {components.map((component, index) => (
                   <div className="client-component-row" key={component.key}>
                     <label><span>Компонент {index + 1}</span><input required value={component.name} placeholder="Название" onChange={(event) => updateComponent(setComponents, component.key, { name: event.target.value })} /></label>
@@ -299,9 +297,7 @@ export function ClientsPage({ actorRole }: { actorRole: string | undefined }) {
   return (
     <>
       <PageHeader
-        eyebrow="Продажи и сопровождение"
         title="Клиенты"
-        description="Бетонные производства, их составы и фактическая дозировка ваших добавок."
         actions={canManageCustomers ? <button className="button primary" onClick={openCustomerModal}><Plus size={17} /> Новый клиент</button> : undefined}
       />
       <section className="client-summary-grid">
@@ -311,7 +307,7 @@ export function ClientsPage({ actorRole }: { actorRole: string | undefined }) {
       </section>
       <Panel className="clients-panel">
         <div className="clients-toolbar">
-          <div><h2>Клиентская база</h2><p>Выберите клиента, чтобы открыть его составы.</p></div>
+          <div><h2>Клиентская база</h2></div>
           <label className={`client-search${search === "" ? "" : " filled"}`}><Search size={16} /><input value={search} placeholder="Клиент, марка или добавка…" onChange={(event) => setSearch(event.target.value)} /></label>
         </div>
         {filteredCustomers.length === 0 ? (

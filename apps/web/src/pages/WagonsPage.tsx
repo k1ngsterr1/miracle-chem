@@ -62,9 +62,7 @@ export function WagonsPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Железнодорожная логистика"
         title="Дислокация вагонов"
-        description="Текущее местоположение, статус, груз и хронология движения каждого вагона."
         actions={<button className="button primary" onClick={() => setCreateOpen(true)}><Plus size={17} /> Добавить вагон</button>}
       />
       <div className="wagon-summary">

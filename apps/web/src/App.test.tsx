@@ -255,6 +255,34 @@ describe("Miracle Chem app shell", () => {
           ? { items: [], summary: { totals: [], byStatus: [], byType: [] } }
         : url.includes("/reports/production?")
           ? { items: [{ batchNumber: "ZM-TEST-1", status: "COMPLETED", actualOutput: "5", outputUnit: "M3" }] }
+        : url.endsWith("/integrations/1c/reconciliation")
+          ? { verdict: "PARTIAL", source: { generatedAt: "2026-09-28T08:00:00Z" },
+            discrepancyCount: 0, countsByArea: {}, notProjected: { receipts: 2 } }
+        : url.includes("/integrations/1c/archive/archive-1/collections/")
+          ? { collectionKey: "Справочник.Номенклатура", chunkIndex: 0, records: [{ Наименование: "Тестовый реагент", Код: "R-01" }] }
+        : url.includes("/integrations/1c/archive")
+          ? { items: [{ id: "archive-1", archiveId: "hash", generatedAt: "2026-09-28T08:00:00Z",
+            readStartedAt: "2026-09-28T07:30:00Z", configurationVersion: "3.0.74.2",
+            manifest: { collections: [{ key: "Справочник.Номенклатура", kind: "Catalogs", name: "Номенклатура",
+              sensitivity: "BUSINESS", rowCount: 1, chunkHashes: ["hash"] }] } }] }
+        : url.includes("/integrations/1c/source/warehouses")
+          ? { available: true, section: "warehouses", snapshotAt: "2026-09-28T08:00:00Z",
+            items: [{ externalId: "warehouse-1", code: "W1", name: "Склад 1С", deleted: false }] }
+        : url.includes("/integrations/1c/source/contracts")
+          ? { available: true, section: "contracts", snapshotAt: "2026-09-28T08:00:00Z",
+            items: [{ externalId: "contract-1", contractNumber: "17", counterparty: "ТОО Покупатель", name: "Договор 1С", deleted: false }] }
+        : url.includes("/integrations/1c/source/receipts")
+          ? { available: true, section: "receipts", snapshotAt: "2026-09-28T08:00:00Z",
+            items: [1, 2].map((lineNumber) => ({ documentId: "receipt-1", lineNumber, number: "REC-1",
+              receivedAt: "2026-09-27T08:00:00", posted: true, deleted: false,
+              supplier: "ТОО Поставщик 1С", warehouse: "Склад 1С", material: `Реагент ${lineNumber}`,
+              unitName: "кг", quantity: lineNumber === 1 ? "1.234567" : "2", unitPrice: "40",
+              amount: String(lineNumber * 40), currencyName: "тенге" })) }
+        : url.includes("/integrations/1c/source/production")
+          ? { available: true, section: "production", snapshotAt: "2026-09-28T08:00:00Z",
+            items: [{ externalId: "production-1", number: "PROD-1", documentAt: "2026-09-27T08:00:00",
+              posted: true, deleted: false, warehouse: "Склад 1С",
+              products: [{ lineNumber: 1, material: "Добавка КТ-1", quantity: "250", specification: "Спецификация КТ-1" }] }] }
         : (url.endsWith("/dashboard") || url.includes("/dashboard?"))
           ? dashboard
           : { items: [] };
@@ -295,6 +323,8 @@ describe("Miracle Chem app shell", () => {
     expect(screen.queryByText("Загружаем производственные данные…")).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("Произведено сегодня")).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Выберите дату для данных CRM" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Дашборд" })).toBeInTheDocument();
+    expect(screen.queryByText("Добрый день, производство")).not.toBeInTheDocument();
     expect(screen.getByText("Доход за день")).toBeInTheDocument();
     expect(screen.getAllByText("Дебиторская задолженность").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("ТОО Test Buyer")).toBeInTheDocument();
@@ -309,6 +339,92 @@ describe("Miracle Chem app shell", () => {
     expect(screen.getByRole("button", { name: /Расходы/u })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Бухгалтерия/u })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Клиенты/u })).toBeInTheDocument();
+  });
+
+  it("opens read-only 1C source views and switches between permitted collections", async () => {
+    window.location.hash = "one-c-source";
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Данные 1С" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Склад 1С")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Договоры" }));
+    await waitFor(() => expect(screen.getByText("Договор 1С")).toBeInTheDocument());
+    expect(screen.queryByText("Склад 1С")).not.toBeInTheDocument();
+    expect(screen.getByText(/Снимок:/u)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Редактировать/u })).not.toBeInTheDocument();
+  });
+
+  it("shows 1C receipt lines in the warehouse without creating CRM purchase batches", async () => {
+    window.location.hash = "materials";
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Склад" })).toBeInTheDocument());
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/source/receipts"))).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Показать поступления из 1с" }));
+    expect(await screen.findByText("Записей за этот период нет")).toBeInTheDocument();
+    expect(screen.queryByText("REC-1")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Все даты" }));
+    expect((await screen.findAllByText("REC-1")).length).toBe(2);
+    expect(screen.getByText("Строка 1")).toBeInTheDocument();
+    expect(screen.getByText("Строка 2")).toBeInTheDocument();
+    expect(screen.getByText("1,234567 кг")).toBeInTheDocument();
+    expect(screen.getAllByText("ТОО Поставщик 1С").length).toBe(2);
+    expect(screen.getAllByText(/тенге/u).length).toBeGreaterThan(0);
+    expect(screen.getByText("Закупочных партий пока нет")).toBeInTheDocument();
+  });
+
+  it("shows 1C shift reports separately from CRM batches", async () => {
+    window.location.hash = "batches";
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Замесы" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Показать выпуск по 1с" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Все даты" }));
+    expect(await screen.findByText("PROD-1")).toBeInTheDocument();
+    expect(screen.getByText("1С · отчёт за смену")).toBeInTheDocument();
+    expect(screen.getByText("Показано 0 из 0")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("1 поз."));
+    expect(screen.getByText("Добавка КТ-1")).toBeInTheDocument();
+    expect(screen.getByText("Спецификация: Спецификация КТ-1")).toBeInTheDocument();
+  });
+
+  it("does not request 1C financial receipts for a storekeeper", async () => {
+    const originalFetch = vi.mocked(fetch);
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/meta")) return { ok: true, status: 200,
+        json: async () => ({ ...meta, actor: { ...meta.actor, role: "STOREKEEPER" } }) } as Response;
+      return originalFetch(input, init);
+    }));
+    window.location.hash = "materials";
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Склад" })).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Показать поступления из 1с" })).not.toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/source/receipts"))).toBe(false);
+  });
+
+  it("does not request 1C production reports for an operator", async () => {
+    const originalFetch = vi.mocked(fetch);
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/meta")) return { ok: true, status: 200,
+        json: async () => ({ ...meta, actor: { ...meta.actor, role: "OPERATOR" } }) } as Response;
+      return originalFetch(input, init);
+    }));
+    window.location.hash = "batches";
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Замесы" })).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Показать выпуск по 1с" })).not.toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/source/production"))).toBe(false);
+  });
+
+  it("shows the unavailable state when no confirmed 1C snapshot exists", async () => {
+    const originalFetch = vi.mocked(fetch);
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("/source/receipts")) return { ok: true, status: 200,
+        json: async () => ({ available: false }) } as Response;
+      return originalFetch(input, init);
+    }));
+    window.location.hash = "materials";
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Склад" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Показать поступления из 1с" }));
+    expect(await screen.findByText("Снимок 1С не получен")).toBeInTheDocument();
   });
 
   it("opens modules through the global search", async () => {
@@ -347,6 +463,48 @@ describe("Miracle Chem app shell", () => {
     expect(screen.getByText("Общая масса глюконата")).toBeInTheDocument();
     expect(screen.getByText("3 000 кг")).toBeInTheDocument();
     expect(screen.getByText("2 партии · 2 цены")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Синхронизация 1С" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Нет записей на проверке")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Последний обмен:/u)).not.toBeInTheDocument();
+  });
+
+  it("shows 1C review actions only when there are pending records", async () => {
+    const fallbackFetch = globalThis.fetch;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/integrations/1c/reviews")) {
+        return { ok: true, status: 200, json: async () => ({ items: [{
+          id: "review-1", entityType: "MATERIAL", externalId: "1c-material-1",
+          payload: { name: "Реагент на проверке", code: "R-1" }, reason: "Нет соответствия",
+          status: "PENDING", createdAt: "2026-09-28T08:00:00Z", resolutionNote: null,
+        }] }) } as Response;
+      }
+      return fallbackFetch(input, init);
+    }));
+    window.location.hash = "materials";
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Записи 1С на проверке" })).toBeInTheDocument());
+    expect(screen.getByText("Реагент на проверке")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Подтвердить" })).toBeInTheDocument();
+  });
+
+  it("shows a retry when the 1C review queue cannot be checked", async () => {
+    const fallbackFetch = globalThis.fetch;
+    let attempts = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/integrations/1c/reviews")) {
+        attempts += 1;
+        return attempts === 1
+          ? { ok: false, status: 503, json: async () => ({ error: { message: "Сервис 1С недоступен" } }) } as Response
+          : { ok: true, status: 200, json: async () => ({ items: [] }) } as Response;
+      }
+      return fallbackFetch(input, init);
+    }));
+    window.location.hash = "materials";
+    render(<App />);
+    await waitFor(() => expect(screen.getByText("Не удалось проверить записи 1С: Сервис 1С недоступен")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Повторить" }));
+    await waitFor(() => expect(screen.queryByText("Не удалось проверить записи 1С: Сервис 1С недоступен")).not.toBeInTheDocument());
+    expect(attempts).toBe(2);
   });
 
   it("shows additive formula percentages and opens an empty recipe form", async () => {
@@ -425,6 +583,7 @@ describe("Miracle Chem app shell", () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getByText("Производственные отчёты")).toBeInTheDocument());
+    expect(screen.queryByRole("heading", { name: "Точность данных" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Выпуск продукции/u }));
     await waitFor(() => expect(window.location.hash).toBe("#reports/production"));
     await waitFor(() => expect(screen.getByText("ZM-TEST-1")).toBeInTheDocument());
@@ -432,6 +591,17 @@ describe("Miracle Chem app shell", () => {
     await waitFor(() => expect(window.location.hash).toBe("#reports/production/0"));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "ZM-TEST-1", level: 1 })).toBeInTheDocument();
-    expect(screen.getByText("Все поля выбранной строки показаны полностью на отдельной странице.")).toBeInTheDocument();
+    expect(screen.getByText("Замес")).toBeInTheDocument();
+    expect(screen.queryByText("Все поля выбранной строки показаны полностью на отдельной странице.")).not.toBeInTheDocument();
+  });
+
+  it("opens the administrator-only 1C archive and its source records", async () => {
+    window.location.hash = "one-c-archive";
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Архив 1С" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Рабочие данные сверены")).toBeInTheDocument());
+    expect(screen.getByText("наборов данных")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Номенклатура/u }));
+    await waitFor(() => expect(screen.getByText("Тестовый реагент")).toBeInTheDocument());
   });
 });

@@ -5,6 +5,7 @@ import {
   Blocks,
   Boxes,
   ChevronRight,
+  Database,
   Factory,
   FlaskConical,
   LayoutDashboard,
@@ -51,6 +52,8 @@ const loadAccountingPage = cachePageLoader(() => import("./pages/AccountingPage.
 const loadClientsPage = cachePageLoader(() => import("./pages/ClientsPage.js").then((module) => ({ default: module.ClientsPage })));
 const loadReportsPage = cachePageLoader(() => import("./pages/ReportsPage.js").then((module) => ({ default: module.ReportsPage })));
 const loadSettingsPage = cachePageLoader(() => import("./pages/SettingsPage.js").then((module) => ({ default: module.SettingsPage })));
+const loadOneCArchivePage = cachePageLoader(() => import("./pages/OneCArchivePage.js").then((module) => ({ default: module.OneCArchivePage })));
+const loadOneCSourcePage = cachePageLoader(() => import("./pages/OneCSourcePage.js").then((module) => ({ default: module.OneCSourcePage })));
 
 const DashboardPage = lazy(loadDashboardPage);
 const BatchesPage = lazy(loadBatchesPage);
@@ -64,8 +67,10 @@ const AccountingPage = lazy(loadAccountingPage);
 const ClientsPage = lazy(loadClientsPage);
 const ReportsPage = lazy(loadReportsPage);
 const SettingsPage = lazy(loadSettingsPage);
+const OneCArchivePage = lazy(loadOneCArchivePage);
+const OneCSourcePage = lazy(loadOneCSourcePage);
 
-type ViewId = "dashboard" | "batches" | "materials" | "recipes" | "formulas" | "transfers" | "wagons" | "expenses" | "accounting" | "clients" | "reports" | "settings";
+type ViewId = "dashboard" | "batches" | "materials" | "recipes" | "formulas" | "transfers" | "wagons" | "expenses" | "accounting" | "clients" | "reports" | "settings" | "one-c-source" | "one-c-archive";
 
 interface NavigationItem {
   id: ViewId;
@@ -88,6 +93,8 @@ const NAVIGATION: NavigationItem[] = [
   { id: "clients" as const, label: "Клиенты", icon: UsersRound, keywords: "заказчик покупатель бетон состав дозировка добавка", roles: ["ADMIN", "DIRECTOR", "ACCOUNTANT", "MANAGER", "TECHNOLOGIST", "VIEWER"] },
   { id: "reports" as const, label: "Отчёты", icon: BarChart3, keywords: "аналитика экспорт csv xlsx", roles: ["ADMIN", "DIRECTOR", "ACCOUNTANT", "TECHNOLOGIST", "QUALITY_MANAGER", "VIEWER"] },
   { id: "settings" as const, label: "Команда и реквизиты", icon: Settings2, keywords: "сотрудники роли доступ реквизиты компания банк", roles: ["ADMIN", "DIRECTOR"] },
+  { id: "one-c-source" as const, label: "Данные 1С", icon: Database, keywords: "1с склады поступления договоры спецификации выпуск", roles: ["ADMIN", "DIRECTOR", "ACCOUNTANT", "TECHNOLOGIST", "OPERATOR", "STOREKEEPER"] },
+  { id: "one-c-archive" as const, label: "Архив 1С", icon: Database, keywords: "1с исходные данные база справочники документы регистры", roles: ["ADMIN"] },
 ];
 
 export function App() {
@@ -185,6 +192,10 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
         return <ReportsPage />;
       case "settings":
         return <SettingsPage actorRole={actorRole} />;
+      case "one-c-archive":
+        return <OneCArchivePage />;
+      case "one-c-source":
+        return <OneCSourcePage actorRole={actorRole} />;
       case "dashboard":
         return <DashboardPage onNavigate={navigate} />;
     }
@@ -289,7 +300,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
               ) : null}
             </div>
             <div className="global-date-filter">
-              <div className="global-date-copy"><small>Рабочая дата</small><strong>Данные за день</strong></div>
+              <div className="global-date-copy"><small>Рабочая дата</small></div>
               <DateTimePicker compact mode="date" ariaLabel="Выберите дату для данных CRM" value={selectedDate} onChange={setSelectedDate} align="right" />
               {selectedDateIsToday ? null : <button type="button" className="global-date-reset" onClick={resetToToday}>Сегодня</button>}
             </div>

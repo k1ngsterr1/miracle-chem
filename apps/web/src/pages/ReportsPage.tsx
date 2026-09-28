@@ -18,7 +18,7 @@ import { DateTimePicker } from "../components/DateTimePicker.js";
 import { useApi } from "../hooks/use-api.js";
 import { useDateFilter } from "../hooks/use-date-filter.js";
 import { formatNumber } from "../lib/format.js";
-import { ErrorState, LoadingState, PageHeader, Panel, PanelHeader } from "../components/ui.js";
+import { ErrorState, LoadingState, PageHeader, Panel } from "../components/ui.js";
 
 type ReportType = "production" | "materials" | "balance" | "recipe-efficiency" | "lrt" | "expenses";
 
@@ -94,9 +94,7 @@ function ReportCatalog({ onOpen }: { onOpen: (type: ReportType) => void }) {
   return (
     <>
       <PageHeader
-        eyebrow="Аналитика и экспорт"
         title="Производственные отчёты"
-        description="Выберите отчёт, чтобы открыть его на отдельной странице, настроить период и перейти к полной расшифровке каждой строки."
       />
       <div className="report-cards">
         {(Object.entries(REPORTS) as Array<[ReportType, (typeof REPORTS)[ReportType]]>).map(([id, item]) => (
@@ -106,8 +104,6 @@ function ReportCatalog({ onOpen }: { onOpen: (type: ReportType) => void }) {
           </button>
         ))}
       </div>
-
-      <div className="report-footnotes"><Panel><PanelHeader title="Точность данных" /><p>Количества и деньги рассчитаны в PostgreSQL Decimal. Значения разных единиц не суммируются без явной конвертации.</p></Panel><Panel><PanelHeader title="Прослеживаемость" /><p>Каждая строка отчёта связана с замесом, версией рецептуры, партиями сырья и движениями продукта.</p></Panel><Panel><PanelHeader title="Неизменяемость" /><p>Завершённые замесы блокируются. Исправления проводятся отдельным корректирующим документом с audit log.</p></Panel></div>
     </>
   );
 }
@@ -154,9 +150,7 @@ function ReportWorkspace({
     <>
       <div className="report-page-nav"><button type="button" className="text-button" onClick={onBackToCatalog}><ChevronLeft size={16} /> Все отчёты</button></div>
       <PageHeader
-        eyebrow="Отчёты · отдельная страница"
         title={REPORTS[type].title}
-        description={REPORTS[type].description}
         actions={<div className="export-actions"><a className="button ghost" href={reportExportUrl(type, "csv", `${from}T00:00:00`, `${to}T23:59:59`)}><Download size={16} /> CSV</a><a className="button primary" href={reportExportUrl(type, "xlsx", `${from}T00:00:00`, `${to}T23:59:59`)}><FileSpreadsheet size={16} /> XLSX</a></div>}
       />
 
@@ -164,7 +158,7 @@ function ReportWorkspace({
         <div className="report-controls"><div><span className="eyebrow">Параметры отчёта</span><h2>{REPORTS[type].title}</h2></div><div className="period-control"><CalendarDays size={17} /><div className="period-date"><small>С</small><DateTimePicker mode="date" compact ariaLabel="Начало периода" value={from} onChange={setFrom} align="right" /></div><i /><div className="period-date"><small>По</small><DateTimePicker mode="date" compact ariaLabel="Конец периода" value={to} onChange={setTo} align="right" /></div><button className="icon-button" aria-label="Обновить отчёт" onClick={() => void report.reload()}><RefreshCw size={16} /></button></div></div>
         {report.loading ? <LoadingState /> : report.error !== null ? <ErrorState message={report.error} retry={report.reload} /> : (
           <>
-            <div className="report-result-summary"><span>Строк: <strong>{report.data?.items.length ?? 0}</strong></span><span>Период: <strong>{from} — {to}</strong></span><span>Точность: <strong>денежные и количественные значения без округления хранения</strong></span></div>
+            <div className="report-result-summary"><span>Строк: <strong>{report.data?.items.length ?? 0}</strong></span><span>Период: <strong>{from} — {to}</strong></span></div>
             <div className="data-table-wrap"><table className="data-table report-table"><thead><tr>{columns.map((column) => <th key={column}>{columnLabel(column)}</th>)}<th aria-label="Открыть" /></tr></thead><tbody>{report.data?.items.map((row, index) => <tr key={index} onClick={() => onOpenRow(index)}>{columns.map((column) => <td key={column}>{formatCell(column, row[column])}</td>)}<td><button type="button" className="row-action" aria-label={`Открыть строку ${index + 1}`}><ChevronRight size={16} /></button></td></tr>)}</tbody></table></div>
           </>
         )}
@@ -193,13 +187,12 @@ function ReportRowPage({
   return (
     <>
       <div className="report-page-nav"><button type="button" className="text-button" onClick={onBack}><ChevronLeft size={16} /> Вернуться к отчёту</button><span>Отчёты / {REPORTS[type].title} / Расшифровка</span></div>
-      <PageHeader eyebrow={REPORTS[type].title} title={title} description="Все поля выбранной строки показаны полностью на отдельной странице." />
+      <PageHeader title={title} />
       <Panel className="report-detail-page">
         {loading ? <LoadingState /> : error !== null ? <ErrorState message={error} retry={retry} /> : row === null ? (
           <div className="report-row-missing"><FileSpreadsheet size={28} /><strong>Строка отчёта не найдена</strong><p>Вернитесь к отчёту и выберите доступную строку.</p><button type="button" className="button primary" onClick={onBack}><ChevronLeft size={16} /> Вернуться к отчёту</button></div>
         ) : (
           <>
-            <div className="report-detail-head"><span className="eyebrow">Полная расшифровка</span><h3>{title}</h3><p>Данные связаны с первичными документами и доступны без сокращений таблицы.</p></div>
             <div className="report-detail-grid">{Object.entries(row).map(([column, value]) => <div key={column}><small>{columnLabel(column)}</small><strong>{formatCell(column, value)}</strong></div>)}</div>
           </>
         )}

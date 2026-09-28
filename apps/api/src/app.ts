@@ -49,6 +49,22 @@ export async function buildApp(): Promise<NestExpressApplication> {
     next();
   });
   app.use("/api/integrations/1c/snapshot", json({ limit: "10mb" }));
+  app.use("/api/integrations/1c/archive", (request: ApiRequest, response: Response, next: NextFunction) => {
+    if (request.method !== "POST") return next();
+    try { requireOneCSyncKey(request.headers["x-one-c-sync-key"]); }
+    catch (error) {
+      if (error instanceof ApiError) {
+        response.status(error.statusCode).json({ error: { code: error.code, message: error.message } });
+        return;
+      }
+      return next(error);
+    }
+    next();
+  });
+  app.use("/api/integrations/1c/archive", rateLimit({
+    limit: 480, windowMs: 60_000, standardHeaders: "draft-8", legacyHeaders: false,
+  }));
+  app.use("/api/integrations/1c/archive", json({ limit: "2mb" }));
   app.use(json({ limit: "1mb" }));
   app.enableCors({ origin: config.webOrigin, credentials: true });
   app.use(helmet({ contentSecurityPolicy: false }));

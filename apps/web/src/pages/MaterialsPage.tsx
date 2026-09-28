@@ -8,7 +8,6 @@ import {
   Boxes,
   CheckCircle2,
   CircleDollarSign,
-  CloudCog,
   Coins,
   Droplets,
   Filter,
@@ -24,6 +23,7 @@ import {
 import { apiMutation } from "../api.js";
 import { CustomSelect } from "../components/CustomSelect.js";
 import { DateTimePicker } from "../components/DateTimePicker.js";
+import { OneCReceiptsPanel } from "../components/OneCOperationalRecords.js";
 import { useApi } from "../hooks/use-api.js";
 import type {
   Material,
@@ -88,16 +88,6 @@ interface DraftPurchaseItem {
   certificateNumber: string;
 }
 
-interface OneCSyncRun {
-  id: string;
-  batchId: string;
-  generatedAt: string;
-  startedAt: string;
-  completedAt: string | null;
-  status: "PROCESSING" | "COMPLETED" | "PARTIAL" | "FAILED";
-  summary: { created?: number; updated?: number; skipped?: number; quarantined?: number } | null;
-}
-
 interface OneCSyncReview {
   id: string;
   entityType: string;
@@ -128,7 +118,6 @@ export function MaterialsPage({ actorRole }: { actorRole: string | undefined }) 
   const canMoveMaterials = ["ADMIN", "DIRECTOR", "TECHNOLOGIST", "OPERATOR", "STOREKEEPER"].includes(actorRole ?? "");
   const canViewRecipes = ["ADMIN", "DIRECTOR", "TECHNOLOGIST"].includes(actorRole ?? "");
   const recipes = useApi<{ items: Recipe[] }>(canViewRecipes ? "/recipes" : null);
-  const oneCSyncRuns = useApi<{ items: OneCSyncRun[] }>("/integrations/1c/runs");
   const oneCSyncReviews = useApi<{ items: OneCSyncReview[] }>("/integrations/1c/reviews");
   const [query, setQuery] = useState("");
   const [criticalOnly, setCriticalOnly] = useState(false);
@@ -167,7 +156,7 @@ export function MaterialsPage({ actorRole }: { actorRole: string | undefined }) 
     setReviewBusy(true);
     try {
       await apiMutation(`/integrations/1c/reviews/${review.id}/approve`, {}, { idempotent: true });
-      await Promise.all([materials.reload(), oneCSyncReviews.reload(), oneCSyncRuns.reload()]);
+      await Promise.all([materials.reload(), oneCSyncReviews.reload()]);
     } finally {
       setReviewBusy(false);
     }
@@ -179,7 +168,7 @@ export function MaterialsPage({ actorRole }: { actorRole: string | undefined }) 
     try {
       await apiMutation(`/integrations/1c/reviews/${reviewAction.id}/reject`, { note }, { idempotent: true });
       setReviewAction(null);
-      await Promise.all([oneCSyncReviews.reload(), oneCSyncRuns.reload()]);
+      await oneCSyncReviews.reload();
     } finally {
       setReviewBusy(false);
     }
@@ -188,9 +177,7 @@ export function MaterialsPage({ actorRole }: { actorRole: string | undefined }) 
   return (
     <>
       <PageHeader
-        eyebrow="Складской контур"
         title="Склад"
-        description="Остатки по партиям, приход и расход, резервы производства и полная история закупочных цен."
         actions={(
           <>
             {canMoveMaterials ? <button className="button ghost" disabled={all.length === 0} onClick={() => setConsumptionMaterial(all[0] ?? null)}>
@@ -226,15 +213,15 @@ export function MaterialsPage({ actorRole }: { actorRole: string | undefined }) 
         <Panel className="stock-mini gluconate-total"><span><Scale size={18} /></span><div><small>Общая масса глюконата</small><strong>{formatNumber(gluconate?.totalMassKg ?? 0)} кг</strong><em>{formatCount(gluconate?.lotCount ?? 0, "партия", "партии", "партий")} · {formatCount(gluconate?.priceVariants ?? 0, "цена", "цены", "цен")}</em></div></Panel>
       </div>
 
-      <Panel className="one-c-sync-panel">
-        <div className="table-toolbar">
-          <div><h2><CloudCog size={17} /> Синхронизация 1С</h2><p>Изменения приходят из локальной 1С через исходящее безопасное подключение.</p></div>
-          <span className={`soft-tag ${pendingReviews.length > 0 ? "warning" : ""}`}>{pendingReviews.length === 0 ? "Нет записей на проверке" : `${pendingReviews.length} на проверке`}</span>
-        </div>
-        {oneCSyncReviews.loading || oneCSyncRuns.loading ? <LoadingState /> : null}
-        {oneCSyncReviews.error !== null || oneCSyncRuns.error !== null ? <ErrorState message={oneCSyncReviews.error ?? oneCSyncRuns.error ?? "Не удалось загрузить журнал 1С"} retry={() => Promise.all([oneCSyncReviews.reload(), oneCSyncRuns.reload()]).then(() => undefined)} /> : null}
-        {oneCSyncReviews.loading || oneCSyncRuns.loading || oneCSyncReviews.error !== null || oneCSyncRuns.error !== null ? null : <>
-          {pendingReviews.length === 0 ? <div className="one-c-sync-empty">Номенклатура и поступления, которые нельзя применить автоматически, появятся здесь для ручной проверки.</div> : <div className="one-c-review-list">
+      {oneCSyncReviews.error !== null ? (
+        <Panel className="one-c-sync-panel"><ErrorState message={`Не удалось проверить записи 1С: ${oneCSyncReviews.error}`} retry={oneCSyncReviews.reload} /></Panel>
+      ) : !oneCSyncReviews.loading && pendingReviews.length > 0 ? (
+        <Panel className="one-c-sync-panel">
+          <div className="table-toolbar">
+            <div><h2><AlertTriangle size={17} /> Записи 1С на проверке</h2></div>
+            <span className="soft-tag warning">{pendingReviews.length} на проверке</span>
+          </div>
+          <div className="one-c-review-list">
             {pendingReviews.slice(0, 5).map((review) => {
               const details = oneCPayloadDetails(review.payload);
               return <article key={review.id}>
@@ -243,14 +230,13 @@ export function MaterialsPage({ actorRole }: { actorRole: string | undefined }) 
                 {canManageOneC ? <div className="one-c-review-actions"><button className="button ghost small" disabled={reviewBusy} onClick={() => setReviewAction(review)}>Отклонить</button><button className="button primary small" disabled={reviewBusy || review.entityType !== "MATERIAL"} onClick={() => void approveReview(review)}>Подтвердить</button></div> : null}
               </article>;
             })}
-          </div>}
-          {(oneCSyncRuns.data?.items.length ?? 0) === 0 ? null : <div className="one-c-last-run">Последний обмен: <strong>{formatDate(oneCSyncRuns.data?.items[0]?.completedAt ?? oneCSyncRuns.data?.items[0]?.startedAt ?? "")}</strong> · {oneCSyncRunSummary(oneCSyncRuns.data?.items[0])}</div>}
-        </>}
-      </Panel>
+          </div>
+        </Panel>
+      ) : null}
 
       <Panel className="purchase-batch-panel">
         <div className="table-toolbar">
-          <div><h2>Закупочные партии</h2><p>Реагенты одной поставки, фактическая стоимость и прогноз выпуска по рецептуре</p></div>
+          <div><h2>Закупочные партии</h2></div>
           <span className="soft-tag">{formatPurchaseCount(purchases.length)}</span>
         </div>
         {purchases.length === 0 ? (
@@ -271,9 +257,11 @@ export function MaterialsPage({ actorRole }: { actorRole: string | undefined }) 
         )}
       </Panel>
 
+      {["ADMIN", "DIRECTOR"].includes(actorRole ?? "") ? <OneCReceiptsPanel /> : null}
+
       <Panel className="table-panel">
         <div className="table-toolbar">
-          <div><h2>Складской журнал</h2><p>Остатки приведены к базовой единице каждой позиции</p></div>
+          <div><h2>Складской журнал</h2></div>
           <div className="toolbar-actions">
             <label className="inline-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Позиция или код" /></label>
             <button
@@ -417,14 +405,6 @@ function oneCPayloadDetails(payload: unknown): { name?: string; code?: string } 
   };
 }
 
-function oneCSyncRunSummary(run: OneCSyncRun | undefined): string {
-  if (run === undefined) return "";
-  if (run.status === "FAILED") return "ошибка обмена";
-  const summary = run.summary;
-  if (summary === null) return run.status === "PROCESSING" ? "выполняется" : "без изменений";
-  return `создано ${summary.created ?? 0}, обновлено ${summary.updated ?? 0}, на проверке ${summary.quarantined ?? 0}`;
-}
-
 function formatPurchaseCount(count: number): string {
   return formatCount(count, "партия", "партии", "партий");
 }
@@ -536,7 +516,6 @@ function PurchaseBatchModal({
           })}
         </div>
         <label className="full-label"><span>Комментарий</span><textarea rows={3} value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} placeholder="Документы, условия закупки, особенности партии…" /></label>
-        <div className="purchase-calculation-note"><BarChart3 size={18} /><span><strong>Расчёт появится сразу после сохранения</strong><small>CRM пересчитает стоимость закупки, расход на 1 м³, остаток после производства, доступный объём, выручку и прибыль.</small></span></div>
         {error === null ? null : <div className="form-error modal-inline-error">{error}</div>}
         <div className="modal-actions purchase-modal-actions"><button type="button" className="button ghost" onClick={onClose}>Отмена</button><button className="button primary"><PackageOpen size={16} /> Оприходовать партию</button></div>
       </form>

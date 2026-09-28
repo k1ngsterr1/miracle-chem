@@ -41,7 +41,9 @@ export type Permission =
   | "ACCOUNTING_ACCOUNTANT_APPROVE"
   | "ACCOUNTING_ISSUE_DIRECTLY"
   | "ACCOUNTING_MARK_PAID"
-  | "ACCOUNTING_CANCEL";
+  | "ACCOUNTING_CANCEL"
+  | "ONE_C_ARCHIVE_VIEW"
+  | "ONE_C_SOURCE_FINANCE_VIEW";
 
 const ALL_ACTIVE_ROLES = Object.values(UserRole);
 const PRODUCTION_ROLES = [UserRole.ADMIN, UserRole.DIRECTOR, UserRole.TECHNOLOGIST, UserRole.OPERATOR, UserRole.QUALITY_MANAGER] as const;
@@ -89,6 +91,8 @@ const access: Record<Permission, readonly UserRole[]> = {
   ACCOUNTING_ISSUE_DIRECTLY: [UserRole.ADMIN, UserRole.ACCOUNTANT],
   ACCOUNTING_MARK_PAID: [UserRole.ADMIN, UserRole.DIRECTOR, UserRole.ACCOUNTANT],
   ACCOUNTING_CANCEL: [UserRole.ADMIN, UserRole.DIRECTOR, UserRole.ACCOUNTANT, UserRole.MANAGER],
+  ONE_C_ARCHIVE_VIEW: [UserRole.ADMIN],
+  ONE_C_SOURCE_FINANCE_VIEW: [UserRole.ADMIN, UserRole.DIRECTOR, UserRole.ACCOUNTANT],
 };
 
 export function hasPermission(role: UserRole, permission: Permission): boolean {

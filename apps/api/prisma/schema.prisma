@@ -264,6 +264,7 @@ model Workspace {
   oneCExternalReferences  OneCExternalReference[]
   oneCSyncReviews         OneCSyncReview[]
   oneCSourceSnapshots     OneCSourceSnapshot[]
+  oneCArchiveImports      OneCArchiveImport[]
 
   @@map("workspaces")
 }
@@ -338,6 +339,45 @@ model OneCSourceSnapshot {
   @@unique([workspaceId, sourceInstanceId, sha256])
   @@index([workspaceId, generatedAt])
   @@map("one_c_source_snapshots")
+}
+
+model OneCArchiveImport {
+  id                 String              @id @default(uuid()) @db.Uuid
+  workspaceId        String              @db.Uuid
+  workspace          Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sourceInstanceId   String              @db.Uuid
+  archiveId          String              @db.VarChar(64)
+  configuration      String              @db.VarChar(160)
+  configurationVersion String            @db.VarChar(80)
+  readStartedAt      DateTime
+  generatedAt        DateTime
+  manifestSha256     String              @db.VarChar(64)
+  manifest           Json
+  status             String              @default("STAGING") @db.VarChar(20)
+  encryptedBytes     BigInt              @default(0)
+  completedAt        DateTime?
+  createdAt          DateTime            @default(now())
+  chunks             OneCArchiveChunk[]
+
+  @@unique([workspaceId, sourceInstanceId, archiveId])
+  @@index([workspaceId, status, generatedAt])
+  @@map("one_c_archive_imports")
+}
+
+model OneCArchiveChunk {
+  id             String            @id @default(uuid()) @db.Uuid
+  importId       String            @db.Uuid
+  archiveImport  OneCArchiveImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  collectionKey  String            @db.VarChar(512)
+  chunkIndex     Int
+  rowCount       Int
+  sha256         String            @db.VarChar(64)
+  encryptedData  Bytes             @db.ByteA
+  createdAt      DateTime          @default(now())
+
+  @@unique([importId, collectionKey, chunkIndex])
+  @@index([importId, collectionKey])
+  @@map("one_c_archive_chunks")
 }
 
 model CompanyProfile {

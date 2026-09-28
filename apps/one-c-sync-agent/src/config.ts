@@ -25,7 +25,7 @@ export function makeInitialConfig(): AgentConfig {
     listenPort: 8261,
     localIngestKey: randomBytes(24).toString("base64url"),
     syncIntervalSeconds: 300,
-    requestTimeoutSeconds: 30,
+    requestTimeoutSeconds: 180,
     sentRetentionDays: 30,
   };
 }

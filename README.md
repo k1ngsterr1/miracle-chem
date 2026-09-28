@@ -37,9 +37,11 @@ npm audit --audit-level=low
 
 ## Production-контур
 
-`compose.production.yaml` собирает отдельные API и web-образы, однократно выполняет `prisma migrate deploy` через отдельный контейнер, включает HTTPS-прокси Caddy, healthcheck, security headers, rate limit, постоянное хранилище вложений и ежедневный бэкап PostgreSQL. Перед запуском задайте как минимум `POSTGRES_USER`, `POSTGRES_PASSWORD`, `AUTH_SESSION_SECRET` (32+ случайных символа), `ONE_C_SYNC_API_KEY`, `CRM_DOMAIN`, `API_DOMAIN` и `WEB_ORIGIN=https://<CRM_DOMAIN>`:
+`compose.production.yaml` собирает отдельные API и web-образы, однократно выполняет `prisma migrate deploy` через отдельный контейнер, включает HTTPS-прокси Caddy, healthcheck, security headers, rate limit, постоянное хранилище вложений и ежедневный бэкап PostgreSQL. Перед запуском задайте `POSTGRES_USER`, `POSTGRES_PASSWORD`, `AUTH_SESSION_SECRET` (32+ случайных символа), `ONE_C_SYNC_API_KEY`, `ONE_C_ARCHIVE_ENCRYPTION_KEY`, `ONE_C_SYNC_WORKSPACE_ID`, `ONE_C_SYNC_SOURCE_INSTANCE_ID`, `ONE_C_SYNC_ORGANIZATION_ID`, `CRM_DOMAIN`, `API_DOMAIN` и `WEB_ORIGIN=https://<CRM_DOMAIN>`.
 
-На чистом VPS root может создать случайные секреты через `MIRACLE_CRM_DOMAIN=... MIRACLE_API_DOMAIN=... bash deploy/bootstrap-vps.sh`. Скрипт откажется перезаписывать существующий `.env` или начальный пароль администратора. После первого применения миграций выполните seed **один раз** с `DEFAULT_ADMIN_PASSWORD` из `.admin-initial-password`; повторный seed сбрасывает пароль администратора.
+На чистом VPS root может создать случайные секреты через `deploy/bootstrap-vps.sh`, передав два домена (`MIRACLE_CRM_DOMAIN`, `MIRACLE_API_DOMAIN`) и три **уже утверждённых** GUID привязки 1С (`ONE_C_SYNC_WORKSPACE_ID`, `ONE_C_SYNC_SOURCE_INSTANCE_ID`, `ONE_C_SYNC_ORGANIZATION_ID`) в окружении. Скрипт проверяет GUID и откажется перезаписывать существующий `.env` или начальный пароль администратора. Не генерируйте новые GUID вместо согласованного mapping. После первого применения миграций выполните seed **один раз** с `DEFAULT_ADMIN_PASSWORD` из `.admin-initial-password`; повторный seed сбрасывает пароль администратора.
+
+Для уже развёрнутого VPS сначала передайте те же три утверждённых GUID и запустите `bash deploy/upgrade-one-c-env.sh`: скрипт дополнит существующий `.env` только недостающими переменными 1С, создаст ключ архива при необходимости и сохранит резервную копию исходного файла. При несовпадении существующего GUID он остановится без изменений; не заменяйте привязку автоматически.
 
 ```bash
 docker compose -f compose.production.yaml up -d --build

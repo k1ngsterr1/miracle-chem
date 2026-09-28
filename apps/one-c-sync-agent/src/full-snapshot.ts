@@ -6,6 +6,10 @@ export const FULL_SNAPSHOT_COLLECTIONS = [
   "accountingInventory", "receivables", "sales", "saleLines", "invoices",
   "invoiceLines", "incomingPayments", "outgoingPayments",
 ] as const;
+export const EXTENDED_SNAPSHOT_COLLECTIONS = [
+  "warehouses", "contracts", "specifications", "specificationComponents",
+  "productionReports", "productionProducts",
+] as const;
 
 export function parseFullSnapshot(value: unknown): OneCFullSnapshotEnvelope {
   if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("Полный снимок должен быть JSON-объектом");
@@ -29,9 +33,17 @@ export function parseFullSnapshot(value: unknown): OneCFullSnapshotEnvelope {
       throw new Error(`${name} должен быть полным массивом не более 2000 строк`);
     }
   }
+  for (const name of EXTENDED_SNAPSHOT_COLLECTIONS) {
+    const rows = data[name];
+    if (rows !== undefined && (!Array.isArray(rows) || rows.length > 2_000 ||
+        rows.some((row) => row === null || typeof row !== "object" || Array.isArray(row)))) {
+      throw new Error(`${name} должен быть массивом не более 2000 строк`);
+    }
+  }
   return envelope as unknown as OneCFullSnapshotEnvelope;
 }
 
 export function fullSnapshotCounts(value: OneCFullSnapshotEnvelope): Record<string, number> {
-  return Object.fromEntries(FULL_SNAPSHOT_COLLECTIONS.map((name) => [name, (value.snapshot[name] as unknown[]).length]));
+  return Object.fromEntries([...FULL_SNAPSHOT_COLLECTIONS, ...EXTENDED_SNAPSHOT_COLLECTIONS]
+    .map((name) => [name, (value.snapshot[name] as unknown[] | undefined)?.length ?? 0]));
 }

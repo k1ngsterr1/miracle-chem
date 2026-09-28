@@ -25,6 +25,7 @@ export const config = {
   oneCSyncWorkspaceId: process.env.ONE_C_SYNC_WORKSPACE_ID ?? "",
   oneCSyncSourceInstanceId: process.env.ONE_C_SYNC_SOURCE_INSTANCE_ID ?? "",
   oneCSyncOrganizationId: process.env.ONE_C_SYNC_ORGANIZATION_ID ?? "",
+  oneCArchiveEncryptionKey: process.env.ONE_C_ARCHIVE_ENCRYPTION_KEY ?? "",
   rateLimitMax: Number(process.env.RATE_LIMIT_MAX ?? 600),
   storageDir: resolve(process.env.UPLOAD_STORAGE_DIR ?? "./storage"),
 };

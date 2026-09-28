@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { deltaCounts, parseDelta } from "./delta.js";
 import { fullSnapshotCounts, parseFullSnapshot } from "./full-snapshot.js";
 import { createLogger } from "./logger.js";
-import { DurableQueue, type QueueEntry } from "./queue.js";
+import { DurableQueue, type QueueArea, type QueueEntry } from "./queue.js";
 import { CrmSyncError, logSentDelta, logSentFullSnapshot, sendDelta, sendFullSnapshot } from "./sync.js";
 import type { AgentConfig, AgentLogger, OneCDelta, OneCFullSnapshotEnvelope } from "./types.js";
 
@@ -14,6 +14,7 @@ export class SyncAgent {
   private readonly queue: DurableQueue;
   private readonly logger: AgentLogger;
   private draining = false;
+  private initialized = false;
   private nextSentCleanupAt = 0;
 
   public constructor(private readonly config: AgentConfig) {
@@ -24,11 +25,16 @@ export class SyncAgent {
   public async initialize(): Promise<void> {
     const queueResult = await this.queue.initialize();
     this.nextSentCleanupAt = Date.now() + SENT_CLEANUP_INTERVAL_MS;
+    this.initialized = true;
     await this.logger.info("AGENT_INITIALIZED", { queueDirectory: this.config.queueDirectory, crmSyncUrl: this.config.crmSyncUrl, removedSent: queueResult.removedSent });
   }
 
   public async status(): Promise<Record<string, unknown>> {
     return { queue: await this.queue.counts(), listenHost: this.config.listenHost, listenPort: this.config.listenPort, crmSyncUrl: this.config.crmSyncUrl };
+  }
+
+  public async batchState(batchId: string): Promise<QueueArea | null> {
+    return this.queue.batchState(batchId);
   }
 
   public async enqueue(delta: unknown): Promise<{ batchId: string; duplicate: boolean }> {
@@ -40,6 +46,9 @@ export class SyncAgent {
 
   public async enqueueSnapshot(value: unknown): Promise<{ batchId: string; duplicate: boolean }> {
     const snapshot = parseFullSnapshot(value);
+    if (Buffer.byteLength(JSON.stringify(snapshot), "utf8") > MAX_BODY_BYTES) {
+      throw new Error("Полный снимок превышает лимит CRM 10 МиБ; отправка остановлена до записи в очередь");
+    }
     const result = await this.queue.enqueue(snapshot);
     await this.logger.info(result.duplicate ? "FULL_SNAPSHOT_DUPLICATE" : "FULL_SNAPSHOT_QUEUED",
       { batchId: snapshot.batchId, ...fullSnapshotCounts(snapshot) });
@@ -110,28 +119,51 @@ export class SyncAgent {
 
   private async handleRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
     try {
-      const path = new URL(request.url ?? "/", `http://${this.config.listenHost}:${this.config.listenPort}`).pathname;
+      if (!this.initialized) {
+        this.json(response, 503, { message: "Локальный агент ещё запускается" });
+        return;
+      }
+      const url = new URL(request.url ?? "/", "http://localhost");
+      const path = url.pathname;
       if (request.method === "GET" && path === "/health") {
         this.json(response, 200, { status: "ok", ...(await this.status()) });
         return;
       }
-      if (request.method !== "POST" || (path !== "/v1/delta" && path !== "/v1/snapshot")) {
-        this.json(response, 404, { message: "Not found" });
+      if ((request.method === "GET" && path === "/v1/batch-status") ||
+        (request.method === "POST" && ["/v1/delta", "/v1/snapshot", "/v1/drain"].includes(path))) {
+        if (request.headers["x-agent-ingest-key"] !== this.config.localIngestKey) {
+          this.json(response, 401, { message: "Локальный ключ агента не подтверждён" });
+          return;
+        }
+        if (request.method === "GET") {
+          const batchId = url.searchParams.get("batchId");
+          if (!batchId) throw new Error("Укажите batchId");
+          this.json(response, 200, { batchId, state: await this.batchState(batchId) });
+          return;
+        }
+        if (path === "/v1/drain") {
+          this.json(response, 202, { status: "DRAIN_SCHEDULED" });
+          this.scheduleDrain();
+          return;
+        }
+        const payload = JSON.parse(await readJsonBody(request)) as unknown;
+        const result = path === "/v1/snapshot" ? await this.enqueueSnapshot(payload) : await this.enqueue(payload);
+        this.json(response, 202, { queued: true, ...result });
+        this.scheduleDrain();
         return;
       }
-      if (request.headers["x-agent-ingest-key"] !== this.config.localIngestKey) {
-        this.json(response, 401, { message: "Локальный ключ агента не подтверждён" });
-        return;
-      }
-      const payload = JSON.parse(await readJsonBody(request)) as unknown;
-      const result = path === "/v1/snapshot" ? await this.enqueueSnapshot(payload) : await this.enqueue(payload);
-      this.json(response, 202, { queued: true, ...result });
-      void this.drain();
+      this.json(response, 404, { message: "Not found" });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Не удалось принять данные 1С";
       await this.logger.warn("LOCAL_INGEST_REJECTED", { message });
       this.json(response, 422, { message });
     }
+  }
+
+  private scheduleDrain(): void {
+    void this.drain().catch(async (error: unknown) => {
+      await this.logger.error("QUEUE_DRAIN_FAILED", { message: error instanceof Error ? error.message : String(error) });
+    });
   }
 
   private json(response: ServerResponse, status: number, body: unknown): void {

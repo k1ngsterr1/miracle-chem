@@ -5,7 +5,7 @@ import { parseDelta } from "./delta.js";
 import { parseFullSnapshot } from "./full-snapshot.js";
 import type { OneCDelta, OneCFullSnapshotEnvelope } from "./types.js";
 
-type QueueArea = "pending" | "sending" | "sent" | "failed";
+export type QueueArea = "pending" | "sending" | "sent" | "failed";
 
 export interface QueueEntry {
   path: string;
@@ -72,14 +72,21 @@ export class DurableQueue {
     }
     const target = join(this.directory("pending"), fileName);
     const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(delta)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    await writeFile(temporary, `${JSON.stringify(delta)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx", flush: true });
     await rename(temporary, target);
-    if (this.pendingNames !== null) this.pendingNames.push(fileName);
+    this.pendingNames = null;
     return { batchId: delta.batchId, duplicate: false };
   }
 
   public async claimNext(): Promise<QueueEntry | null> {
-    if (this.pendingNames === null) this.pendingNames = (await readdir(this.directory("pending"))).filter((file) => file.endsWith(".json")).sort();
+    if (this.pendingNames === null) {
+      const files = (await readdir(this.directory("pending"))).filter((file) => file.endsWith(".json"));
+      const timestamps = await Promise.all(files.map(async (fileName) => ({
+        fileName, mtimeMs: (await stat(join(this.directory("pending"), fileName))).mtimeMs,
+      })));
+      this.pendingNames = timestamps.sort((a, b) => a.mtimeMs - b.mtimeMs || a.fileName.localeCompare(b.fileName))
+        .map(({ fileName }) => fileName);
+    }
     for (;;) {
       const fileName = this.pendingNames.shift();
       if (fileName === undefined) {
@@ -111,10 +118,7 @@ export class DurableQueue {
 
   public async retry(entry: QueueEntry): Promise<void> {
     await this.move(entry.path, "pending");
-    // The in-memory list has already removed this entry while it was being sent.
-    // Put it back first so callers that immediately retry can claim it again
-    // without forcing a new directory scan.
-    if (this.pendingNames !== null) this.pendingNames.unshift(entry.fileName);
+    this.pendingNames = null;
   }
 
   public async fail(entry: QueueEntry): Promise<void> {
@@ -127,6 +131,19 @@ export class DurableQueue {
       result[area] = (await readdir(this.directory(area))).filter((file) => file.endsWith(".json")).length;
     }
     return result;
+  }
+
+  public async batchState(batchId: string): Promise<QueueArea | null> {
+    const fileName = this.fileName(batchId);
+    for (const area of ["pending", "sending", "sent", "failed"] as const) {
+      try {
+        await stat(join(this.directory(area), fileName));
+        return area;
+      } catch (error) {
+        if (!isMissing(error)) throw error;
+      }
+    }
+    return null;
   }
 
   public async pruneExpiredSent(): Promise<number> {

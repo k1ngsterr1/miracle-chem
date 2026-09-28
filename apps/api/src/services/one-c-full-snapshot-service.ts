@@ -45,6 +45,18 @@ export const fullSnapshotSchema = z.object({
       groupName: z.string().nullable(), taxId: z.string(), deleted: z.boolean() })),
     materials: collection(row({ externalId: guid, code: z.string(), name: z.string(),
       groupName: z.string().nullable(), unitId: guid, unitName: z.string(), service: z.boolean(), deleted: z.boolean() })),
+    warehouses: collection(row({ externalId: guid, code: z.string(), name: z.string(), deleted: z.boolean() })).optional(),
+    contracts: collection(row({ externalId: guid, code: z.string(), name: z.string(), counterpartyId: guid,
+      organizationId: guid, contractNumber: z.string(), contractAt: localDate.nullable(), deleted: z.boolean() })).optional(),
+    specifications: collection(row({ externalId: guid, code: z.string(), name: z.string(), materialId: guid,
+      quantity: decimal, deleted: z.boolean() })).optional(),
+    specificationComponents: collection(row({ specificationId: guid, lineNumber: z.number().int().positive(),
+      materialId: guid, quantity: decimal })).optional(),
+    productionReports: collection(row({ externalId: guid, number: z.string(), documentAt: localDate,
+      organizationId: guid, warehouseId: guid, posted: z.boolean(), deleted: z.boolean() })).optional(),
+    productionProducts: collection(row({ documentId: guid, lineNumber: z.number().int().positive(),
+      materialId: guid, unitId: guid, quantity: decimal, plannedUnitCost: decimal,
+      plannedAmount: decimal, specificationId: guid })).optional(),
     receipts: collection(row({ documentId: guid, lineNumber: z.number().int().positive(), number: z.string(),
       receivedAt: localDate, posted: z.boolean(), deleted: z.boolean(), organizationId: guid,
       supplierId: guid, warehouseId: guid, materialId: guid, unitId: guid, unitName: z.string(),
@@ -125,7 +137,8 @@ export async function receiveFullSnapshot(input: FullSnapshotEnvelope) {
     const counts = Object.fromEntries([
       "organizations", "counterparties", "materials", "receipts", "balances", "accountingInventory",
       "receivables", "sales", "saleLines", "invoices", "invoiceLines", "incomingPayments", "outgoingPayments",
-    ].map((name) => [name, (input.snapshot[name as keyof typeof input.snapshot] as unknown[]).length]));
+      "warehouses", "contracts", "specifications", "specificationComponents", "productionReports", "productionProducts",
+    ].map((name) => [name, (input.snapshot[name as keyof typeof input.snapshot] as unknown[] | undefined)?.length ?? 0]));
     const staged = baseline.payload !== null && typeof baseline.payload === "object" &&
       !Array.isArray(baseline.payload) && (baseline.payload as Record<string, unknown>).schemaVersion === 1;
     const projection = staged ? await projectFullSnapshot(tx, input, sha256) : null;

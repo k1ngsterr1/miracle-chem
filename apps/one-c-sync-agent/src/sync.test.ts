@@ -26,12 +26,14 @@ afterEach(() => vi.restoreAllMocks());
 
 describe("CRM delivery", () => {
   it("sends the complete 1C snapshot to the dedicated CRM endpoint", async () => {
+    const timeout = vi.spyOn(AbortSignal, "timeout");
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ status: "COMPLETED" }), { status: 201 }));
     await expect(sendFullSnapshot(config, sampleFullSnapshot())).resolves.toMatchObject({ status: "COMPLETED" });
     expect(fetchMock).toHaveBeenCalledWith("https://crm.example.kz/api/integrations/1c/snapshot", expect.objectContaining({
       headers: expect.objectContaining({ "x-one-c-sync-key": config.apiKey }),
       body: expect.stringContaining('"outgoingPayments"'),
     }));
+    expect(timeout).toHaveBeenCalledWith(180_000);
   });
 
   it("confirms a completed delta and sends the dedicated secret", async () => {
@@ -43,5 +45,14 @@ describe("CRM delivery", () => {
   it("does not retry validation errors from CRM", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ message: "Неверный формат" }), { status: 422 }));
     await expect(sendDelta(config, delta)).rejects.toMatchObject<Partial<CrmSyncError>>({ retryable: false, statusCode: 422 });
+  });
+
+  it("preserves a structured CRM error code and message", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      error: { code: "ONE_C_SNAPSHOT_STALE", message: "Снимок старее принятого" },
+    }), { status: 409 }));
+    await expect(sendFullSnapshot(config, sampleFullSnapshot())).rejects.toMatchObject<Partial<CrmSyncError>>({
+      retryable: false, statusCode: 409, code: "ONE_C_SNAPSHOT_STALE", message: "Снимок старее принятого",
+    });
   });
 });

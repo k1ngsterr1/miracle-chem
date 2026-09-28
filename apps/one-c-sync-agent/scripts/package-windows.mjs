@@ -16,6 +16,11 @@ await writeFile(buildScriptPath, `\uFEFF${buildScript}`, "utf8");
 const fullSyncScriptPath = join(outputDirectory, "one-c", "Run-BkzFullSync.ps1");
 const fullSyncScript = await readFile(fullSyncScriptPath, "utf8");
 await writeFile(fullSyncScriptPath, `\uFEFF${fullSyncScript}`, "utf8");
+for (const fileName of ["Run-BkzArchiveSync.ps1", "Install-BkzArchiveTask.ps1"]) {
+  const outputPath = join(outputDirectory, "one-c", fileName);
+  const source = await readFile(outputPath, "utf8");
+  await writeFile(outputPath, `\uFEFF${source}`, "utf8");
+}
 await cp(join(packageDirectory, "scripts", "install-windows-task.ps1"), join(outputDirectory, "install-windows-task.ps1"));
 await cp(join(packageDirectory, "scripts", "uninstall-windows-task.ps1"), join(outputDirectory, "uninstall-windows-task.ps1"));
 // Windows PowerShell 5.1 interprets BOM-less .ps1 files as ANSI and corrupts
@@ -37,7 +42,7 @@ await writeFile(join(outputDirectory, "README.txt"), [
   "",
   "1. Install Node.js 22 LTS on the computer where 1C runs.",
   "2. Run PowerShell as administrator: .\\install-windows-task.ps1",
-  "3. Fill %ProgramData%\\MiracleChem\\OneCSyncAgent\\config.json with CRM URL and ONE_C_SYNC_API_KEY.",
+  "3. Fill %ProgramData%\\MiracleChem\\OneCSyncAgent\\config.json with CRM URL and ONE_C_SYNC_API_KEY, then run install-windows-task.ps1 again to start the agent.",
   "4. Copy the generated localIngestKey to the 1C external processing settings.",
   "5. For Kazakhstan Accounting 3.0, build the external processing with one-c\\Build-MiracleChemFullSnapshot.ps1",
   "   using the installed 1cv8.exe. Open MiracleChemFullSnapshot.epf in 1C after reviewing its source and approving 1C's security prompt.",

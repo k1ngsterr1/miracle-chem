@@ -6,6 +6,6 @@
   "listenPort": 8261,
   "localIngestKey": "GENERATED_BY_INIT_COMMAND",
   "syncIntervalSeconds": 300,
-  "requestTimeoutSeconds": 30,
+  "requestTimeoutSeconds": 180,
   "sentRetentionDays": 30
 }

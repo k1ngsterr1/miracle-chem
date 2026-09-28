@@ -5,12 +5,10 @@ import {
   Calculator,
   CheckCircle2,
   ChevronDown,
-  CircleHelp,
   FlaskConical,
   Percent,
   Play,
   Plus,
-  ShieldCheck,
   Sigma,
   Trash2,
 } from "lucide-react";
@@ -193,13 +191,11 @@ export function FormulaPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Расчётное ядро"
         title="Калькулятор производства"
-        description="Создавайте рецептуры добавок в процентах, рассчитывайте состав и себестоимость, а также проверяйте инженерные формулы."
         actions={<button className="button primary" disabled={massMaterials.length === 0} onClick={() => setCreateAdditiveOpen(true)}><Plus size={17} /> Новая формула добавки</button>}
       />
       <Panel className="additive-calculator-panel">
-        <div className="calculator-heading"><span><Percent size={21} /></span><div><span className="eyebrow">Рецептура формулы</span><h2>Расчёт добавки по проценту</h2><p>Дозировка считается от массы вяжущего, а состав — по процентам компонентов формулы.</p></div></div>
+        <div className="calculator-heading"><span><Percent size={21} /></span><div><h2>Расчёт добавки по проценту</h2></div></div>
         <div className="additive-calculator-controls">
           <div className="form-field"><span>Формула добавки</span><CustomSelect required ariaLabel="Формула добавки" value={additiveFormulaVersionId} onChange={(value) => { setAdditiveFormulaVersionId(value); setAdditiveResult(null); }} options={additiveFormulaOptions} placeholder="Выберите формулу" /></div>
           <label><span>Масса вяжущего, кг</span><input required type="number" min="0.001" step="0.001" value={binderMass} onChange={(event) => { setBinderMass(event.target.value); setAdditiveResult(null); }} /></label>
@@ -224,7 +220,7 @@ export function FormulaPage() {
         )}
       </Panel>
       <Panel className="recipe-calculator-panel">
-        <div className="calculator-heading"><span><Calculator size={21} /></span><div><span className="eyebrow">Производственный расчёт</span><h2>Расчёт замеса по рецептуре</h2><p>Все количества и цены пересчитываются на сервере в Decimal.</p></div></div>
+        <div className="calculator-heading"><span><Calculator size={21} /></span><div><h2>Расчёт замеса по рецептуре</h2></div></div>
         <div className="calculator-controls">
           <div className="form-field"><span>Рецептура</span><CustomSelect required ariaLabel="Рецептура для расчёта" value={activeCalculationRecipeId} onChange={(value) => { setCalculationRecipeId(value); setRecipeResult(null); }} options={recipeOptions} /></div>
           <label><span>Объём, м³</span><input required type="number" min="0.001" step="0.001" value={calculationVolume} onChange={(event) => setCalculationVolume(event.target.value)} /></label>
@@ -245,12 +241,11 @@ export function FormulaPage() {
         )}
       </Panel>
 
-      <div className="formula-section-heading"><span className="eyebrow">Инженерный режим</span><h2>Редактор формул</h2></div>
+      <div className="formula-section-heading"><h2>Редактор формул</h2></div>
       <div className="formula-layout">
         <Panel className="formula-library">
           <PanelHeader title="Библиотека" description={`${formulas.data?.items.length ?? 0} активных формул`} />
           <div className="formula-list">{formulas.data?.items.map((formula) => <button key={formula.id} className={selected?.id === formula.id ? "active" : ""} onClick={() => { setSelectedId(formula.id); setCustomExpression(""); setValues({}); setResult(null); }}><span><Sigma size={17} /></span><div><strong>{formula.name}</strong><small>{formula.code} · v{formula.versions[0]?.version}{formula.versions[0]?.dosagePercent === null || formula.versions[0]?.dosagePercent === undefined ? "" : ` · ${formatNumber(formula.versions[0].dosagePercent)}%`}</small></div><ChevronDown size={15} /></button>)}</div>
-          <div className="engine-guard"><ShieldCheck size={19} /><div><strong>Защищённое исполнение</strong><p>Лимит 4 096 символов, 512 токенов и 256 AST-узлов.</p></div></div>
         </Panel>
 
         <Panel className="formula-editor">
@@ -269,9 +264,8 @@ export function FormulaPage() {
         </Panel>
 
         <Panel className="formula-result">
-          <PanelHeader title="Результат" description="Итоговое значение и пошаговая расшифровка" />
+          <PanelHeader title="Результат" />
           {result === null ? <div className="formula-placeholder"><FlaskConical size={34} /><strong>Готово к расчёту</strong><p>Введите исходные значения и запустите формулу.</p></div> : <><div className="result-value"><span><CheckCircle2 size={18} /> Расчёт выполнен</span><strong>{formatNumber(result.value)} {result.unit ?? ""}</strong><small>Точность: {version?.precision ?? 3} знака · HALF_UP</small></div><div className="trace-title"><h3>Расшифровка</h3><span>{result.trace.length} шагов</span></div><div className="trace-list">{result.trace.map((step) => <div key={step.index}><span>{step.index}</span><div><strong>{step.explanation}</strong><code>{step.expression}</code><small>Результат: {formatResult(step.result)}</small></div></div>)}</div></>}
-          <div className="formula-help"><CircleHelp size={17} /><span>Входные значения, результат и trace сохраняются в журнале для производственных расчётов.</span></div>
         </Panel>
       </div>
       {createAdditiveOpen ? <NewAdditiveFormulaModal materials={massMaterials} onClose={() => setCreateAdditiveOpen(false)} onCreated={async (formulaId) => { setCreateAdditiveOpen(false); setSelectedId(formulaId); await formulas.reload(); }} /> : null}

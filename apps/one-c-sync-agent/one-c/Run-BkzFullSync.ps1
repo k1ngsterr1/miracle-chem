@@ -8,11 +8,12 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$mutex = New-Object System.Threading.Mutex($false, 'Global\MiracleChemBkzFullSync')
+$mutex = New-Object System.Threading.Mutex($false, 'Global\MiracleChemBkzOneCExport')
 $hasMutex = $false
 $snapshotPath = $null
 try {
-  $hasMutex = $mutex.WaitOne(0)
+  try { $hasMutex = $mutex.WaitOne(0) }
+  catch [Threading.AbandonedMutexException] { $hasMutex = $true }
   if (-not $hasMutex) { Write-Output 'SKIPPED_ALREADY_RUNNING'; exit 0 }
   $stamp = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ')
   $snapshotPath = Join-Path $SnapshotDirectory "snapshot-$stamp-$([guid]::NewGuid().ToString('N')).json"

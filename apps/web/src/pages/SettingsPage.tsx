@@ -60,9 +60,7 @@ export function SettingsPage({ actorRole }: { actorRole: string | undefined }) {
 
   return <>
     <PageHeader
-      eyebrow="Администрирование"
       title="Команда и реквизиты"
-      description="Доступ сотрудников, роли и данные компании для накладных, счетов, актов и доверенностей."
       actions={<button className="button primary" onClick={() => setCreateOpen(true)}><Plus size={17} /> Сотрудник</button>}
     />
 
@@ -74,7 +72,7 @@ export function SettingsPage({ actorRole }: { actorRole: string | undefined }) {
 
     <div className="settings-grid">
       <Panel className="settings-users-panel">
-        <div className="table-toolbar"><div><h2>Сотрудники и роли</h2><p>Роли применяются на сервере, а не только скрывают кнопки.</p></div></div>
+        <div className="table-toolbar"><div><h2>Сотрудники и роли</h2></div></div>
         {users.data?.items.length === 0 ? <EmptyState title="Сотрудников пока нет" text="Добавьте первого сотрудника." /> : <div className="settings-user-list">
           {users.data?.items.map((user) => <div key={user.id} className="settings-user-row">
             <span className="settings-user-avatar">{initials(user.name)}</span>
@@ -87,7 +85,7 @@ export function SettingsPage({ actorRole }: { actorRole: string | undefined }) {
       </Panel>
 
       <Panel className="settings-company-panel">
-        <div className="table-toolbar"><div><h2>Реквизиты компании</h2><p>Подставляются в печатные формы автоматически.</p></div></div>
+        <div className="table-toolbar"><div><h2>Реквизиты компании</h2></div></div>
         <form className="form-grid settings-company-form" onSubmit={(event) => void saveCompany(event)}>
           <label className="span-2"><span>Юридическое наименование</span><input value={companyDraft.legalName ?? ""} onChange={(event) => setCompanyDraft({ ...companyDraft, legalName: event.target.value })} placeholder="ТОО «Miracle Chem»" /></label>
           <label><span>БИН / ИИН</span><input value={companyDraft.taxId ?? ""} onChange={(event) => setCompanyDraft({ ...companyDraft, taxId: event.target.value })} /></label>

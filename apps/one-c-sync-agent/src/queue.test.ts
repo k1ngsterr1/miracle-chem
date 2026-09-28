@@ -1,4 +1,5 @@
 import { mkdtemp, readdir, rm, utimes } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -70,6 +71,50 @@ describe("durable agent queue", () => {
     await queue.succeed(retry!);
 
     expect(await queue.counts()).toEqual({ pending: 0, sending: 0, sent: 1, failed: 0 });
+  });
+
+  it("reports the current batch state independently of older failures", async () => {
+    const root = await mkdtemp(join(tmpdir(), "miracle-chem-agent-batch-state-"));
+    directories.push(root);
+    const queue = new DurableQueue(root);
+    await queue.initialize();
+    await queue.enqueue(sampleDelta("older-failed"));
+    await queue.fail((await queue.claimNext())!);
+    await queue.enqueue(sampleDelta("current-delivered"));
+    await queue.succeed((await queue.claimNext())!);
+
+    expect(await queue.batchState("older-failed")).toBe("failed");
+    expect(await queue.batchState("current-delivered")).toBe("sent");
+    expect(await queue.batchState("missing-batch")).toBeNull();
+    expect((await queue.counts()).failed).toBe(1);
+  });
+
+  it("sends recovered backlog in arrival order instead of batch hash order", async () => {
+    const root = await mkdtemp(join(tmpdir(), "miracle-chem-agent-order-"));
+    directories.push(root);
+    const queue = new DurableQueue(root);
+    await queue.initialize();
+    const [firstId, secondId] = ["older-snapshot", "newer-snapshot"];
+    await queue.enqueue(sampleDelta(firstId));
+    await queue.enqueue(sampleDelta(secondId));
+    const name = (id: string) => `${createHash("sha256").update(id).digest("hex")}.json`;
+    await utimes(join(root, "pending", name(firstId)), new Date("2026-09-01T10:00:00Z"), new Date("2026-09-01T10:00:00Z"));
+    await utimes(join(root, "pending", name(secondId)), new Date("2026-09-01T10:01:00Z"), new Date("2026-09-01T10:01:00Z"));
+    expect((await new DurableQueue(root).claimNext())?.delta.batchId).toBe(firstId);
+  });
+
+  it("keeps the original order when an older snapshot is retried", async () => {
+    const root = await mkdtemp(join(tmpdir(), "miracle-chem-agent-retry-order-"));
+    directories.push(root);
+    const queue = new DurableQueue(root);
+    await queue.initialize();
+    await queue.enqueue(sampleDelta("older"));
+    const [oldFile] = await readdir(join(root, "pending"));
+    const oldTime = new Date("2026-09-01T10:00:00Z");
+    await utimes(join(root, "pending", oldFile!), oldTime, oldTime);
+    await queue.retry((await queue.claimNext())!);
+    await queue.enqueue(sampleDelta("newer"));
+    expect((await queue.claimNext())?.delta.batchId).toBe("older");
   });
 
   it("removes expired sent files when starting", async () => {

@@ -51,9 +51,7 @@ export function RecipesPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Технологическая база"
         title="Рецептуры бетона"
-        description="Каждая рецептура закреплена за клиентом; новые версии сохраняют эту связь."
         actions={<button className="button primary" disabled={warehouse.length === 0 || (meta.data?.customers.length ?? 0) === 0} onClick={() => setCreateOpen(true)}><Plus size={17} /> Новая рецептура</button>}
       />
       <div className="recipe-summary">

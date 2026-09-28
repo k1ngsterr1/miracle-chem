@@ -25,6 +25,16 @@ function permissionForRequest(method: string, path: string): Permission | null {
   const normalizedPath = path.replace(/^\/api(?=\/|$)/u, "").replace(/\/+$/u, "") || "/";
   if (normalizedPath === "/health" || normalizedPath.startsWith("/auth")) return null;
   if ((normalizedPath === "/integrations/1c/sync" || normalizedPath === "/integrations/1c/snapshot") && method === "POST") return null;
+  if (normalizedPath.startsWith("/integrations/1c/archive")) return method === "POST" ? null : "ONE_C_ARCHIVE_VIEW";
+  if (normalizedPath === "/integrations/1c/reconciliation") return "ONE_C_ARCHIVE_VIEW";
+  if (normalizedPath.startsWith("/integrations/1c/source/")) {
+    const section = normalizedPath.slice("/integrations/1c/source/".length);
+    if (method !== "GET") throw new ApiError(403, "ACCESS_POLICY_MISSING", "Раздел 1С доступен только для чтения");
+    if (section === "warehouses") return "MATERIALS_VIEW";
+    if (section === "receipts" || section === "contracts") return "ONE_C_SOURCE_FINANCE_VIEW";
+    if (section === "specifications" || section === "production") return "RECIPES_VIEW";
+    throw new ApiError(404, "ONE_C_SOURCE_SECTION_NOT_FOUND", "Раздел данных 1С не найден");
+  }
   const isRead = method === "GET";
 
   if (normalizedPath === "/dashboard" || normalizedPath.startsWith("/dashboard/") || normalizedPath === "/meta") return "DASHBOARD_VIEW";

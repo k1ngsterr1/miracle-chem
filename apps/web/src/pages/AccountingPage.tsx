@@ -115,9 +115,7 @@ export function AccountingPage({ actorRole }: { actorRole: string | undefined })
   return (
     <>
       <PageHeader
-        eyebrow="Финансы и первичные документы"
         title="Бухгалтерия"
-        description="Накладные, счета, акты и доверенности на получение товара с готовыми печатными формами."
         actions={<>{canCreateDocuments(actorRole) ? <button className="button ghost" onClick={() => { setTemplate(null); setCreateType("POWER_OF_ATTORNEY"); setCreateOpen(true); }}><FileSignature size={17} /> Доверенность</button> : null}{canCreateDocuments(actorRole) ? <button className="button primary" onClick={() => { setTemplate(null); setCreateType(undefined); setCreateOpen(true); }}><Plus size={17} /> Новый документ</button> : null}</>}
       />
 
@@ -129,7 +127,7 @@ export function AccountingPage({ actorRole }: { actorRole: string | undefined })
       </div>
 
       {oneCFinance.data?.available ? <Panel className="one-c-finance-panel">
-        <div className="table-toolbar"><div><h2>Данные из 1С</h2><p>Срез на {formatDate(oneCFinance.data.snapshotAt ?? "", true)} · бухгалтерская база — источник остатков и взаиморасчётов</p></div></div>
+        <div className="table-toolbar"><div><h2>Данные из 1С</h2><p>Срез на {formatDate(oneCFinance.data.snapshotAt ?? "", true)}</p></div></div>
         <div className="one-c-finance-kpis">
           <div><small>Дебиторская задолженность</small><strong>{formatMoney(oneCFinance.data.totalReceivables ?? "0", "KZT")}</strong></div>
           <div><small>Поступившие платежи</small><strong>{formatMoney(oneCFinance.data.receivedPayments ?? "0", "KZT")}</strong></div>
@@ -158,7 +156,7 @@ export function AccountingPage({ actorRole }: { actorRole: string | undefined })
       </Panel>
 
       <Panel className="table-panel">
-        <div className="table-toolbar"><div><h2>Журнал документов</h2><p>Сумма и НДС рассчитываются по позициям на сервере</p></div><span className="expense-count">{data.items.length} документов</span></div>
+        <div className="table-toolbar"><div><h2>Журнал документов</h2></div><span className="expense-count">{data.items.length} документов</span></div>
         {data.items.length === 0 ? <EmptyState title="Документов за период нет" text="Измените фильтры или создайте первый бухгалтерский документ." /> : (
           <>
           <div className="data-table-wrap desktop-document-table">
