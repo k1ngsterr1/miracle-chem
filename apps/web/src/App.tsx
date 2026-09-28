@@ -162,7 +162,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
     } else if (window.innerWidth > 980) {
       activeNavRef.current?.scrollIntoView?.({ behavior: "auto", block: "nearest", inline: "nearest" });
     }
-  }, [view]);
+  }, [currentView]);
 
   const searchResults = useMemo(() => {
     const normalized = searchQuery.trim().toLocaleLowerCase("ru");
