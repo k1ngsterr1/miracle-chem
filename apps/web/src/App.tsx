@@ -159,6 +159,8 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
   useEffect(() => {
     if (window.innerWidth <= 680) {
       activeNavRef.current?.scrollIntoView?.({ behavior: "auto", block: "nearest", inline: "center" });
+    } else if (window.innerWidth > 980) {
+      activeNavRef.current?.scrollIntoView?.({ behavior: "auto", block: "nearest", inline: "nearest" });
     }
   }, [view]);
 
