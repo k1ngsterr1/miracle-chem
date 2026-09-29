@@ -15,6 +15,8 @@ import {
 } from "../services/transfer-service.js";
 import { requireIdempotencyKey, type ApiRequest } from "../lib/http.js";
 import { dayPeriodFromQuery } from "../lib/date-filter.js";
+import { listOneCSales } from "../services/one-c-sales-service.js";
+import { requirePermission } from "../lib/permissions.js";
 
 const createSchema = z.object({
   number: z.string().trim().min(1).max(80),
@@ -81,6 +83,13 @@ export class TransferController {
         take: 500,
       }),
     };
+  }
+
+  @Get("one-c-sales")
+  async oneCSales(@Req() request: ApiRequest, @Query("date") date?: string) {
+    const { workspaceId, actor } = await getRequestContext(request, prisma);
+    requirePermission(actor.role, "ACCOUNTING_VIEW");
+    return listOneCSales(workspaceId, date);
   }
 
   @Get(":id")

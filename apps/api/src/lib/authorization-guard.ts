@@ -56,6 +56,10 @@ function permissionForRequest(method: string, path: string): Permission | null {
     return "BATCHES_MANAGE";
   }
   if (normalizedPath.startsWith("/product-lots")) return isRead ? "PRODUCT_LOTS_VIEW" : "PRODUCT_LOTS_MANAGE";
+  if (normalizedPath === "/transfers/one-c-sales") {
+    if (!isRead) throw new ApiError(403, "ACCESS_POLICY_MISSING", "Реализации 1С доступны только для чтения");
+    return "ACCOUNTING_VIEW";
+  }
   if (normalizedPath.startsWith("/transfers")) {
     if (isRead) return "TRANSFERS_VIEW";
     return /\/(accept|return)$/u.test(normalizedPath) ? "TRANSFERS_ACCEPT" : "TRANSFERS_MANAGE";

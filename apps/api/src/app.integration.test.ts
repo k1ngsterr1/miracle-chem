@@ -1533,6 +1533,56 @@ describe("Miracle Chem NestJS API integration", () => {
     expect((await prisma.productLot.findUniqueOrThrow({ where: { id: productLotId } })).availableQuantity.toString()).toBe("6");
   });
 
+  it("shows 1C sales separately and only reconciles an exact CRM transfer without changing stock", async () => {
+    const transfer = await prisma.lrtTransfer.findUniqueOrThrow({ where: { id: transferId } });
+    const movementsBefore = await prisma.productMovement.count({ where: { workspaceId: testIds.workspace } });
+    const document = await prisma.accountingDocument.create({
+      data: {
+        workspaceId: testIds.workspace,
+        number: "1C-SALE-TEST-TRANSFER",
+        type: AccountingDocumentType.WAYBILL,
+        status: AccountingDocumentStatus.ISSUED,
+        documentAt: transfer.transferAt,
+        issuedAt: transfer.transferAt,
+        counterparty: "Integration Customer",
+        customerId: testIds.customer,
+        subtotal: "4000", vatAmount: "0", totalAmount: "4000", currency: "KZT",
+        createdById: testIds.actor,
+        details: { source: "1C", kind: "SALE", externalId: "test-sale-transfer" },
+        items: { create: [{ description: "B30", quantity: "4", unit: "м³", unitPrice: "1000", amount: "4000" }] },
+      },
+    });
+    const response = await app.inject({ method: "GET", url: "/api/transfers/one-c-sales", headers: contextHeaders });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: document.id, reconciliation: {
+        state: "MATCHED", transfer: { id: transferId, number: transfer.number },
+      } }),
+    ]));
+    expect(await prisma.productMovement.count({ where: { workspaceId: testIds.workspace } })).toBe(movementsBefore);
+    const duplicate = await prisma.accountingDocument.create({ data: {
+      workspaceId: testIds.workspace, number: "1C-SALE-TEST-DUPLICATE", type: AccountingDocumentType.WAYBILL,
+      status: AccountingDocumentStatus.ISSUED, documentAt: transfer.transferAt, counterparty: "Integration Customer",
+      customerId: testIds.customer, subtotal: "4000", vatAmount: "0", totalAmount: "4000", createdById: testIds.actor,
+      details: { source: "1C", kind: "SALE", externalId: "test-sale-duplicate" },
+      items: { create: [{ description: "B30", quantity: "4", unit: "м³", unitPrice: "1000", amount: "4000" }] },
+    } });
+    const ambiguous = await app.inject({ method: "GET", url: "/api/transfers/one-c-sales", headers: contextHeaders });
+    expect(ambiguous.json().items.filter((item: { id: string }) => [document.id, duplicate.id].includes(item.id))
+      .map((item: { reconciliation: { state: string } }) => item.reconciliation.state)).toEqual(["AMBIGUOUS", "AMBIGUOUS"]);
+    await prisma.accountingDocument.delete({ where: { id: duplicate.id } });
+    expect((await app.inject({ method: "GET", url: "/api/transfers/one-c-sales?date=1999-01-01", headers: contextHeaders })).json().items).toEqual([]);
+
+    const storekeeper = await prisma.user.create({ data: {
+      workspaceId: testIds.workspace, name: "Test Storekeeper", email: "storekeeper@miracle-chem.test", role: UserRole.STOREKEEPER,
+    } });
+    const denied = await app.inject({ method: "GET", url: "/api/transfers/one-c-sales",
+      headers: { "x-workspace-id": testIds.workspace, "x-actor-id": storekeeper.id } });
+    expect(denied.statusCode).toBe(403);
+    await prisma.accountingDocument.delete({ where: { id: document.id } });
+    await prisma.user.delete({ where: { id: storekeeper.id } });
+  });
+
   it("applies approved adjustments as separate idempotent documents", async () => {
     const created = await app.inject({
       method: "POST",

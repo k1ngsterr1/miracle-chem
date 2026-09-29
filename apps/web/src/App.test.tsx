@@ -8,6 +8,7 @@ const meta = {
   users: [],
   productionLines: [{ id: "line-1", code: "LINE-01", name: "Линия №1", capacity: "0", capacityUnit: "M3" }],
   productionTanks: [{ id: "tank-1", code: "TANK-01", name: "Чан №1", capacity: null, capacityUnit: "M3", productionLineId: "line-1", productionLine: { id: "line-1", code: "LINE-01", name: "Линия №1" } }],
+  customers: [],
   productLots: [],
 };
 
@@ -369,6 +370,31 @@ describe("Miracle Chem app shell", () => {
     expect(screen.getAllByText("ТОО Поставщик 1С").length).toBe(2);
     expect(screen.getAllByText(/тенге/u).length).toBeGreaterThan(0);
     expect(screen.getByText("Закупочных партий пока нет")).toBeInTheDocument();
+  });
+
+  it("shows 1C sales in transfers as accounting records, not as CRM dispatches", async () => {
+    const originalFetch = vi.mocked(fetch);
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/transfers/one-c-sales")) {
+        return { ok: true, status: 200, json: async () => ({ items: url.includes("?date=") ? [] : [{
+          id: "sale-1", number: "1C-SALE-001", status: "ISSUED", documentAt: "2026-09-15T07:00:00.000Z",
+          counterparty: "ТОО Покупатель 1С", totalAmount: "3575000", currency: "KZT",
+          items: [{ id: "line-1", description: "Добавка КТ-1", quantity: "500", unit: "кг" }],
+          reconciliation: { state: "UNMATCHED", transfer: null },
+        }], hasMore: false }) } as Response;
+      }
+      return originalFetch(input, init);
+    }));
+    window.location.hash = "transfers";
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Реализации из 1С" })).toBeInTheDocument());
+    expect(await screen.findByText("За выбранную дату реализаций нет. Можно посмотреть все даты.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Все даты" }));
+    expect(await screen.findByText("1C-SALE-001")).toBeInTheDocument();
+    expect(screen.getByText("ТОО Покупатель 1С")).toBeInTheDocument();
+    expect(screen.getByText("Совпадающей отгрузки CRM нет")).toBeInTheDocument();
+    expect(screen.queryByText("Открыть документ")).not.toBeInTheDocument();
   });
 
   it("shows 1C shift reports separately from CRM batches", async () => {

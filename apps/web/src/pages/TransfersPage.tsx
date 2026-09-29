@@ -17,6 +17,7 @@ import { apiFetch, apiMutation } from "../api.js";
 import { CustomSelect } from "../components/CustomSelect.js";
 import { DateTimePicker } from "../components/DateTimePicker.js";
 import { useApi } from "../hooks/use-api.js";
+import { useDateFilter } from "../hooks/use-date-filter.js";
 import type { MetaData, Transfer } from "../types.js";
 import { formatDate, formatNumber, unitLabel } from "../lib/format.js";
 import {
@@ -35,6 +36,42 @@ const DELIVERY_METHOD_OPTIONS = [
   { value: "Самовывоз", label: "Самовывоз", description: "Транспорт предоставляет получатель" },
   { value: "Контейнер", label: "Контейнер", description: "Контейнерная перевозка" },
 ];
+
+interface OneCSale {
+  id: string;
+  number: string;
+  status: string;
+  documentAt: string;
+  counterparty: string;
+  totalAmount: string;
+  currency: string;
+  items: { id: string; description: string; quantity: string; unit: string }[];
+  reconciliation: {
+    state: "MATCHED" | "UNMATCHED" | "AMBIGUOUS" | "NOT_CHECKED";
+    transfer: { id: string; number: string } | null;
+  };
+}
+
+const oneCSaleDate = new Intl.DateTimeFormat("ru-RU", {
+  day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Almaty",
+});
+const oneCSaleQuantity = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 6 });
+const oneCSaleCurrency = new Map<string, Intl.NumberFormat>();
+
+function formatOneCSaleMoney(amount: string, currency: string) {
+  let formatter = oneCSaleCurrency.get(currency);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat("ru-RU", { style: "currency", currency, maximumFractionDigits: 2 });
+    oneCSaleCurrency.set(currency, formatter);
+  }
+  return formatter.format(Number(amount));
+}
+
+function oneCSaleStatus(status: string) {
+  if (status === "ISSUED" || status === "PAID") return "Проведено в 1С";
+  if (status === "CANCELLED") return "Отменено в 1С";
+  return "Не проведено в 1С";
+}
 
 export function TransfersPage({ meta, actorRole }: { meta: MetaData | null; actorRole: string | undefined }) {
   const transfers = useApi<{ items: Transfer[] }>("/transfers");
@@ -60,6 +97,7 @@ export function TransfersPage({ meta, actorRole }: { meta: MetaData | null; acto
         actions={<button className="button primary" disabled={(meta?.customers.length ?? 0) === 0} onClick={() => { setTemplate(null); setCreateOpen(true); }}><Plus size={17} /> Новая отгрузка</button>}
       />
       <div className="transfer-summary"><Panel><span className="blue"><Truck size={19} /></span><div><strong>{grouped.sent}</strong><small>в пути / на приёмке</small></div></Panel><Panel><span className="green"><PackageCheck size={19} /></span><div><strong>{grouped.accepted}</strong><small>принято документов</small></div></Panel><Panel><span className="amber"><FileText size={19} /></span><div><strong>{grouped.draft}</strong><small>требует отправки</small></div></Panel><Panel><span className="violet"><ChevronDown size={19} /></span><div><strong>{formatNumber(grouped.volume)} м³</strong><small>отправлено всего</small></div></Panel></div>
+      {["ADMIN", "DIRECTOR", "MANAGER"].includes(actorRole ?? "") ? <OneCSalesPanel onOpenTransfer={setSelectedId} /> : null}
       <Panel className="table-panel">
         <div className="table-toolbar"><div><h2>Журнал отгрузок</h2></div></div>
         <div className="transfer-cards">{(transfers.data?.items ?? []).map((transfer) => <article key={transfer.id} onClick={() => setSelectedId(transfer.id)}><div className="transfer-route"><span className="route-point source"><MapPin size={15} /></span><i /><span className="route-truck"><Truck size={17} /></span><i /><span className="route-point destination"><MapPin size={15} /></span></div><div className="transfer-card-head"><div><span>{transfer.number}</span><h3>{transfer.items[0]?.productLot.concreteGrade ?? "Продукт"}</h3></div><StatusBadge status={transfer.status} /></div><div className="transfer-points"><span><small>Отправитель</small><strong>{transfer.sender.name}</strong></span><ChevronRight size={17} /><span><small>Получатель</small><strong>{transfer.customer?.name ?? "Клиент не указан"}</strong></span></div><div className="transfer-meta"><span><small>Дата</small><strong>{formatDate(transfer.transferAt, true)}</strong></span><span><small>Количество</small><strong>{formatNumber(transfer.items.reduce((sum, item) => sum + Number(item.requestedQuantity), 0))} {unitLabel[transfer.items[0]?.unit ?? "M3"]}</strong></span><span><small>Транспорт</small><strong>{transfer.transport ?? "Не указан"}</strong></span></div><button type="button" className="card-link" onClick={(event) => { event.stopPropagation(); setSelectedId(transfer.id); }}>Открыть документ <ChevronRight size={15} /></button></article>)}</div>
@@ -68,6 +106,47 @@ export function TransfersPage({ meta, actorRole }: { meta: MetaData | null; acto
       {selectedId === null ? null : <TransferDetailModal id={selectedId} actorRole={actorRole} onClose={() => setSelectedId(null)} onChanged={transfers.reload} onDuplicate={(transfer) => { setSelectedId(null); setTemplate(transfer); setCreateOpen(true); }} />}
     </>
   );
+}
+
+function OneCSalesPanel({ onOpenTransfer }: { onOpenTransfer: (id: string) => void }) {
+  const { selectedDate } = useDateFilter();
+  const [allDates, setAllDates] = useState(false);
+  const sales = useApi<{ items: OneCSale[]; hasMore: boolean }>(
+    allDates ? "/transfers/one-c-sales" : `/transfers/one-c-sales?date=${selectedDate}`,
+  );
+
+  return <Panel className="one-c-sales-panel">
+    <div className="table-toolbar one-c-sales-toolbar">
+      <div><h2>Реализации из 1С</h2><small>Бухгалтерские документы — без повторного списания со склада</small></div>
+      <button type="button" className="button ghost" onClick={() => setAllDates((current) => !current)}>
+        {allDates ? "Выбранная дата" : "Все даты"}
+      </button>
+    </div>
+    {sales.error ? <div className="one-c-sales-empty">{sales.error} <button type="button" onClick={() => void sales.reload()}>Повторить</button></div> : null}
+    {sales.loading && !sales.data ? <div className="one-c-sales-empty">Загружаем реализации 1С…</div> : null}
+    {!sales.loading && !sales.error && sales.data?.items.length === 0
+      ? <div className="one-c-sales-empty">{allDates ? "Реализации из 1С пока не загружены в CRM." : "За выбранную дату реализаций нет. Можно посмотреть все даты."}</div>
+      : null}
+    {sales.data?.items.length ? <div className="one-c-sale-list">{sales.data.items.map((sale) => <article key={sale.id}>
+      <div className="one-c-sale-heading">
+        <div><span className="one-c-source-label">1С</span><strong>{sale.number}</strong><small>{oneCSaleDate.format(new Date(sale.documentAt))}</small></div>
+        <div className="one-c-sale-amount"><strong>{formatOneCSaleMoney(sale.totalAmount, sale.currency)}</strong><small>{oneCSaleStatus(sale.status)}</small></div>
+      </div>
+      <div className="one-c-sale-body">
+        <div><small>Клиент</small><strong>{sale.counterparty}</strong></div>
+        <div><small>Позиции</small><span>{sale.items.length
+          ? sale.items.map((item) => `${item.description} — ${oneCSaleQuantity.format(Number(item.quantity))} ${item.unit}`).join(" · ")
+          : "Нет позиций в документе"}</span></div>
+      </div>
+      <div className="one-c-sale-match">
+        {sale.reconciliation.state === "MATCHED" && sale.reconciliation.transfer
+          ? <button type="button" className="card-link" onClick={() => onOpenTransfer(sale.reconciliation.transfer!.id)}>Совпадает с отгрузкой {sale.reconciliation.transfer.number} <ChevronRight size={15} /></button>
+          : <span>{sale.reconciliation.state === "AMBIGUOUS" ? "Неоднозначное совпадение — нужна проверка"
+            : sale.reconciliation.state === "NOT_CHECKED" ? "Сопоставление не выполнено" : "Совпадающей отгрузки CRM нет"}</span>}
+      </div>
+    </article>)}</div> : null}
+    {sales.data?.hasMore ? <div className="one-c-sales-empty">Показаны последние 500 реализаций; более ранние здесь не загружены.</div> : null}
+  </Panel>;
 }
 
 function CreateTransferModal({ meta, template, onClose, onCreated }: { meta: MetaData | null; template: Transfer | null; onClose: () => void; onCreated: () => Promise<void> }) {
