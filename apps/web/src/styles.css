@@ -114,8 +114,14 @@ h1, h2, h3, p { margin: 0; }
 .global-date-copy small { color: #91988b; font-size: 7px; font-weight: 700; letter-spacing: .02em; }
 .global-date-filter .date-picker.compact .date-picker-trigger { min-height: 30px; padding: 5px 7px; color: #36402f; background: #f5f8ef; border-color: #e3ead8; font-size: 9px; }
 .global-date-filter .date-picker.compact .date-picker-trigger:hover, .global-date-filter .date-picker.compact .date-picker-trigger[aria-expanded="true"] { border-color: #b7d675; background: #fff; }
+.global-date-all { min-height: 30px; padding: 0 9px; border: 1px solid transparent; border-radius: 7px; color: #687365; background: transparent; font-size: 9px; font-weight: 750; white-space: nowrap; cursor: pointer; }
+.global-date-all:hover { color: #344523; background: #f1f7e7; }
+.global-date-all[aria-pressed="true"] { color: #38541a; background: #e8f6cf; border-color: #c7e59b; }
+.global-date-filter.all-dates .date-picker-trigger { opacity: .64; }
 .global-date-reset { min-height: 30px; padding: 0 8px; border: 0; border-radius: 7px; color: #65822a; background: #eff7df; font-size: 8px; font-weight: 750; cursor: pointer; }
 .global-date-reset:hover { background: #e4f3ca; }
+.all-dates-value { display: flex; align-items: center; min-height: 34px; padding: 0 10px; border: 1px solid #e2ead4; border-radius: 8px; color: #506d2b; background: #f2f8e8; font-size: 11px; font-weight: 750; white-space: nowrap; }
+.history-limit-note { margin: 8px 14px 12px; color: #9a6a29; font-size: 10px; line-height: 1.4; }
 .search-shortcut { flex: 0 0 auto; min-height: 30px; padding: 3px 7px; color: #92988a; background: #fff; border: 1px solid #dfe3d8; border-radius: 6px; font-family: inherit; font-size: 9px; cursor: pointer; }
 .global-search-results { position: absolute; top: calc(100% + 8px); right: 0; left: 0; z-index: 30; display: grid; gap: 2px; padding: 6px; color: var(--ink); background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 18px 48px rgba(32, 35, 29, .15); transform-origin: top center; animation: popup-surface-in .22s cubic-bezier(.16, 1, .3, 1) both; will-change: opacity, transform; }
 .global-search-results > button { width: 100%; min-height: 46px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; padding: 7px 9px; border: 0; border-radius: 8px; color: #6b7165; background: transparent; text-align: left; cursor: pointer; }
@@ -1332,6 +1338,7 @@ h1, h2, h3, p { margin: 0; }
   .global-date-copy { display: none; }
   .global-date-filter .date-picker.compact .date-picker-trigger { min-height: 31px; padding-inline: 6px; }
   .global-date-filter .date-picker.compact .date-picker-trigger span { max-width: 72px; overflow: hidden; text-overflow: ellipsis; }
+  .global-date-all { padding-inline: 6px; font-size: 8px; }
   .global-date-reset { padding: 0 6px; font-size: 7px; }
   .search-shortcut { display: none; }
   .page-content { padding: 17px 12px; }

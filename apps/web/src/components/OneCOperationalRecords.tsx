@@ -77,9 +77,8 @@ function SourcePanel<T extends { posted: boolean; deleted: boolean }>({
   renderRow: (row: T) => React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
-  const [allDates, setAllDates] = useState(false);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-  const { selectedDate } = useDateFilter();
+  const { selectedDate, allDates } = useDateFilter();
   const source = useApi<SourceResponse<T>>(open ? `/integrations/1c/source/${section}` : null);
   const rows = useMemo(() => {
     const items = source.data?.section === section ? source.data.items ?? [] : [];
@@ -107,15 +106,12 @@ function SourcePanel<T extends { posted: boolean; deleted: boolean }>({
               <div className="one-c-operational-meta">
                 <span>{allDates ? "Все даты" : `За ${selectedDate}`} · {rows.length} записей</span>
                 <div>
-                  <button type="button" className="text-button" onClick={() => { setAllDates((current) => !current); setVisibleCount(PAGE_SIZE); }}>
-                    {allDates ? "Выбранная дата" : "Все даты"}
-                  </button>
                   <button type="button" className="icon-button" aria-label={`Обновить ${title.toLowerCase()}`} onClick={source.reload}><RefreshCw size={15} /></button>
                 </div>
               </div>
               {rows.length === 0 ? <EmptyState
                 title={allDates ? "Записей в снимке нет" : "Записей за этот период нет"}
-                text={allDates ? "Последний применённый снимок 1С не содержит записей этого раздела." : "Выберите другую дату или покажите все даты."} />
+                text={allDates ? "Последний применённый снимок 1С не содержит записей этого раздела." : "Выберите другую дату или включите «Все даты» вверху страницы."} />
                 : <div className="data-table-wrap"><table className="data-table one-c-operational-table">
                   <thead><tr>{columns.map((column) => <th key={column}>{column}</th>)}</tr></thead>
                   <tbody>{rows.slice(0, visibleCount).map((row) => <tr key={rowKey(row)}>{renderRow(row)}</tr>)}</tbody>

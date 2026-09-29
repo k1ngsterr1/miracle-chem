@@ -233,6 +233,7 @@ const customerDetail = {
 
 describe("Miracle Chem app shell", () => {
   beforeEach(() => {
+    if (typeof window.localStorage?.removeItem === "function") window.localStorage.removeItem("miracle-chem:all-dates");
     window.location.hash = "dashboard";
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -271,7 +272,8 @@ describe("Miracle Chem app shell", () => {
             items: [{ externalId: "warehouse-1", code: "W1", name: "Склад 1С", deleted: false }] }
         : url.includes("/integrations/1c/source/contracts")
           ? { available: true, section: "contracts", snapshotAt: "2026-09-28T08:00:00Z",
-            items: [{ externalId: "contract-1", contractNumber: "17", counterparty: "ТОО Покупатель", name: "Договор 1С", deleted: false }] }
+            items: [{ externalId: "contract-1", contractNumber: "17", contractAt: "2026-09-27T08:00:00",
+              counterparty: "ТОО Покупатель", name: "Договор 1С", deleted: false }] }
         : url.includes("/integrations/1c/source/receipts")
           ? { available: true, section: "receipts", snapshotAt: "2026-09-28T08:00:00Z",
             items: [1, 2].map((lineNumber) => ({ documentId: "receipt-1", lineNumber, number: "REC-1",
@@ -342,12 +344,46 @@ describe("Miracle Chem app shell", () => {
     expect(screen.getByRole("button", { name: /Клиенты/u })).toBeInTheDocument();
   });
 
+  it("applies the header's all-dates mode across the dashboard, transfers, finances and reports", async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Дашборд" })).toBeInTheDocument());
+    const allDates = screen.getByRole("button", { name: "Все даты" });
+    fireEvent.click(allDates);
+    expect(allDates).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() => expect(screen.getByText("Произведено за всё время")).toBeInTheDocument());
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/dashboard?analytics=false&allDates=true"))).toBe(true);
+
+    const navigation = within(screen.getByRole("navigation"));
+    fireEvent.click(navigation.getByRole("button", { name: "Отгрузки" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Отгрузки" })).toBeInTheDocument());
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith("/transfers"))).toBe(true);
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith("/transfers/one-c-sales"))).toBe(true);
+
+    fireEvent.click(navigation.getByRole("button", { name: "Расходы" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Расходы" })).toBeInTheDocument());
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith("/expenses?"))).toBe(true);
+
+    fireEvent.click(navigation.getByRole("button", { name: "Бухгалтерия" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Бухгалтерия" })).toBeInTheDocument());
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith("/accounting?"))).toBe(true);
+
+    fireEvent.click(navigation.getByRole("button", { name: "Отчёты" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Выпуск продукции/u }));
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/reports/production?from=1970-01-01"))).toBe(true));
+
+    fireEvent.click(allDates);
+    expect(allDates).toHaveAttribute("aria-pressed", "false");
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/reports/production?from=2026-") && !String(url).includes("from=1970"))).toBe(true));
+  });
+
   it("opens read-only 1C source views and switches between permitted collections", async () => {
     window.location.hash = "one-c-source";
     render(<App />);
     await waitFor(() => expect(screen.getByRole("heading", { name: "Данные 1С" })).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("Склад 1С")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Договоры" }));
+    expect(await screen.findByText("За выбранную дату записей нет. Выберите «Все даты» вверху страницы.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Все даты" }));
     await waitFor(() => expect(screen.getByText("Договор 1С")).toBeInTheDocument());
     expect(screen.queryByText("Склад 1С")).not.toBeInTheDocument();
     expect(screen.getByText(/Снимок:/u)).toBeInTheDocument();
@@ -363,6 +399,7 @@ describe("Miracle Chem app shell", () => {
     expect(await screen.findByText("Записей за этот период нет")).toBeInTheDocument();
     expect(screen.queryByText("REC-1")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Все даты" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Показать поступления из 1с" }));
     expect((await screen.findAllByText("REC-1")).length).toBe(2);
     expect(screen.getByText("Строка 1")).toBeInTheDocument();
     expect(screen.getByText("Строка 2")).toBeInTheDocument();
@@ -389,7 +426,7 @@ describe("Miracle Chem app shell", () => {
     window.location.hash = "transfers";
     render(<App />);
     await waitFor(() => expect(screen.getByRole("heading", { name: "Реализации из 1С" })).toBeInTheDocument());
-    expect(await screen.findByText("За выбранную дату реализаций нет. Можно посмотреть все даты.")).toBeInTheDocument();
+    expect(await screen.findByText("За выбранную дату реализаций нет. Выберите «Все даты» вверху страницы.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Все даты" }));
     expect(await screen.findByText("1C-SALE-001")).toBeInTheDocument();
     expect(screen.getByText("ТОО Покупатель 1С")).toBeInTheDocument();
@@ -403,6 +440,7 @@ describe("Miracle Chem app shell", () => {
     await waitFor(() => expect(screen.getByRole("heading", { name: "Замесы" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Показать выпуск по 1с" }));
     fireEvent.click(await screen.findByRole("button", { name: "Все даты" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Показать выпуск по 1с" }));
     expect(await screen.findByText("PROD-1")).toBeInTheDocument();
     expect(screen.getByText("1С · отчёт за смену")).toBeInTheDocument();
     expect(screen.getByText("Показано 0 из 0")).toBeInTheDocument();
@@ -619,6 +657,9 @@ describe("Miracle Chem app shell", () => {
     expect(screen.getByRole("heading", { name: "ZM-TEST-1", level: 1 })).toBeInTheDocument();
     expect(screen.getByText("Замес")).toBeInTheDocument();
     expect(screen.queryByText("Все поля выбранной строки показаны полностью на отдельной странице.")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Все даты" }));
+    await waitFor(() => expect(window.location.hash).toBe("#reports/production"));
+    expect(await screen.findByText("ZM-TEST-1")).toBeInTheDocument();
   });
 
   it("opens the administrator-only 1C archive and its source records", async () => {

@@ -1014,6 +1014,15 @@ describe("Miracle Chem NestJS API integration", () => {
     expect(summaryOnly.statusCode).toBe(200);
     expect(summaryOnly.json()).toMatchObject({ productionTrend: [], analytics: { batchStatuses: [], productionByLine: [], expenseTrend: [] } });
 
+    const allDatesSummary = await app.inject({
+      method: "GET",
+      url: "/api/dashboard?analytics=false&allDates=true",
+      headers: contextHeaders,
+    });
+    expect(allDatesSummary.statusCode).toBe(200);
+    expect(allDatesSummary.json().period.from).toBe("1970-01-01T00:00:00.000Z");
+    expect(allDatesSummary.json().period.to).toBe("9999-12-31T23:59:59.999Z");
+
     const analytics = await app.inject({
       method: "GET",
       url: "/api/dashboard/analytics",
@@ -2033,6 +2042,14 @@ describe("Miracle Chem NestJS API integration", () => {
     expect(summary.statusCode).toBe(200);
     expect(summary.json()).toMatchObject({ groupBy: "operator" });
     expect(summary.json().items.length).toBeGreaterThan(0);
+
+    const allDatesReport = await app.inject({
+      method: "GET",
+      url: "/api/reports/production?from=1970-01-01T00%3A00%3A00.000Z&to=9999-12-31T23%3A59%3A59.999Z",
+      headers: contextHeaders,
+    });
+    expect(allDatesReport.statusCode).toBe(200);
+    expect(allDatesReport.json().items.length).toBeGreaterThan(0);
 
     const exportResponse = await app.inject({
       method: "GET",

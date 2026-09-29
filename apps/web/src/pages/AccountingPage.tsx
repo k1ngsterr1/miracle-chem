@@ -82,7 +82,7 @@ interface OneCFinance {
 
 export function AccountingPage({ actorRole }: { actorRole: string | undefined }) {
   const mobileLayout = useMobileLayout();
-  const { selectedDate } = useDateFilter();
+  const { selectedDate, allDates } = useDateFilter();
   const [from, setFrom] = useState(() => monthStart());
   const [to, setTo] = useState(() => localDate());
   const [type, setType] = useState<AccountingDocumentType | "ALL">("ALL");
@@ -95,18 +95,18 @@ export function AccountingPage({ actorRole }: { actorRole: string | undefined })
   useEffect(() => {
     setFrom(selectedDate);
     setTo(selectedDate);
-  }, [selectedDate]);
+  }, [selectedDate, allDates]);
   const params = useMemo(() => {
-    const search = new URLSearchParams({ from: dayStartIso(from), to: dayEndIso(to) });
+    const search = new URLSearchParams(allDates ? {} : { from: dayStartIso(from), to: dayEndIso(to) });
     if (type !== "ALL") search.set("type", type);
     if (status !== "ALL") search.set("status", status);
     if (query.trim() !== "") search.set("search", query.trim());
     return search.toString();
-  }, [from, to, query, status, type]);
+  }, [allDates, from, to, query, status, type]);
   const documents = useApi<AccountingResponse>(`/accounting?${params}`);
   const oneCFinance = useApi<OneCFinance>("/integrations/1c/finance");
 
-  if (documents.loading && documents.data === null) return <LoadingState />;
+  if (documents.loading) return <LoadingState />;
   if (documents.error !== null) return <ErrorState message={documents.error} retry={documents.reload} />;
   const data = documents.data ?? { items: [], summary: { totals: [], byStatus: [], byType: [] } };
   const total = data.summary.totals.find((item) => item.currency === "KZT") ?? data.summary.totals[0];
@@ -147,8 +147,10 @@ export function AccountingPage({ actorRole }: { actorRole: string | undefined })
 
       <Panel className="accounting-filter-panel">
         <div className="accounting-filters">
-          <div className="form-field"><span>С даты</span><DateTimePicker mode="date" ariaLabel="Начало периода бухгалтерии" value={from} onChange={setFrom} /></div>
-          <div className="form-field"><span>По дату</span><DateTimePicker mode="date" ariaLabel="Конец периода бухгалтерии" value={to} onChange={setTo} /></div>
+          {allDates ? <div className="form-field"><span>Период</span><strong className="all-dates-value">Все даты</strong></div> : <>
+            <div className="form-field"><span>С даты</span><DateTimePicker mode="date" ariaLabel="Начало периода бухгалтерии" value={from} onChange={setFrom} /></div>
+            <div className="form-field"><span>По дату</span><DateTimePicker mode="date" ariaLabel="Конец периода бухгалтерии" value={to} onChange={setTo} /></div>
+          </>}
           <div className="form-field"><span>Тип документа</span><CustomSelect ariaLabel="Тип бухгалтерского документа" value={type} onChange={(value) => setType(value as AccountingDocumentType | "ALL")} options={TYPE_FILTER_OPTIONS} /></div>
           <div className="form-field"><span>Статус</span><CustomSelect ariaLabel="Статус бухгалтерского документа" value={status} onChange={(value) => setStatus(value as AccountingDocumentStatus | "ALL")} options={STATUS_FILTER_OPTIONS} /></div>
           <label className="expense-search"><span>Поиск</span><span><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Номер, контрагент, основание…" /></span></label>
@@ -188,6 +190,7 @@ export function AccountingPage({ actorRole }: { actorRole: string | undefined })
               </button>
             ))}
           </div> : null}
+          {allDates && data.items.length >= 500 ? <p className="history-limit-note">Лимит списка — 500 записей. Для поиска более ранних выберите дату.</p> : null}
           </>
         )}
       </Panel>

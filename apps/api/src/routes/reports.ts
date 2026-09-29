@@ -29,10 +29,10 @@ const balanceGroups: BalanceGroupBy[] = ["productLot", "batch", "grade", "line",
 @Controller()
 export class ReportController {
   @Get("dashboard")
-  async dashboard(@Req() request: ApiRequest, @Query() query: { date?: string; analytics?: string }) {
+  async dashboard(@Req() request: ApiRequest, @Query() query: { date?: string; analytics?: string; allDates?: string }) {
     const { workspaceId } = await getRequestContext(request, prisma);
     const workspace = await prisma.workspace.findUniqueOrThrow({ where: { id: workspaceId } });
-    return getDashboard(workspaceId, workspace.timezone, dayPeriodFromQuery(query.date), query.analytics !== "false");
+    return getDashboard(workspaceId, workspace.timezone, dayPeriodFromQuery(query.date), query.analytics !== "false", query.allDates === "true");
   }
 
   @Get("dashboard/analytics")

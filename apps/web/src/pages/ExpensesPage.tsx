@@ -82,7 +82,7 @@ const STATUS_OPTIONS = [
 
 export function ExpensesPage() {
   const mobileLayout = useMobileLayout();
-  const { selectedDate } = useDateFilter();
+  const { selectedDate, allDates } = useDateFilter();
   const [from, setFrom] = useState(() => monthStart());
   const [to, setTo] = useState(() => localDate());
   const [category, setCategory] = useState<ExpenseCategory | "ALL">("ALL");
@@ -94,17 +94,17 @@ export function ExpensesPage() {
   useEffect(() => {
     setFrom(selectedDate);
     setTo(selectedDate);
-  }, [selectedDate]);
+  }, [selectedDate, allDates]);
   const params = useMemo(() => {
-    const search = new URLSearchParams({ from: dayStartIso(from), to: dayEndIso(to) });
+    const search = new URLSearchParams(allDates ? {} : { from: dayStartIso(from), to: dayEndIso(to) });
     if (category !== "ALL") search.set("category", category);
     if (status !== "ALL") search.set("status", status);
     if (query.trim() !== "") search.set("search", query.trim());
     return search.toString();
-  }, [from, to, category, status, query]);
+  }, [allDates, from, to, category, status, query]);
   const expenses = useApi<ExpenseResponse>(`/expenses?${params}`);
 
-  if (expenses.loading && expenses.data === null) return <LoadingState />;
+  if (expenses.loading) return <LoadingState />;
   if (expenses.error !== null) return <ErrorState message={expenses.error} retry={expenses.reload} />;
   const data = expenses.data ?? { items: [], summary: { totals: [], byCategory: [], recordedCount: 0, cancelledCount: 0 } };
   const primaryTotal = data.summary.totals.find((item) => item.currency === "KZT") ?? data.summary.totals[0];
@@ -129,8 +129,10 @@ export function ExpensesPage() {
 
       <Panel className="expense-filter-panel">
         <div className="expense-filters">
-          <div className="form-field"><span>С даты</span><DateTimePicker mode="date" ariaLabel="Начало периода расходов" value={from} onChange={setFrom} /></div>
-          <div className="form-field"><span>По дату</span><DateTimePicker mode="date" ariaLabel="Конец периода расходов" value={to} onChange={setTo} /></div>
+          {allDates ? <div className="form-field"><span>Период</span><strong className="all-dates-value">Все даты</strong></div> : <>
+            <div className="form-field"><span>С даты</span><DateTimePicker mode="date" ariaLabel="Начало периода расходов" value={from} onChange={setFrom} /></div>
+            <div className="form-field"><span>По дату</span><DateTimePicker mode="date" ariaLabel="Конец периода расходов" value={to} onChange={setTo} /></div>
+          </>}
           <div className="form-field"><span>Категория</span><CustomSelect ariaLabel="Категория расходов" value={category} onChange={(value) => setCategory(value as ExpenseCategory | "ALL")} options={FILTER_CATEGORY_OPTIONS} /></div>
           <div className="form-field"><span>Статус</span><CustomSelect ariaLabel="Статус расходов" value={status} onChange={(value) => setStatus(value as ExpenseStatus | "ALL")} options={STATUS_OPTIONS} /></div>
           <label className="expense-search"><span>Поиск</span><span><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Номер, описание, контрагент…" /></span></label>
@@ -170,6 +172,7 @@ export function ExpensesPage() {
               </button>
             ))}
           </div> : null}
+          {allDates && data.items.length >= 500 ? <p className="history-limit-note">Лимит списка — 500 записей. Для поиска более ранних выберите дату.</p> : null}
           </>
         )}
       </Panel>

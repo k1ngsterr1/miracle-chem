@@ -129,7 +129,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const activeNavRef = useRef<HTMLButtonElement>(null);
   const { data: meta } = useApi<MetaData>("/meta");
-  const { selectedDate, setSelectedDate, resetToToday } = useDateFilter();
+  const { selectedDate, allDates, setSelectedDate, setAllDates, resetToToday } = useDateFilter();
   const selectedDateIsToday = selectedDate === todayDate();
   const actorRole = meta?.actor.role;
   const visibleNavigation = useMemo(
@@ -301,10 +301,11 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
                 </div>
               ) : null}
             </div>
-            <div className="global-date-filter">
-              <div className="global-date-copy"><small>Рабочая дата</small></div>
+            <div className={`global-date-filter${allDates ? " all-dates" : ""}`}>
+              <div className="global-date-copy"><small>Период</small></div>
+              <button type="button" className="global-date-all" aria-pressed={allDates} onClick={() => setAllDates(!allDates)}>Все даты</button>
               <DateTimePicker compact mode="date" ariaLabel="Выберите дату для данных CRM" value={selectedDate} onChange={setSelectedDate} align="right" />
-              {selectedDateIsToday ? null : <button type="button" className="global-date-reset" onClick={resetToToday}>Сегодня</button>}
+              {selectedDateIsToday && !allDates ? null : <button type="button" className="global-date-reset" onClick={resetToToday}>Сегодня</button>}
             </div>
           </div>
         </header>

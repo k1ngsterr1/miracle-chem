@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { type ExpenseTrendPoint, type LineStatPoint, type ProductionTrendPoint, type StatusStatPoint } from "../components/DashboardCharts.js";
 import { useApi } from "../hooks/use-api.js";
+import { useDateFilter } from "../hooks/use-date-filter.js";
 import { useMobileLayout } from "../hooks/use-mobile-layout.js";
 import type { Batch, DashboardData } from "../types.js";
 import { formatDate, formatMetric, formatMoney, formatNumber, unitLabel } from "../lib/format.js";
@@ -31,6 +32,7 @@ const ProductionTrendChart = lazy(() => import("../components/DashboardCharts.js
 const DashboardAnalyticsCharts = lazy(() => import("../components/DashboardCharts.js").then((module) => ({ default: module.DashboardAnalyticsCharts })));
 
 export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" | "materials" | "transfers" | "expenses" | "accounting") => void }) {
+  const { allDates } = useDateFilter();
   const dashboard = useApi<DashboardData>("/dashboard?analytics=false");
   const batches = useApi<{ items: Batch[] }>("/batches");
   const compactDashboard = useMobileLayout();
@@ -85,13 +87,13 @@ export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" |
       ) : null}
 
       <div className="kpi-grid">
-        <Kpi icon={<FlaskConical />} label="Расход сырья сегодня" value={formatMetric(data.metrics.consumedMaterials)} hint="фактическое списание" tone="lime" />
-        <Kpi icon={<PackageCheck />} label="Произведено сегодня" value={formatMetric(data.metrics.produced)} hint="готового продукта" tone="blue" />
-        <Kpi icon={<Truck />} label="Отгружено" value={formatMetric(data.metrics.sentToLrt)} hint="подтверждённые отправки" tone="violet" />
-        <Kpi icon={<Boxes />} label="Доступный остаток" value={formatMetric(data.metrics.availableProduct)} hint="по всем партиям" tone="amber" />
-        <Kpi icon={<CircleGauge />} label="Активные замесы" value={String(data.metrics.activeBatches)} hint={`${active.filter((batch) => batch.status === "IN_PROGRESS").length} сейчас в работе`} tone="green" />
-        <Kpi icon={<TrendingDown />} label="Потери за день" value={`${data.metrics.lossPercent}%`} hint="от общего выпуска" tone="red" warning={Number(data.metrics.lossPercent) > 2} />
-        <Kpi icon={<BadgeDollarSign />} label="Доход за день" value={formatExpenseTotals(data.metrics.dailyRevenue ?? [])} hint="по выставленным и оплаченным счетам" tone="green" />
+        <Kpi icon={<FlaskConical />} label={allDates ? "Расход сырья за всё время" : "Расход сырья сегодня"} value={formatMetric(data.metrics.consumedMaterials)} hint="фактическое списание" tone="lime" badge={allDates ? "все даты" : "сегодня"} />
+        <Kpi icon={<PackageCheck />} label={allDates ? "Произведено за всё время" : "Произведено сегодня"} value={formatMetric(data.metrics.produced)} hint="готового продукта" tone="blue" badge={allDates ? "все даты" : "сегодня"} />
+        <Kpi icon={<Truck />} label="Отгружено" value={formatMetric(data.metrics.sentToLrt)} hint="подтверждённые отправки" tone="violet" badge={allDates ? "все даты" : "сегодня"} />
+        <Kpi icon={<Boxes />} label="Доступный остаток" value={formatMetric(data.metrics.availableProduct)} hint="по всем партиям" tone="amber" badge="сейчас" />
+        <Kpi icon={<CircleGauge />} label="Активные замесы" value={String(data.metrics.activeBatches)} hint={`${active.filter((batch) => batch.status === "IN_PROGRESS").length} сейчас в работе`} tone="green" badge="сейчас" />
+        <Kpi icon={<TrendingDown />} label={allDates ? "Потери за всё время" : "Потери за день"} value={`${data.metrics.lossPercent}%`} hint="от общего выпуска" tone="red" warning={Number(data.metrics.lossPercent) > 2} badge={allDates ? "все даты" : "сегодня"} />
+        <Kpi icon={<BadgeDollarSign />} label={allDates ? "Доход за всё время" : "Доход за день"} value={formatExpenseTotals(data.metrics.dailyRevenue ?? [])} hint="по выставленным и оплаченным счетам" tone="green" badge={allDates ? "все даты" : "сегодня"} />
         <Kpi icon={<Landmark />} label="Дебиторская задолженность" value={formatExpenseTotals(data.metrics.accountsReceivable ?? [])} hint={`${(data.receivables ?? []).reduce((sum, item) => sum + item.invoiceCount, 0)} неоплаченных счетов`} tone="amber" badge="текущая" />
       </div>
 
@@ -152,7 +154,7 @@ export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" |
         <div ref={trendViewport} className="dashboard-chart-deferred">{trendVisible && dashboardAnalytics.data !== null ? <Suspense fallback={<TrendChartPlaceholder />}><ProductionTrendChart trend={trend} /></Suspense> : <TrendChartPlaceholder />}</div>
 
         <Panel className="balance-panel">
-          <PanelHeader title="Баланс смены" />
+          <PanelHeader title={allDates ? "Баланс за всё время" : "Баланс смены"} />
           <div className="balance-ring" style={{ "--progress": "78%" } as React.CSSProperties}>
             <div><strong>{formatMetric(data.metrics.availableProduct).replace(" м³", "")}</strong><span>доступно</span></div>
           </div>

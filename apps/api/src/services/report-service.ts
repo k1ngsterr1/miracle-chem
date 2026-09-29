@@ -20,8 +20,10 @@ export interface Period {
 export type ProductionGroupBy = "day" | "week" | "month" | "shift" | "grade" | "line" | "operator";
 export type BalanceGroupBy = "productLot" | "batch" | "grade" | "line" | "operator";
 
-export async function getDashboard(workspaceId: string, timezone: string, selectedDay?: Period, includeAnalytics = true) {
-  const today = selectedDay ?? currentDayRange(timezone);
+export async function getDashboard(workspaceId: string, timezone: string, selectedDay?: Period, includeAnalytics = true, allDates = false) {
+  const today = allDates
+    ? { from: new Date("1970-01-01T00:00:00.000Z"), to: new Date("9999-12-31T23:59:59.999Z") }
+    : selectedDay ?? currentDayRange(timezone);
   const activeStatuses: ProductionBatchStatus[] = [
     ProductionBatchStatus.PLANNED,
     ProductionBatchStatus.PREPARATION,
@@ -29,7 +31,8 @@ export async function getDashboard(workspaceId: string, timezone: string, select
   ];
   // Analytics is deliberately independent of the operational summary: a caller
   // may paint the actionable dashboard first and hydrate charts afterwards.
-  const analyticsRequest = includeAnalytics ? getDashboardAnalytics(workspaceId, timezone, today) : null;
+  // Charts explicitly show rolling 7/30-day windows even when KPI totals cover all dates.
+  const analyticsRequest = includeAnalytics ? getDashboardAnalytics(workspaceId, timezone, allDates ? undefined : today) : null;
   const [consumption, completedBatches, dispatches, availableLots, activeBatches, criticalMaterials, plannedMaterialDemand, deviations, expenses, dailyRevenue, receivableDocuments, oneCFinance] =
     await Promise.all([
       prisma.materialMovement.findMany({
@@ -287,7 +290,7 @@ export async function getDashboard(workspaceId: string, timezone: string, select
       accountsReceivable: oneCFinance === null ? groupMoneyByCurrency(receivableDocuments)
         : [{ amount: oneCFinance.totalReceivables, currency: "KZT" }],
     },
-    receivables: oneCFinance === null ? summarizeReceivables(receivableDocuments, today.to) : oneCFinance.receivables,
+    receivables: oneCFinance === null ? summarizeReceivables(receivableDocuments, allDates ? new Date() : today.to) : oneCFinance.receivables,
     criticalMaterials: critical,
     stockWarnings,
     mainReagents,

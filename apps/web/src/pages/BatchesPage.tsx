@@ -22,6 +22,7 @@ import { CustomSelect } from "../components/CustomSelect.js";
 import { DateTimePicker } from "../components/DateTimePicker.js";
 import { OneCProductionPanel } from "../components/OneCOperationalRecords.js";
 import { useApi } from "../hooks/use-api.js";
+import { useDateFilter } from "../hooks/use-date-filter.js";
 import type { Batch, MetaData, Recipe } from "../types.js";
 import { formatDate, formatMoney, formatNumber, unitLabel } from "../lib/format.js";
 import {
@@ -45,6 +46,7 @@ const FILTERS = [
 type BatchFilter = (typeof FILTERS)[number]["id"];
 
 export function BatchesPage({ meta, actorRole }: { meta: MetaData | null; actorRole: string | undefined }) {
+  const { allDates } = useDateFilter();
   const batches = useApi<{ items: Batch[] }>("/batches");
   const recipes = useApi<{ items: Recipe[] }>("/recipes");
   const [filter, setFilter] = useState<BatchFilter>("ALL");
@@ -117,7 +119,8 @@ export function BatchesPage({ meta, actorRole }: { meta: MetaData | null; actorR
             </tbody>
           </table>
         </div>
-        <div className="table-footer"><span>Показано {filtered.length} из {batches.data?.items.length ?? 0}</span></div>
+        <div className="table-footer"><span>Показано {filtered.length} из {batches.data?.items.length ?? 0}</span>
+          {allDates && allBatches.length >= 500 ? <span className="history-limit-note">Лимит списка — 500 записей. Для поиска более ранних выберите дату.</span> : null}</div>
       </Panel>
 
       {["ADMIN", "DIRECTOR", "TECHNOLOGIST"].includes(actorRole ?? "") ? <OneCProductionPanel /> : null}

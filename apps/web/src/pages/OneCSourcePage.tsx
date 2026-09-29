@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Database, RefreshCw } from "lucide-react";
 import { useApi } from "../hooks/use-api.js";
+import { useDateFilter } from "../hooks/use-date-filter.js";
 import { formatMoney, formatNumber } from "../lib/format.js";
 import { EmptyState, ErrorState, LoadingState, PageHeader, Panel } from "../components/ui.js";
 
@@ -50,11 +51,17 @@ function nestedRows(row: SourceRow, key: string): SourceRow[] {
 }
 
 export function OneCSourcePage({ actorRole }: { actorRole: string | undefined }) {
+  const { selectedDate, allDates } = useDateFilter();
   const allowed = SECTIONS.filter((section) => section.roles.includes(actorRole ?? ""));
   const [selected, setSelected] = useState<Section>("warehouses");
   const section = allowed.find((item) => item.id === selected) ?? allowed[0];
   const source = useApi<SourceResponse>(section ? `/integrations/1c/source/${section.id}` : null);
-  const rows = source.data !== null && source.data.section === section?.id ? source.data.items ?? [] : [];
+  const rawRows = source.data !== null && source.data.section === section?.id ? source.data.items ?? [] : [];
+  const dateField = section?.id === "receipts" ? "receivedAt"
+    : section?.id === "contracts" ? "contractAt"
+      : section?.id === "production" ? "documentAt" : null;
+  const rows = dateField === null || allDates ? rawRows : rawRows.filter((row) =>
+    String(row[dateField] ?? "").slice(0, 10) === selectedDate);
 
   return <>
     <PageHeader title="Данные 1С"
@@ -70,7 +77,9 @@ export function OneCSourcePage({ actorRole }: { actorRole: string | undefined })
           <div className="table-toolbar"><div><h2>{section?.label}</h2>
             <p>Снимок: {new Date(source.data.snapshotAt ?? "").toLocaleString("ru-KZ")} · {rows.length} записей</p>
           </div><Database size={21} /></div>
-          {rows.length === 0 ? <EmptyState title="Записей нет" text="В последнем снимке 1С данных этого раздела нет." />
+          {rows.length === 0 ? <EmptyState title="Записей нет" text={dateField !== null && !allDates
+            ? "За выбранную дату записей нет. Выберите «Все даты» вверху страницы."
+            : "В последнем снимке 1С данных этого раздела нет."} />
             : <div className="data-table-wrap"><table className="data-table one-c-source-table"><thead><tr>
               {section?.columns.map((column) => <th key={column.key}>{column.label}</th>)}
             </tr></thead><tbody>{rows.map((row, index) => <tr key={String(row.externalId ?? row.documentId ?? index) + index}>

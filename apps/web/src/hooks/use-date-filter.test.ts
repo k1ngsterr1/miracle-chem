@@ -13,6 +13,16 @@ describe("applySelectedDate", () => {
       .toBe("/reports/production?from=2026-08-01&to=2026-08-31");
   });
 
+  it("removes the working-day filter across operational lists in all-dates mode", () => {
+    expect(applySelectedDate("/batches", "2026-08-29", true)).toBe("/batches");
+    expect(applySelectedDate("/transfers?status=SENT", "2026-08-29", true)).toBe("/transfers?status=SENT");
+    expect(applySelectedDate("/recipes?date=2026-08-29", "2026-08-29", true)).toBe("/recipes");
+    expect(applySelectedDate("/materials/purchase-batches", "2026-08-29", true)).toBe("/materials/purchase-batches");
+    expect(applySelectedDate("/dashboard?analytics=false", "2026-08-29", true)).toBe("/dashboard?analytics=false&allDates=true");
+    expect(applySelectedDate("/reports/production?from=2026-08-01&to=2026-08-31", "2026-08-29", true))
+      .toBe("/reports/production?from=2026-08-01&to=2026-08-31");
+  });
+
   it("does not add a date to static directories or detail pages", () => {
     expect(applySelectedDate("/materials", "2026-08-29")).toBe("/materials");
     expect(applySelectedDate("/batches/batch-id", "2026-08-29")).toBe("/batches/batch-id");

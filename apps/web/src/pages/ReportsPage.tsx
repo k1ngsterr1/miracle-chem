@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BarChart3,
   CalendarDays,
@@ -63,12 +63,21 @@ const REPORTS = {
 
 export function ReportsPage() {
   const [route, setRoute] = useState(readReportRoute);
+  const { selectedDate, allDates } = useDateFilter();
+  const previousPeriod = useRef(`${selectedDate}:${allDates}`);
 
   useEffect(() => {
     const onHashChange = () => setRoute(readReportRoute());
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
+
+  useEffect(() => {
+    const period = `${selectedDate}:${allDates}`;
+    if (previousPeriod.current === period) return;
+    previousPeriod.current = period;
+    if (route.type !== null && route.rowIndex !== null) navigate(route.type);
+  }, [selectedDate, allDates]);
 
   function navigate(type: ReportType | null, rowIndex: number | null = null): void {
     const nextRoute = { type, rowIndex };
@@ -121,14 +130,16 @@ function ReportWorkspace({
   onBackToReport: () => void;
   onOpenRow: (rowIndex: number) => void;
 }) {
-  const { selectedDate } = useDateFilter();
+  const { selectedDate, allDates } = useDateFilter();
   const [from, setFrom] = useState(selectedDate);
   const [to, setTo] = useState(selectedDate);
   useEffect(() => {
     setFrom(selectedDate);
     setTo(selectedDate);
-  }, [selectedDate]);
-  const path = `${REPORTS[type].path}?from=${encodeURIComponent(`${from}T00:00:00`)}&to=${encodeURIComponent(`${to}T23:59:59`)}`;
+  }, [selectedDate, allDates]);
+  const periodFrom = allDates ? "1970-01-01T00:00:00.000Z" : `${from}T00:00:00`;
+  const periodTo = allDates ? "9999-12-31T23:59:59.999Z" : `${to}T23:59:59`;
+  const path = `${REPORTS[type].path}?from=${encodeURIComponent(periodFrom)}&to=${encodeURIComponent(periodTo)}`;
   const report = useApi<{ items: Array<Record<string, unknown>> }>(path);
   const columns = useMemo(() => Object.keys(report.data?.items[0] ?? {}).slice(0, 12), [report.data]);
   const selectedRow = rowIndex === null ? null : report.data?.items[rowIndex] ?? null;
@@ -151,14 +162,14 @@ function ReportWorkspace({
       <div className="report-page-nav"><button type="button" className="text-button" onClick={onBackToCatalog}><ChevronLeft size={16} /> Все отчёты</button></div>
       <PageHeader
         title={REPORTS[type].title}
-        actions={<div className="export-actions"><a className="button ghost" href={reportExportUrl(type, "csv", `${from}T00:00:00`, `${to}T23:59:59`)}><Download size={16} /> CSV</a><a className="button primary" href={reportExportUrl(type, "xlsx", `${from}T00:00:00`, `${to}T23:59:59`)}><FileSpreadsheet size={16} /> XLSX</a></div>}
+        actions={<div className="export-actions"><a className="button ghost" href={reportExportUrl(type, "csv", periodFrom, periodTo)}><Download size={16} /> CSV</a><a className="button primary" href={reportExportUrl(type, "xlsx", periodFrom, periodTo)}><FileSpreadsheet size={16} /> XLSX</a></div>}
       />
 
       <Panel className="report-workspace">
-        <div className="report-controls"><div><span className="eyebrow">Параметры отчёта</span><h2>{REPORTS[type].title}</h2></div><div className="period-control"><CalendarDays size={17} /><div className="period-date"><small>С</small><DateTimePicker mode="date" compact ariaLabel="Начало периода" value={from} onChange={setFrom} align="right" /></div><i /><div className="period-date"><small>По</small><DateTimePicker mode="date" compact ariaLabel="Конец периода" value={to} onChange={setTo} align="right" /></div><button className="icon-button" aria-label="Обновить отчёт" onClick={() => void report.reload()}><RefreshCw size={16} /></button></div></div>
+        <div className="report-controls"><div><span className="eyebrow">Параметры отчёта</span><h2>{REPORTS[type].title}</h2></div><div className="period-control"><CalendarDays size={17} />{allDates ? <strong className="all-dates-value">Все даты</strong> : <><div className="period-date"><small>С</small><DateTimePicker mode="date" compact ariaLabel="Начало периода" value={from} onChange={setFrom} align="right" /></div><i /><div className="period-date"><small>По</small><DateTimePicker mode="date" compact ariaLabel="Конец периода" value={to} onChange={setTo} align="right" /></div></>}<button className="icon-button" aria-label="Обновить отчёт" onClick={() => void report.reload()}><RefreshCw size={16} /></button></div></div>
         {report.loading ? <LoadingState /> : report.error !== null ? <ErrorState message={report.error} retry={report.reload} /> : (
           <>
-            <div className="report-result-summary"><span>Строк: <strong>{report.data?.items.length ?? 0}</strong></span><span>Период: <strong>{from} — {to}</strong></span></div>
+            <div className="report-result-summary"><span>Строк: <strong>{report.data?.items.length ?? 0}</strong></span><span>Период: <strong>{allDates ? "Все даты" : `${from} — ${to}`}</strong></span></div>
             <div className="data-table-wrap"><table className="data-table report-table"><thead><tr>{columns.map((column) => <th key={column}>{columnLabel(column)}</th>)}<th aria-label="Открыть" /></tr></thead><tbody>{report.data?.items.map((row, index) => <tr key={index} onClick={() => onOpenRow(index)}>{columns.map((column) => <td key={column}>{formatCell(column, row[column])}</td>)}<td><button type="button" className="row-action" aria-label={`Открыть строку ${index + 1}`}><ChevronRight size={16} /></button></td></tr>)}</tbody></table></div>
           </>
         )}

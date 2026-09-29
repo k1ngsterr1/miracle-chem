@@ -8,17 +8,21 @@ export function useApi<T>(path: string | null): {
   error: string | null;
   reload: () => Promise<void>;
 } {
-  const { selectedDate } = useDateFilter();
-  const datedPath = useMemo(() => applySelectedDate(path, selectedDate), [path, selectedDate]);
+  const { selectedDate, allDates } = useDateFilter();
+  const datedPath = useMemo(() => applySelectedDate(path, selectedDate, allDates), [path, selectedDate, allDates]);
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [resolvedPath, setResolvedPath] = useState<string | null>(null);
   const activeRequest = useRef<AbortController | null>(null);
 
   const reload = useCallback(async () => {
     activeRequest.current?.abort();
     if (datedPath === null) {
       activeRequest.current = null;
+      setData(null);
+      setError(null);
+      setResolvedPath(null);
       setLoading(false);
       return;
     }
@@ -31,10 +35,14 @@ export function useApi<T>(path: string | null): {
       if (activeRequest.current === controller) setData(next);
     } catch (cause) {
       if (!controller.signal.aborted && activeRequest.current === controller) {
+        setData(null);
         setError(cause instanceof Error ? cause.message : "Не удалось загрузить данные");
       }
     } finally {
-      if (activeRequest.current === controller) setLoading(false);
+      if (activeRequest.current === controller) {
+        setResolvedPath(datedPath);
+        setLoading(false);
+      }
     }
   }, [datedPath]);
 
@@ -43,5 +51,6 @@ export function useApi<T>(path: string | null): {
     return () => activeRequest.current?.abort();
   }, [reload]);
 
-  return { data, loading, error, reload };
+  const pathChanged = resolvedPath !== datedPath;
+  return { data: pathChanged ? null : data, loading: loading || pathChanged, error: pathChanged ? null : error, reload };
 }
