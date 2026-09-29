@@ -393,7 +393,7 @@ describe("Miracle Chem app shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Все даты" }));
     expect(await screen.findByText("1C-SALE-001")).toBeInTheDocument();
     expect(screen.getByText("ТОО Покупатель 1С")).toBeInTheDocument();
-    expect(screen.getByText("Совпадающей отгрузки CRM нет")).toBeInTheDocument();
+    expect(screen.queryByText("Совпадающей отгрузки CRM нет")).not.toBeInTheDocument();
     expect(screen.queryByText("Открыть документ")).not.toBeInTheDocument();
   });
 

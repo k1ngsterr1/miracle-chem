@@ -138,12 +138,12 @@ function OneCSalesPanel({ onOpenTransfer }: { onOpenTransfer: (id: string) => vo
           ? sale.items.map((item) => `${item.description} — ${oneCSaleQuantity.format(Number(item.quantity))} ${item.unit}`).join(" · ")
           : "Нет позиций в документе"}</span></div>
       </div>
-      <div className="one-c-sale-match">
+      {sale.reconciliation.state !== "UNMATCHED" ? <div className="one-c-sale-match">
         {sale.reconciliation.state === "MATCHED" && sale.reconciliation.transfer
           ? <button type="button" className="card-link" onClick={() => onOpenTransfer(sale.reconciliation.transfer!.id)}>Совпадает с отгрузкой {sale.reconciliation.transfer.number} <ChevronRight size={15} /></button>
           : <span>{sale.reconciliation.state === "AMBIGUOUS" ? "Неоднозначное совпадение — нужна проверка"
-            : sale.reconciliation.state === "NOT_CHECKED" ? "Сопоставление не выполнено" : "Совпадающей отгрузки CRM нет"}</span>}
-      </div>
+            : "Сопоставление не выполнено"}</span>}
+      </div> : null}
     </article>)}</div> : null}
     {sales.data?.hasMore ? <div className="one-c-sales-empty">Показаны последние 500 реализаций; более ранние здесь не загружены.</div> : null}
   </Panel>;
