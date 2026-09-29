@@ -319,7 +319,7 @@ export function ClientsPage({ actorRole }: { actorRole: string | undefined }) {
                 <span className="client-avatar">{customerInitials(customer.name)}</span>
                 <span className="client-main"><strong>{customer.name}</strong><small>{[customer.contactPerson, customer.taxId].filter(Boolean).join(" · ") || "Реквизиты не заполнены"}</small></span>
                 <span className="client-recipe-count"><strong>{customer.concreteRecipes.length}</strong><small>составов</small></span>
-                {(customer.receivables ?? []).length === 0 ? null : <span className="client-debt"><strong>{formatMoney(customer.receivables?.[0]?.amount ?? "0", customer.receivables?.[0]?.currency ?? "KZT")}</strong><small>дебиторка</small></span>}
+                <span className="client-debt">{customer.receivables?.[0] ? <><strong>{formatMoney(customer.receivables[0].amount, customer.receivables[0].currency)}</strong><small>дебиторка</small></> : null}</span>
                 <span className="client-formula-tags">{customer.concreteRecipes.length === 0 ? <small>Нет составов</small> : [...new Set(customer.concreteRecipes.map((recipe) => recipe.additiveFormulaVersion.formula.name))].slice(0, 3).map((name) => <em key={name}>{name}</em>)}</span>
                 <ChevronRight size={18} />
               </button>

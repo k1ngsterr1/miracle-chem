@@ -654,6 +654,28 @@ describe("Miracle Chem app shell", () => {
     expect(screen.getByText("Текущая дебиторская задолженность")).toBeInTheDocument();
   });
 
+  it("keeps client rows aligned when only some customers have receivables", async () => {
+    const fallbackFetch = vi.mocked(fetch);
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/customers")) return { ok: true, status: 200, json: async () => ({
+        ...customers,
+        items: [
+          { ...customers.items[0], receivables: [{ amount: "3575000", currency: "KZT" }] },
+          { ...customers.items[0], id: "customer-2", name: "Клиент без долга", concreteRecipes: [], receivables: [] },
+        ],
+      }) } as Response;
+      return fallbackFetch(input, init);
+    }));
+    window.location.hash = "clients";
+    render(<App />);
+    await waitFor(() => expect(document.querySelectorAll(".client-list-card")).toHaveLength(2));
+    for (const card of document.querySelectorAll(".client-list-card")) {
+      expect(card.children).toHaveLength(6);
+      expect(card.querySelector(".client-debt")).toBeInTheDocument();
+      expect(card.lastElementChild?.tagName.toLowerCase()).toBe("svg");
+    }
+  });
+
   it("opens the dedicated goods receipt power of attorney form", async () => {
     render(<App />);
     await waitFor(() => expect(screen.getByText("Произведено сегодня")).toBeInTheDocument());

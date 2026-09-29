@@ -1114,7 +1114,7 @@ h1, h2, h3, p { margin: 0; }
 .client-search:focus-within, .client-search.filled { color: #6f8a31; background: #fff; border-color: #b7cf80; box-shadow: 0 0 0 3px rgba(182, 238, 72, .12); }
 .client-search input { min-width: 0; width: 100%; height: 38px; border: 0; outline: 0; color: #2c3128; background: transparent; font-size: 9px; }
 .client-list { display: grid; }
-.client-list-card { min-height: 74px; display: grid; grid-template-columns: auto minmax(190px, 1.2fr) 90px minmax(170px, 1fr) auto; align-items: center; gap: 13px; padding: 11px 16px; border: 0; border-bottom: 1px solid #ecefe8; color: #676e61; background: #fff; text-align: left; cursor: pointer; transition: background .16s ease, transform .16s ease; }
+.client-list-card { min-height: 74px; display: grid; grid-template-columns: 38px minmax(0, 1.4fr) 72px minmax(120px, .7fr) minmax(140px, 1fr) 18px; align-items: center; gap: 13px; padding: 11px 16px; border: 0; border-bottom: 1px solid #ecefe8; color: #676e61; background: #fff; text-align: left; cursor: pointer; transition: background .16s ease, transform .16s ease; }
 .client-list-card:last-child { border-bottom: 0; }
 .client-list-card:hover { background: #fafcf7; }
 .client-avatar { width: 38px; height: 38px; display: grid; place-items: center; color: #4f681f; background: linear-gradient(135deg, #edf7dd, #e7f0d8); border: 1px solid #dce9c6; border-radius: 11px; font-size: 10px; font-weight: 850; }
@@ -1125,6 +1125,10 @@ h1, h2, h3, p { margin: 0; }
 .client-recipe-count { text-align: center; }
 .client-recipe-count strong { color: #343a30; font-size: 13px; }
 .client-recipe-count small { margin-top: 2px; color: #9a9f95; font-size: 7px; }
+.client-debt { min-width: 0; text-align: right; }
+.client-debt strong, .client-debt small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.client-debt strong { color: #a66b28; font-size: 10px; font-variant-numeric: tabular-nums; }
+.client-debt small { margin-top: 3px; color: #9a9f95; font-size: 7px; }
 .client-formula-tags { min-width: 0; display: flex; flex-wrap: wrap; gap: 5px; }
 .client-formula-tags em { max-width: 130px; padding: 4px 7px; overflow: hidden; color: #667f2d; background: #f0f6e6; border-radius: 99px; font-size: 7px; font-style: normal; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
 .client-formula-tags small { color: #9a9f95; font-size: 8px; }
@@ -1294,6 +1298,8 @@ h1, h2, h3, p { margin: 0; }
   .batch-filter-tabs { width: 100%; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
   .batch-filter-tabs::-webkit-scrollbar { display: none; }
   .batch-filter-search { width: 100%; }
+  .client-list-card { grid-template-columns: 38px minmax(0, 1fr) 72px minmax(120px, .7fr) 18px; }
+  .client-formula-tags { display: none; }
   .client-profile-strip { grid-template-columns: repeat(3, 1fr); }
   .client-profile-strip > div:nth-child(3) { border-right: 0; }
   .client-profile-strip > div:nth-child(n+4) { border-top: 1px solid var(--line); }
