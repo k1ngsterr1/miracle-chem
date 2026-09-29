@@ -170,10 +170,16 @@ export function BatchesPage({ meta, actorRole }: { meta: MetaData | null; actorR
         />
       )}
       {selectedReport ? <Modal title={`Отчёт за смену ${selectedReport.number}`} onClose={() => setSelectedReport(null)}>
-        <div className="imported-record-detail"><p>{formatDate(selectedReport.documentAt, true)} · {selectedReport.warehouse} · {oneCDocumentStatus(selectedReport.posted, selectedReport.deleted)}</p>
-          <h3>Продукция</h3>{selectedReport.products.length === 0 ? <p>Позиции не указаны</p> : selectedReport.products.map((part) =>
-            <div key={part.lineNumber}><strong>{part.material}</strong><span>{sourceDecimal(part.quantity)}</span><small>{part.specification}</small></div>)}
-          <p className="imported-record-note">Запись доступна только для просмотра.</p></div>
+        <div className="shift-report-detail">
+          <div className="shift-report-meta"><span>{formatDate(selectedReport.documentAt, true)}</span><span>{selectedReport.warehouse}</span><span>{oneCDocumentStatus(selectedReport.posted, selectedReport.deleted)}</span></div>
+          <div className="shift-report-section-head"><h3>Продукция</h3><span>{selectedReport.products.length} поз.</span></div>
+          {selectedReport.products.length === 0 ? <p className="shift-report-empty">Позиции не указаны</p> : <div className="shift-report-products">{selectedReport.products.map((part) =>
+            <div className="shift-report-product" key={part.lineNumber}>
+              <div><strong>{part.material}</strong><small>{part.specification}</small></div>
+              <div><small>Количество</small><strong>{sourceDecimal(part.quantity)}</strong></div>
+            </div>)}</div>}
+          <p className="shift-report-note">Запись доступна только для просмотра.</p>
+        </div>
       </Modal> : null}
     </>
   );

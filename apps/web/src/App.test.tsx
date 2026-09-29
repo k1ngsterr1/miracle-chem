@@ -450,8 +450,11 @@ describe("Miracle Chem app shell", () => {
     expect(screen.queryByText("Отчёт за смену · 1С")).not.toBeInTheDocument();
     expect(screen.getByText("Показано 1 из 1")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Открыть отчёт PROD-1" }));
-    expect(screen.getByText("Добавка КТ-1")).toBeInTheDocument();
-    expect(screen.getByText("Запись доступна только для просмотра.")).toBeInTheDocument();
+    const reportDialog = screen.getByRole("dialog", { name: "Отчёт за смену PROD-1" });
+    expect(within(reportDialog).getByRole("heading", { name: "Продукция" })).toBeInTheDocument();
+    expect(within(reportDialog).getByText("Добавка КТ-1")).toBeInTheDocument();
+    expect(within(reportDialog).getByText("Количество")).toBeInTheDocument();
+    expect(within(reportDialog).getByText("Запись доступна только для просмотра.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Начать замес/u })).not.toBeInTheDocument();
   });
 
