@@ -342,6 +342,8 @@ describe("Miracle Chem app shell", () => {
     expect(screen.getByRole("button", { name: /Расходы/u })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Бухгалтерия/u })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Клиенты/u })).toBeInTheDocument();
+    expect(within(screen.getByRole("navigation")).queryByRole("button", { name: "Данные 1С" })).not.toBeInTheDocument();
+    expect(within(screen.getByRole("navigation")).queryByRole("button", { name: "Архив 1С" })).not.toBeInTheDocument();
   });
 
   it("applies the header's all-dates mode across the dashboard, transfers, finances and reports", async () => {
@@ -390,23 +392,24 @@ describe("Miracle Chem app shell", () => {
     expect(screen.queryByRole("button", { name: /Редактировать/u })).not.toBeInTheDocument();
   });
 
-  it("shows 1C receipt lines in the warehouse without creating CRM purchase batches", async () => {
+  it("shows imported receipts in the common purchase journal without creating CRM purchase batches", async () => {
     window.location.hash = "materials";
     render(<App />);
     await waitFor(() => expect(screen.getByRole("heading", { name: "Склад" })).toBeInTheDocument());
-    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/source/receipts"))).toBe(false);
-    fireEvent.click(screen.getByRole("button", { name: "Показать поступления из 1с" }));
-    expect(await screen.findByText("Записей за этот период нет")).toBeInTheDocument();
-    expect(screen.queryByText("REC-1")).not.toBeInTheDocument();
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/source/receipts"))).toBe(true));
+    expect(screen.queryByRole("heading", { name: "Поступления из 1С" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Все даты" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Показать поступления из 1с" }));
-    expect((await screen.findAllByText("REC-1")).length).toBe(2);
-    expect(screen.getByText("Строка 1")).toBeInTheDocument();
-    expect(screen.getByText("Строка 2")).toBeInTheDocument();
+    const journal = await screen.findByRole("heading", { name: "Поступления и закупки" });
+    expect(journal).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "Поиск по поступлениям" }), { target: { value: "REC-1" } });
+    expect(screen.getByText("№REC-1")).toBeInTheDocument();
+    expect(screen.queryByText("Поступление · 1С")).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByText("№REC-1"));
     expect(screen.getByText("1,234567 кг")).toBeInTheDocument();
-    expect(screen.getAllByText("ТОО Поставщик 1С").length).toBe(2);
+    expect(screen.getAllByText("ТОО Поставщик 1С").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/тенге/u).length).toBeGreaterThan(0);
-    expect(screen.getByText("Закупочных партий пока нет")).toBeInTheDocument();
+    expect(screen.getByText("Запись доступна только для просмотра.")).toBeInTheDocument();
+    expect(screen.queryByText("Закупочных партий пока нет")).not.toBeInTheDocument();
   });
 
   it("shows 1C sales in transfers as accounting records, not as CRM dispatches", async () => {
@@ -425,28 +428,57 @@ describe("Miracle Chem app shell", () => {
     }));
     window.location.hash = "transfers";
     render(<App />);
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Реализации из 1С" })).toBeInTheDocument());
-    expect(await screen.findByText("За выбранную дату реализаций нет. Выберите «Все даты» вверху страницы.")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Журнал отгрузок" })).toBeInTheDocument());
+    expect(screen.queryByRole("heading", { name: "Реализации из 1С" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Все даты" }));
     expect(await screen.findByText("1C-SALE-001")).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "Поиск по отгрузкам" }), { target: { value: "Покупатель" } });
+    expect(screen.getByText("1C-SALE-001")).toBeInTheDocument();
+    expect(screen.queryByText("Реализация · 1С")).not.toBeInTheDocument();
     expect(screen.getByText("ТОО Покупатель 1С")).toBeInTheDocument();
-    expect(screen.queryByText("Совпадающей отгрузки CRM нет")).not.toBeInTheDocument();
-    expect(screen.queryByText("Открыть документ")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Открыть документ" }));
+    expect(window.location.hash).toBe("#accounting/sale-1");
   });
 
-  it("shows 1C shift reports separately from CRM batches", async () => {
+  it("shows imported shift reports in the common batches table with read-only details", async () => {
     window.location.hash = "batches";
     render(<App />);
     await waitFor(() => expect(screen.getByRole("heading", { name: "Замесы" })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Показать выпуск по 1с" }));
     fireEvent.click(await screen.findByRole("button", { name: "Все даты" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Показать выпуск по 1с" }));
     expect(await screen.findByText("PROD-1")).toBeInTheDocument();
-    expect(screen.getByText("1С · отчёт за смену")).toBeInTheDocument();
-    expect(screen.getByText("Показано 0 из 0")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("1 поз."));
+    expect(screen.queryByRole("heading", { name: "Выпуск по 1С" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Отчёт за смену · 1С")).not.toBeInTheDocument();
+    expect(screen.getByText("Показано 1 из 1")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Открыть отчёт PROD-1" }));
     expect(screen.getByText("Добавка КТ-1")).toBeInTheDocument();
-    expect(screen.getByText("Спецификация: Спецификация КТ-1")).toBeInTheDocument();
+    expect(screen.getByText("Запись доступна только для просмотра.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Начать замес/u })).not.toBeInTheDocument();
+  });
+
+  it("lists imported payments with accounting documents and keeps their details read-only", async () => {
+    const originalFetch = vi.mocked(fetch);
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("/integrations/1c/finance")) return { ok: true, status: 200,
+        json: async () => ({ available: true, snapshotAt: "2026-09-28T08:00:00Z", totalReceivables: "1200", totalPrepayments: "50",
+          receivables: [{ counterparty: "Клиент", amount: "1200", currency: "KZT" }],
+          incomingPayments: [{ externalId: "pay-1", number: "PAY-1", documentAt: "2026-09-27T06:00:00.000Z",
+            counterparty: "Клиент", purpose: "За добавку", amount: "1000.25", currency: "тенге", posted: true, deleted: false }],
+          outgoingPayments: [] }) } as Response;
+      return originalFetch(input, init);
+    }));
+    window.location.hash = "accounting";
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Бухгалтерия" })).toBeInTheDocument());
+    expect(screen.queryByRole("heading", { name: "Данные из 1С" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Все даты" }));
+    expect(await screen.findByText("PAY-1")).toBeInTheDocument();
+    expect(screen.getByText("Журнал документов и платежей")).toBeInTheDocument();
+    expect(screen.queryByText("Поступление · 1С")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Открыть платёж PAY-1" }));
+    const paymentDialog = screen.getByRole("dialog", { name: "Поступление №PAY-1" });
+    expect(within(paymentDialog).getByText("За добавку")).toBeInTheDocument();
+    expect(within(paymentDialog).getByText("Запись доступна только для просмотра.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Отметить оплату/u })).not.toBeInTheDocument();
   });
 
   it("does not request 1C financial receipts for a storekeeper", async () => {
@@ -477,7 +509,23 @@ describe("Miracle Chem app shell", () => {
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/source/production"))).toBe(false);
   });
 
-  it("shows the unavailable state when no confirmed 1C snapshot exists", async () => {
+  it("does not expose global 1C sales or finance to a manager", async () => {
+    const originalFetch = vi.mocked(fetch);
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/meta")) return { ok: true, status: 200,
+        json: async () => ({ ...meta, actor: { ...meta.actor, role: "MANAGER" } }) } as Response;
+      return originalFetch(input, init);
+    }));
+    window.location.hash = "transfers";
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Отгрузки" })).toBeInTheDocument());
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/transfers/one-c-sales"))).toBe(false);
+    fireEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name: "Бухгалтерия" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Бухгалтерия" })).toBeInTheDocument());
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/integrations/1c/finance"))).toBe(false);
+  });
+
+  it("keeps the common journal usable when no confirmed source snapshot exists", async () => {
     const originalFetch = vi.mocked(fetch);
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input).includes("/source/receipts")) return { ok: true, status: 200,
@@ -487,8 +535,8 @@ describe("Miracle Chem app shell", () => {
     window.location.hash = "materials";
     render(<App />);
     await waitFor(() => expect(screen.getByRole("heading", { name: "Склад" })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Показать поступления из 1с" }));
-    expect(await screen.findByText("Снимок 1С не получен")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Поступления и закупки" })).toBeInTheDocument();
+    expect(screen.queryByText("Снимок 1С не получен")).not.toBeInTheDocument();
   });
 
   it("opens modules through the global search", async () => {
@@ -546,7 +594,7 @@ describe("Miracle Chem app shell", () => {
     }));
     window.location.hash = "materials";
     render(<App />);
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Записи 1С на проверке" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Записи на проверке" })).toBeInTheDocument());
     expect(screen.getByText("Реагент на проверке")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Подтвердить" })).toBeInTheDocument();
   });
@@ -565,9 +613,9 @@ describe("Miracle Chem app shell", () => {
     }));
     window.location.hash = "materials";
     render(<App />);
-    await waitFor(() => expect(screen.getByText("Не удалось проверить записи 1С: Сервис 1С недоступен")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Не удалось проверить записи: Сервис 1С недоступен")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Повторить" }));
-    await waitFor(() => expect(screen.queryByText("Не удалось проверить записи 1С: Сервис 1С недоступен")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText("Не удалось проверить записи: Сервис 1С недоступен")).not.toBeInTheDocument());
     expect(attempts).toBe(2);
   });
 

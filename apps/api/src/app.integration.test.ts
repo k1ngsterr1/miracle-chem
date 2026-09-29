@@ -422,6 +422,12 @@ describe("Miracle Chem NestJS API integration", () => {
         expect(sourceView.json()).toMatchObject({ available: true, source: "1C", section, items: [expected] });
         expect(sourceView.payload).not.toContain("amountIncludesVat");
       }
+      const emptyProductionDay = await app.inject({ method: "GET", url: "/api/integrations/1c/source/production?date=1999-01-01",
+        headers: financeHeaders });
+      expect(emptyProductionDay.json()).toMatchObject({ available: true, items: [] });
+      const invalidSourceDay = await app.inject({ method: "GET", url: "/api/integrations/1c/source/production?date=not-a-date",
+        headers: financeHeaders });
+      expect(invalidSourceDay.statusCode).toBe(400);
       const viewDenied = await app.inject({ method: "GET", url: "/api/integrations/1c/source/receipts",
         headers: { "x-workspace-id": workspaceId, "x-actor-id": technicalUserId } });
       expect(viewDenied.statusCode).toBe(401);
@@ -437,6 +443,12 @@ describe("Miracle Chem NestJS API integration", () => {
       const managerDenied = await app.inject({ method: "GET", url: "/api/integrations/1c/source/receipts",
         headers: { "x-workspace-id": workspaceId, "x-actor-id": managerUserId } });
       expect(managerDenied.statusCode).toBe(403);
+      const managerFinanceDenied = await app.inject({ method: "GET", url: "/api/integrations/1c/finance",
+        headers: { "x-workspace-id": workspaceId, "x-actor-id": managerUserId } });
+      expect(managerFinanceDenied.statusCode).toBe(403);
+      const managerSalesDenied = await app.inject({ method: "GET", url: "/api/transfers/one-c-sales",
+        headers: { "x-workspace-id": workspaceId, "x-actor-id": managerUserId } });
+      expect(managerSalesDenied.statusCode).toBe(403);
 
       const secondSnapshot = snapshot("2026-09-27T08:15:00Z", "12", "0", "20");
       const second = await app.inject({ method: "POST", url: "/api/integrations/1c/snapshot", headers,

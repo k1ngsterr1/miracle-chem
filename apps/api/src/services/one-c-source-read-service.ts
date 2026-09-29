@@ -6,7 +6,7 @@ import { fullSnapshotHash, fullSnapshotSchema } from "./one-c-full-snapshot-serv
 export type OneCSourceSection = "warehouses" | "receipts" | "contracts" | "specifications" | "production";
 
 /** Exposes only explicitly mapped business fields from the latest applied 1C snapshot. */
-export async function readOneCSourceSection(workspaceId: string, actorId: string, section: OneCSourceSection) {
+export async function readOneCSourceSection(workspaceId: string, actorId: string, section: OneCSourceSection, date?: string) {
   const run = await prisma.oneCSyncRun.findFirst({ where: { workspaceId, source: "1C_FULL_SNAPSHOT",
     summary: { path: ["appliedToOperationalTables"], equals: true } },
   orderBy: [{ generatedAt: "desc" }, { completedAt: "desc" }], select: { summary: true } });
@@ -33,7 +33,8 @@ export async function readOneCSourceSection(workspaceId: string, actorId: string
         name: row.name.trim(), deleted: row.deleted }));
       break;
     case "receipts":
-      items = snapshot.receipts.filter((row) => row.organizationId === saved.organizationExternalId)
+      items = snapshot.receipts.filter((row) => row.organizationId === saved.organizationExternalId
+        && (date === undefined || row.receivedAt.slice(0, 10) === date))
         .map((row) => ({ documentId: row.documentId, lineNumber: row.lineNumber, number: row.number,
           receivedAt: row.receivedAt, posted: row.posted, deleted: row.deleted,
           supplierId: row.supplierId, supplier: counterpartyNames.get(row.supplierId) ?? row.supplierId,
@@ -56,18 +57,26 @@ export async function readOneCSourceSection(workspaceId: string, actorId: string
           .map((part) => ({ lineNumber: part.lineNumber, materialId: part.materialId,
             material: materialName(part.materialId), quantity: part.quantity })) }));
       break;
-    case "production":
-      items = (snapshot.productionReports ?? []).filter((row) => row.organizationId === saved.organizationExternalId)
+    case "production": {
+      const productsByDocument = new Map<string, typeof snapshot.productionProducts>();
+      for (const product of snapshot.productionProducts ?? []) {
+        const products = productsByDocument.get(product.documentId) ?? [];
+        products.push(product);
+        productsByDocument.set(product.documentId, products);
+      }
+      items = (snapshot.productionReports ?? []).filter((row) => row.organizationId === saved.organizationExternalId
+        && (date === undefined || row.documentAt.slice(0, 10) === date))
         .map((row) => ({ externalId: row.externalId, number: row.number, documentAt: row.documentAt,
           posted: row.posted, deleted: row.deleted, warehouseId: row.warehouseId,
           warehouse: warehouseNames.get(row.warehouseId) ?? row.warehouseId,
-          products: (snapshot.productionProducts ?? []).filter((product) => product.documentId === row.externalId)
+          products: (productsByDocument.get(row.externalId) ?? [])
             .map((product) => ({ lineNumber: product.lineNumber, materialId: product.materialId,
               material: materialName(product.materialId), quantity: product.quantity,
               plannedUnitCost: product.plannedUnitCost, plannedAmount: product.plannedAmount,
               specificationId: product.specificationId,
               specification: specificationNames.get(product.specificationId) ?? product.specificationId })) }));
       break;
+    }
   }
   await prisma.auditLog.create({ data: { workspaceId, actorId, action: "ONE_C_SOURCE_SECTION_READ",
     entityType: AuditEntityType.ONE_C_SYNC, entityId: saved.id, metadata: { section, rowCount: items.length } } });

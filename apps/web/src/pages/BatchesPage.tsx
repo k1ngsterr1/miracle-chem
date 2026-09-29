@@ -20,9 +20,9 @@ import {
 import { apiFetch, apiMutation } from "../api.js";
 import { CustomSelect } from "../components/CustomSelect.js";
 import { DateTimePicker } from "../components/DateTimePicker.js";
-import { OneCProductionPanel } from "../components/OneCOperationalRecords.js";
 import { useApi } from "../hooks/use-api.js";
 import { useDateFilter } from "../hooks/use-date-filter.js";
+import { oneCDocumentStatus, sourceDecimal, useOneCSource, type OneCProductionReport } from "../hooks/use-one-c-source.js";
 import type { Batch, MetaData, Recipe } from "../types.js";
 import { formatDate, formatMoney, formatNumber, unitLabel } from "../lib/format.js";
 import {
@@ -46,23 +46,32 @@ const FILTERS = [
 type BatchFilter = (typeof FILTERS)[number]["id"];
 
 export function BatchesPage({ meta, actorRole }: { meta: MetaData | null; actorRole: string | undefined }) {
-  const { allDates } = useDateFilter();
+  const { selectedDate, allDates } = useDateFilter();
   const batches = useApi<{ items: Batch[] }>("/batches");
+  const production = useOneCSource<OneCProductionReport>("production", "documentAt",
+    ["ADMIN", "DIRECTOR", "TECHNOLOGIST"].includes(actorRole ?? ""));
   const recipes = useApi<{ items: Recipe[] }>("/recipes");
   const [filter, setFilter] = useState<BatchFilter>("ALL");
   const [query, setQuery] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [template, setTemplate] = useState<Batch | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedReport, setSelectedReport] = useState<OneCProductionReport | null>(null);
+  const [visibleCount, setVisibleCount] = useState(50);
   const canManageBatches = ["ADMIN", "DIRECTOR", "TECHNOLOGIST", "OPERATOR"].includes(actorRole ?? "");
-  const filtered = useMemo(() => {
+  const rows = useMemo(() => {
     const normalized = query.toLocaleLowerCase("ru");
-    return (batches.data?.items ?? []).filter((batch) => {
-      const statusMatches = matchesBatchFilter(batch.status, filter);
-      return statusMatches && [batch.number, batch.concreteGrade, batch.recipeVersion.recipe.name]
-        .some((value) => value.toLocaleLowerCase("ru").includes(normalized));
-    });
-  }, [batches.data, filter, query]);
+    const crm = (batches.data?.items ?? []).filter((batch) => matchesBatchFilter(batch.status, filter) &&
+      [batch.number, batch.concreteGrade, batch.recipeVersion.recipe.name]
+        .some((value) => value.toLocaleLowerCase("ru").includes(normalized)))
+      .map((value) => ({ kind: "batch" as const, value, date: value.scheduledAt }));
+    const imported = production.items.filter((report) => (filter === "ALL" || filter === "COMPLETED" && report.posted && !report.deleted) &&
+      [report.number, report.warehouse, ...report.products.flatMap((part) => [part.material, part.specification])]
+        .some((value) => value.toLocaleLowerCase("ru").includes(normalized)))
+      .map((value) => ({ kind: "report" as const, value, date: value.documentAt }));
+    return [...crm, ...imported].sort((a, b) => b.date.localeCompare(a.date));
+  }, [batches.data, filter, production.items, query]);
+  useEffect(() => setVisibleCount(50), [allDates, filter, query, selectedDate]);
 
   if (batches.loading) return <LoadingState />;
   if (batches.error !== null) return <ErrorState message={batches.error} retry={batches.reload} />;
@@ -76,9 +85,9 @@ export function BatchesPage({ meta, actorRole }: { meta: MetaData | null; actorR
       />
 
       <div className="summary-strip">
-        <Summary value={String((batches.data?.items ?? []).filter((item) => item.status === "IN_PROGRESS").length)} label="в производстве" icon={<Factory />} />
-        <Summary value={formatNumber((batches.data?.items ?? []).filter((item) => item.status === "COMPLETED").reduce((sum, item) => sum + Number(item.actualOutput ?? 0), 0))} label="м³ выпущено" icon={<FlaskConical />} />
-        <Summary value={formatMoney((batches.data?.items ?? []).reduce((sum, item) => sum + Number(item.totalCost), 0))} label="стоимость выпуска" icon={<CircleGauge />} />
+        <Summary value={String(allBatches.length + production.items.length)} label="записей в журнале" icon={<Factory />} />
+        <Summary value={formatNumber((batches.data?.items ?? []).filter((item) => item.status === "COMPLETED").reduce((sum, item) => sum + Number(item.actualOutput ?? 0), 0))} label="м³ по замесам" icon={<FlaskConical />} />
+        <Summary value={formatMoney((batches.data?.items ?? []).reduce((sum, item) => sum + Number(item.totalCost), 0))} label="стоимость по замесам" icon={<CircleGauge />} />
         <Summary value={String((batches.data?.items ?? []).filter((item) => item.status === "PLANNED").length)} label="в очереди" icon={<ShieldCheck />} />
       </div>
 
@@ -86,7 +95,9 @@ export function BatchesPage({ meta, actorRole }: { meta: MetaData | null; actorR
         <div className="table-toolbar batch-filter-toolbar">
           <div className="batch-filter-tabs" aria-label="Фильтр замесов по статусу">
             {FILTERS.map(({ id, label, tone }) => {
-              const count = allBatches.filter((batch) => matchesBatchFilter(batch.status, id)).length;
+              const count = allBatches.filter((batch) => matchesBatchFilter(batch.status, id)).length
+                + (id === "ALL" ? production.items.length : id === "COMPLETED"
+                  ? production.items.filter((report) => report.posted && !report.deleted).length : 0);
               return <button type="button" key={id} className={`${tone}${filter === id ? " active" : ""}`} aria-pressed={filter === id} onClick={() => setFilter(id)}><i aria-hidden="true" /><span>{label}</span><em>{count}</em></button>;
             })}
           </div>
@@ -98,9 +109,23 @@ export function BatchesPage({ meta, actorRole }: { meta: MetaData | null; actorR
         </div>
         <div className="data-table-wrap">
           <table className="data-table batches-table">
-            <thead><tr><th>Замес</th><th>Время</th><th>Рецептура</th><th>Линия / чан</th><th>Объём</th><th>Выполнение</th><th>Статус</th><th /></tr></thead>
+            <thead><tr><th>Замес / отчёт</th><th>Время</th><th>Рецептура / спецификация</th><th>Линия / склад</th><th>Объём</th><th>Выполнение</th><th>Статус</th><th /></tr></thead>
             <tbody>
-              {filtered.map((batch) => {
+              {rows.slice(0, visibleCount).map((row) => {
+                if (row.kind === "report") {
+                  const report = row.value;
+                  return <tr key={`report:${report.externalId}`} onClick={() => setSelectedReport(report)}>
+                    <td><div className="primary-cell"><span className="batch-code-icon"><Factory size={16} /></span><span><strong>{report.number}</strong><small>Отчёт за смену</small></span></div></td>
+                    <td><strong>{new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit" }).format(new Date(report.documentAt))}</strong><small>{formatDate(report.documentAt)}</small></td>
+                    <td><strong>{report.products[0]?.specification || "—"}</strong><small>{report.products.length} поз.</small></td>
+                    <td><strong>{report.warehouse || "—"}</strong><small>По данным выпуска</small></td>
+                    <td><strong>—</strong><small>единица не указана</small></td>
+                    <td>—</td>
+                    <td><span className="soft-tag">{oneCDocumentStatus(report.posted, report.deleted)}</span></td>
+                    <td><button type="button" className="row-action" aria-label={`Открыть отчёт ${report.number}`} onClick={(event) => { event.stopPropagation(); setSelectedReport(report); }}><MoreHorizontal size={18} /></button></td>
+                  </tr>;
+                }
+                const batch = row.value;
                 const progress = batch.status === "PLANNED" ? 5 : batch.status === "IN_PROGRESS" ? 62 : 100;
                 return (
                   <tr key={batch.id} onClick={() => setSelectedId(batch.id)}>
@@ -115,15 +140,15 @@ export function BatchesPage({ meta, actorRole }: { meta: MetaData | null; actorR
                   </tr>
                 );
               })}
-              {filtered.length === 0 ? <tr className="table-empty-row"><td colSpan={8}>По выбранным фильтрам замесов нет.</td></tr> : null}
+              {rows.length === 0 ? <tr className="table-empty-row"><td colSpan={8}>{production.loading ? "Загружаем записи…" : "По выбранным фильтрам записей нет."}</td></tr> : null}
             </tbody>
           </table>
         </div>
-        <div className="table-footer"><span>Показано {filtered.length} из {batches.data?.items.length ?? 0}</span>
+        <div className="table-footer"><span>Показано {Math.min(rows.length, visibleCount)} из {allBatches.length + production.items.length}</span>
+          {rows.length > visibleCount ? <button type="button" className="button ghost small" onClick={() => setVisibleCount((count) => count + 50)}>Показать ещё</button> : null}
           {allDates && allBatches.length >= 500 ? <span className="history-limit-note">Лимит списка — 500 записей. Для поиска более ранних выберите дату.</span> : null}</div>
       </Panel>
-
-      {["ADMIN", "DIRECTOR", "TECHNOLOGIST"].includes(actorRole ?? "") ? <OneCProductionPanel /> : null}
+      {production.error ? <p className="inline-load-error" role="alert">Не удалось загрузить часть записей. <button type="button" onClick={() => void production.reload()}>Повторить</button></p> : null}
 
       {createOpen ? (
         <CreateBatchModal
@@ -144,6 +169,12 @@ export function BatchesPage({ meta, actorRole }: { meta: MetaData | null; actorR
           onDuplicate={(batch) => { setSelectedId(null); setTemplate(batch); setCreateOpen(true); }}
         />
       )}
+      {selectedReport ? <Modal title={`Отчёт за смену ${selectedReport.number}`} onClose={() => setSelectedReport(null)}>
+        <div className="imported-record-detail"><p>{formatDate(selectedReport.documentAt, true)} · {selectedReport.warehouse} · {oneCDocumentStatus(selectedReport.posted, selectedReport.deleted)}</p>
+          <h3>Продукция</h3>{selectedReport.products.length === 0 ? <p>Позиции не указаны</p> : selectedReport.products.map((part) =>
+            <div key={part.lineNumber}><strong>{part.material}</strong><span>{sourceDecimal(part.quantity)}</span><small>{part.specification}</small></div>)}
+          <p className="imported-record-note">Запись доступна только для просмотра.</p></div>
+      </Modal> : null}
     </>
   );
 }

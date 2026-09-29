@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   BarChart3,
@@ -23,8 +23,8 @@ import {
 import { apiMutation } from "../api.js";
 import { CustomSelect } from "../components/CustomSelect.js";
 import { DateTimePicker } from "../components/DateTimePicker.js";
-import { OneCReceiptsPanel } from "../components/OneCOperationalRecords.js";
 import { useApi } from "../hooks/use-api.js";
+import { oneCDocumentStatus, sourceDecimal, sumSourceDecimals, useOneCSource, type OneCReceipt } from "../hooks/use-one-c-source.js";
 import type {
   Material,
   MaterialListResponse,
@@ -114,6 +114,7 @@ interface AdjustmentDocument {
 export function MaterialsPage({ actorRole }: { actorRole: string | undefined }) {
   const materials = useApi<MaterialListResponse>("/materials");
   const purchaseBatches = useApi<{ items: PurchaseBatch[]; suppliers: SupplierSummary[] }>("/materials/purchase-batches");
+  const receipts = useOneCSource<OneCReceipt>("receipts", "receivedAt", ["ADMIN", "DIRECTOR"].includes(actorRole ?? ""));
   const canManageMaterials = ["ADMIN", "DIRECTOR", "TECHNOLOGIST", "STOREKEEPER"].includes(actorRole ?? "");
   const canMoveMaterials = ["ADMIN", "DIRECTOR", "TECHNOLOGIST", "OPERATOR", "STOREKEEPER"].includes(actorRole ?? "");
   const canViewRecipes = ["ADMIN", "DIRECTOR", "TECHNOLOGIST"].includes(actorRole ?? "");
@@ -125,6 +126,9 @@ export function MaterialsPage({ actorRole }: { actorRole: string | undefined }) 
   const [createOpen, setCreateOpen] = useState(false);
   const [purchaseOpen, setPurchaseOpen] = useState(false);
   const [selectedPurchase, setSelectedPurchase] = useState<PurchaseBatch | null>(null);
+  const [selectedReceipt, setSelectedReceipt] = useState<OneCReceipt[] | null>(null);
+  const [purchaseQuery, setPurchaseQuery] = useState("");
+  const [visiblePurchases, setVisiblePurchases] = useState(30);
   const [receiptMaterial, setReceiptMaterial] = useState<Material | null>(null);
   const [consumptionMaterial, setConsumptionMaterial] = useState<Material | null>(null);
   const [reviewAction, setReviewAction] = useState<OneCSyncReview | null>(null);
@@ -138,6 +142,26 @@ export function MaterialsPage({ actorRole }: { actorRole: string | undefined }) 
     }),
     [criticalOnly, materials.data, query],
   );
+  const purchaseRows = useMemo(() => {
+    const imported = new Map<string, OneCReceipt[]>();
+    for (const receipt of receipts.items) {
+      const group = imported.get(receipt.documentId) ?? [];
+      group.push(receipt);
+      imported.set(receipt.documentId, group);
+    }
+    return [
+      ...(purchaseBatches.data?.items ?? []).map((value) => ({ kind: "purchase" as const, value, date: value.receivedAt })),
+      ...[...imported.entries()].map(([id, value]) => ({ kind: "receipt" as const, id, value, date: value[0]!.receivedAt })),
+    ].filter((row) => {
+      const needle = purchaseQuery.trim().toLocaleLowerCase("ru");
+      if (!needle) return true;
+      const fields = row.kind === "purchase"
+        ? [row.value.number, ...row.value.items.flatMap((item) => [item.material.name, item.supplier?.name])]
+        : [row.value[0]?.number, row.value[0]?.supplier, ...row.value.map((item) => item.material)];
+      return fields.some((field) => field?.toLocaleLowerCase("ru").includes(needle));
+    }).sort((a, b) => b.date.localeCompare(a.date));
+  }, [purchaseBatches.data, purchaseQuery, receipts.items]);
+  useEffect(() => setVisiblePurchases(30), [purchaseQuery]);
 
   if (materials.loading || purchaseBatches.loading || recipes.loading) return <LoadingState />;
   if (materials.error !== null) return <ErrorState message={materials.error} retry={materials.reload} />;
@@ -145,7 +169,6 @@ export function MaterialsPage({ actorRole }: { actorRole: string | undefined }) 
   if (recipes.error !== null) return <ErrorState message={recipes.error} retry={recipes.reload} />;
   const all = materials.data?.items ?? [];
   const gluconate = materials.data?.summary?.sodiumGluconate;
-  const purchases = purchaseBatches.data?.items ?? [];
   const recipeItems = recipes.data?.items ?? [];
   const pendingReviews = (oneCSyncReviews.data?.items ?? []).filter((review) => review.status === "PENDING");
   const canManageOneC = canManageMaterials;
@@ -214,11 +237,11 @@ export function MaterialsPage({ actorRole }: { actorRole: string | undefined }) 
       </div>
 
       {oneCSyncReviews.error !== null ? (
-        <Panel className="one-c-sync-panel"><ErrorState message={`Не удалось проверить записи 1С: ${oneCSyncReviews.error}`} retry={oneCSyncReviews.reload} /></Panel>
+        <Panel className="one-c-sync-panel"><ErrorState message={`Не удалось проверить записи: ${oneCSyncReviews.error}`} retry={oneCSyncReviews.reload} /></Panel>
       ) : !oneCSyncReviews.loading && pendingReviews.length > 0 ? (
         <Panel className="one-c-sync-panel">
           <div className="table-toolbar">
-            <div><h2><AlertTriangle size={17} /> Записи 1С на проверке</h2></div>
+            <div><h2><AlertTriangle size={17} /> Записи на проверке</h2></div>
             <span className="soft-tag warning">{pendingReviews.length} на проверке</span>
           </div>
           <div className="one-c-review-list">
@@ -236,28 +259,37 @@ export function MaterialsPage({ actorRole }: { actorRole: string | undefined }) 
 
       <Panel className="purchase-batch-panel">
         <div className="table-toolbar">
-          <div><h2>Закупочные партии</h2></div>
-          <span className="soft-tag">{formatPurchaseCount(purchases.length)}</span>
+          <div><h2>Поступления и закупки</h2></div>
+          <div className="toolbar-actions"><label className="inline-search"><Search size={16} /><input aria-label="Поиск по поступлениям" value={purchaseQuery} onChange={(event) => setPurchaseQuery(event.target.value)} placeholder="Номер, поставщик или материал" /></label><span className="soft-tag">{purchaseRows.length} записей</span></div>
         </div>
-        {purchases.length === 0 ? (
-          <EmptyState title="Закупочных партий пока нет" text="Создайте партию и добавьте в неё все поступившие реагенты." />
+        {purchaseRows.length === 0 ? (
+          <EmptyState title={receipts.loading ? "Загружаем записи…" : "Поступлений пока нет"} text="Новые закупки и поступления появятся здесь." />
         ) : (
-          <div className="purchase-batch-grid">
-            {purchases.slice(0, 6).map((batch) => (
-              <button type="button" className="purchase-batch-card" key={batch.id} onClick={() => setSelectedPurchase(batch)}>
-                <span className="purchase-batch-icon"><PackageOpen size={19} /></span>
-                <span className="purchase-batch-main"><small>Партия</small><strong>№{batch.number}</strong><em>{formatDate(batch.receivedAt, true)} · {batch.items.length} позиций</em></span>
-                <span><small>Закупка</small><strong>{formatMoney(batch.totalCost, batch.currency)}</strong></span>
-                <span><small>Можно произвести</small><strong>{batch.forecast === null ? "—" : `${formatNumber(batch.forecast.maximumOutput)} м³`}</strong></span>
-                <span><small>Прогноз прибыли</small><strong className={Number(batch.forecast?.projectedProfit ?? 0) < 0 ? "price-up" : "profit-value"}>{batch.forecast?.projectedProfit === null || batch.forecast === null ? "—" : formatMoney(batch.forecast.projectedProfit, batch.currency)}</strong></span>
-                <ChevronRight size={18} />
-              </button>
-            ))}
-          </div>
+          <div className="data-table-wrap"><table className="data-table purchase-journal-table">
+            <thead><tr><th>Документ</th><th>Дата</th><th>Поставщик</th><th>Позиции</th><th>Сумма</th><th>Статус</th><th /></tr></thead>
+            <tbody>{purchaseRows.slice(0, visiblePurchases).map((row) => row.kind === "purchase" ?
+              <tr key={`purchase:${row.value.id}`} onClick={() => setSelectedPurchase(row.value)}>
+                <td><strong>№{row.value.number}</strong><small>Закупочная партия</small></td>
+                <td>{formatDate(row.value.receivedAt, true)}</td>
+                <td>{[...new Set(row.value.items.map((item) => item.supplier?.name).filter(Boolean))].join(", ") || "—"}</td>
+                <td>{row.value.items.length} поз.</td>
+                <td><strong>{formatMoney(row.value.totalCost, row.value.currency)}</strong></td>
+                <td><span className="soft-tag">На складе</span></td>
+                <td><ChevronRight size={16} /></td>
+              </tr> : <tr key={`receipt:${row.id}`} onClick={() => setSelectedReceipt(row.value)}>
+                <td><strong>№{row.value[0]?.number}</strong><small>Поступление</small></td>
+                <td>{formatDate(row.date, true)}</td>
+                <td>{row.value[0]?.supplier || "—"}</td>
+                <td>{row.value.length} поз.</td>
+                <td><strong>{sourceDecimal(sumSourceDecimals(row.value.map((item) => item.amount)))} {row.value[0]?.currencyName}</strong></td>
+                <td><span className="soft-tag">{oneCDocumentStatus(row.value[0]?.posted ?? false, row.value[0]?.deleted ?? false)}</span></td>
+                <td><ChevronRight size={16} /></td>
+              </tr>)}</tbody>
+          </table></div>
         )}
+        {purchaseRows.length > visiblePurchases ? <div className="journal-more"><button type="button" className="button ghost small" onClick={() => setVisiblePurchases((count) => count + 30)}>Показать ещё</button></div> : null}
       </Panel>
-
-      {["ADMIN", "DIRECTOR"].includes(actorRole ?? "") ? <OneCReceiptsPanel /> : null}
+      {receipts.error ? <p className="inline-load-error" role="alert">Не удалось загрузить часть поступлений. <button type="button" onClick={() => void receipts.reload()}>Повторить</button></p> : null}
 
       <Panel className="table-panel">
         <div className="table-toolbar">
@@ -311,6 +343,11 @@ export function MaterialsPage({ actorRole }: { actorRole: string | undefined }) 
       {createOpen ? <CreateMaterialModal onClose={() => setCreateOpen(false)} onCreated={async () => { setCreateOpen(false); await materials.reload(); }} /> : null}
       {purchaseOpen ? <PurchaseBatchModal materials={all} recipes={recipeItems} suppliers={purchaseBatches.data?.suppliers ?? []} onClose={() => setPurchaseOpen(false)} onCreated={async () => { setPurchaseOpen(false); await Promise.all([materials.reload(), purchaseBatches.reload()]); }} /> : null}
       {selectedPurchase === null ? null : <PurchaseBatchDetail batch={selectedPurchase} onClose={() => setSelectedPurchase(null)} />}
+      {selectedReceipt ? <Modal title={`Поступление №${selectedReceipt[0]?.number ?? ""}`} onClose={() => setSelectedReceipt(null)}>
+        <div className="imported-record-detail"><p>{formatDate(selectedReceipt[0]?.receivedAt ?? "", true)} · {selectedReceipt[0]?.supplier} · {selectedReceipt[0]?.warehouse}</p>
+          <h3>Материалы</h3>{selectedReceipt.map((item) => <div key={`${item.documentId}:${item.lineNumber}`}><strong>{item.material}</strong><span>{sourceDecimal(item.quantity)} {item.unitName}</span><small>{sourceDecimal(item.amount)} {item.currencyName} · {sourceDecimal(item.unitPrice)} {item.currencyName} за {item.unitName}</small></div>)}
+          <p className="imported-record-note">Запись доступна только для просмотра.</p></div>
+      </Modal> : null}
       {receiptMaterial === null ? null : <ReceiptModal materials={all} initial={receiptMaterial} onClose={() => setReceiptMaterial(null)} onCreated={async () => { setReceiptMaterial(null); await materials.reload(); }} />}
       {consumptionMaterial === null ? null : <ConsumptionModal materials={all} initial={consumptionMaterial} onClose={() => setConsumptionMaterial(null)} onCreated={async () => { setConsumptionMaterial(null); await materials.reload(); }} />}
       {reviewAction === null ? null : <RejectOneCReviewModal review={reviewAction} busy={reviewBusy} onClose={() => setReviewAction(null)} onReject={rejectReview} />}
@@ -322,7 +359,7 @@ export function MaterialsPage({ actorRole }: { actorRole: string | undefined }) 
 function RejectOneCReviewModal({ review, busy, onClose, onReject }: { review: OneCSyncReview; busy: boolean; onClose: () => void; onReject: (note: string) => Promise<void> }) {
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
-  return <Modal title="Отклонить запись из 1С" onClose={onClose}><form onSubmit={(event) => { event.preventDefault(); if (note.trim().length < 3) { setError("Укажите причину не короче трёх символов"); return; } void onReject(note.trim()).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Не удалось отклонить запись")); }}><div className="form-grid"><label className="span-2"><span>Причина <b>*</b></span><textarea required minLength={3} value={note} placeholder={`Почему «${oneCPayloadDetails(review.payload).name ?? review.externalId}» не нужно добавлять на склад`} onChange={(event) => setNote(event.target.value)} /></label></div>{error === null ? null : <p className="form-error">{error}</p>}<div className="modal-actions"><button type="button" className="button ghost" onClick={onClose}>Назад</button><button className="button primary" disabled={busy}>{busy ? "Сохраняем…" : "Отклонить запись"}</button></div></form></Modal>;
+  return <Modal title="Отклонить запись" onClose={onClose}><form onSubmit={(event) => { event.preventDefault(); if (note.trim().length < 3) { setError("Укажите причину не короче трёх символов"); return; } void onReject(note.trim()).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Не удалось отклонить запись")); }}><div className="form-grid"><label className="span-2"><span>Причина <b>*</b></span><textarea required minLength={3} value={note} placeholder={`Почему «${oneCPayloadDetails(review.payload).name ?? review.externalId}» не нужно добавлять на склад`} onChange={(event) => setNote(event.target.value)} /></label></div>{error === null ? null : <p className="form-error">{error}</p>}<div className="modal-actions"><button type="button" className="button ghost" onClick={onClose}>Назад</button><button className="button primary" disabled={busy}>{busy ? "Сохраняем…" : "Отклонить запись"}</button></div></form></Modal>;
 }
 
 function AdjustmentsModal({ materials, canApply, onClose }: { materials: Material[]; canApply: boolean; onClose: () => void }) {
@@ -403,10 +440,6 @@ function oneCPayloadDetails(payload: unknown): { name?: string; code?: string } 
     ...(typeof value.name === "string" ? { name: value.name } : {}),
     ...(typeof value.code === "string" ? { code: value.code } : {}),
   };
-}
-
-function formatPurchaseCount(count: number): string {
-  return formatCount(count, "партия", "партии", "партий");
 }
 
 function formatCount(count: number, one: string, few: string, many: string): string {

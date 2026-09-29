@@ -5,7 +5,6 @@ import {
   Blocks,
   Boxes,
   ChevronRight,
-  Database,
   Factory,
   FlaskConical,
   LayoutDashboard,
@@ -93,8 +92,6 @@ const NAVIGATION: NavigationItem[] = [
   { id: "clients" as const, label: "Клиенты", icon: UsersRound, keywords: "заказчик покупатель бетон состав дозировка добавка", roles: ["ADMIN", "DIRECTOR", "ACCOUNTANT", "MANAGER", "TECHNOLOGIST", "VIEWER"] },
   { id: "reports" as const, label: "Отчёты", icon: BarChart3, keywords: "аналитика экспорт csv xlsx", roles: ["ADMIN", "DIRECTOR", "ACCOUNTANT", "TECHNOLOGIST", "QUALITY_MANAGER", "VIEWER"] },
   { id: "settings" as const, label: "Команда и реквизиты", icon: Settings2, keywords: "сотрудники роли доступ реквизиты компания банк", roles: ["ADMIN", "DIRECTOR"] },
-  { id: "one-c-source" as const, label: "Данные 1С", icon: Database, keywords: "1с склады поступления договоры спецификации выпуск", roles: ["ADMIN", "DIRECTOR", "ACCOUNTANT", "TECHNOLOGIST", "OPERATOR", "STOREKEEPER"] },
-  { id: "one-c-archive" as const, label: "Архив 1С", icon: Database, keywords: "1с исходные данные база справочники документы регистры", roles: ["ADMIN"] },
 ];
 
 export function App() {
@@ -136,7 +133,9 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
     () => NAVIGATION.filter((item) => item.roles === undefined || (actorRole !== undefined && item.roles.includes(actorRole))),
     [actorRole],
   );
-  const currentView = visibleNavigation.some((item) => item.id === view) ? view : "dashboard";
+  const technicalViewAllowed = view === "one-c-archive" ? actorRole === "ADMIN"
+    : view === "one-c-source" && ["ADMIN", "DIRECTOR", "ACCOUNTANT", "TECHNOLOGIST", "OPERATOR", "STOREKEEPER"].includes(actorRole ?? "");
+  const currentView = visibleNavigation.some((item) => item.id === view) || technicalViewAllowed ? view : "dashboard";
 
   useEffect(() => {
     const onHashChange = () => setView(readHash());
@@ -334,7 +333,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
 
 function readHash(): ViewId {
   const hash = window.location.hash.replace(/^#/u, "").split("/")[0] as ViewId;
-  return NAVIGATION.some((item) => item.id === hash) ? hash : "dashboard";
+  return NAVIGATION.some((item) => item.id === hash) || hash === "one-c-source" || hash === "one-c-archive" ? hash : "dashboard";
 }
 
 function initials(name: string): string {

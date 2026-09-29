@@ -88,7 +88,7 @@ export class TransferController {
   @Get("one-c-sales")
   async oneCSales(@Req() request: ApiRequest, @Query("date") date?: string) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
-    requirePermission(actor.role, "ACCOUNTING_VIEW");
+    requirePermission(actor.role, "ONE_C_SOURCE_FINANCE_VIEW");
     return listOneCSales(workspaceId, date);
   }
 

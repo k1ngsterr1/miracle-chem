@@ -58,7 +58,7 @@ function permissionForRequest(method: string, path: string): Permission | null {
   if (normalizedPath.startsWith("/product-lots")) return isRead ? "PRODUCT_LOTS_VIEW" : "PRODUCT_LOTS_MANAGE";
   if (normalizedPath === "/transfers/one-c-sales") {
     if (!isRead) throw new ApiError(403, "ACCESS_POLICY_MISSING", "Реализации 1С доступны только для чтения");
-    return "ACCOUNTING_VIEW";
+    return "ONE_C_SOURCE_FINANCE_VIEW";
   }
   if (normalizedPath.startsWith("/transfers")) {
     if (isRead) return "TRANSFERS_VIEW";
@@ -69,7 +69,7 @@ function permissionForRequest(method: string, path: string): Permission | null {
   if (normalizedPath.startsWith("/customers")) return isRead ? "CUSTOMERS_VIEW" : "CUSTOMERS_MANAGE";
   if (normalizedPath.startsWith("/attachments")) return isRead ? "ATTACHMENTS_VIEW" : "ATTACHMENTS_MANAGE";
   if (normalizedPath.startsWith("/adjustments")) return isRead ? "ADJUSTMENTS_VIEW" : "ADJUSTMENTS_MANAGE";
-  if (normalizedPath === "/integrations/1c/finance") return "ACCOUNTING_VIEW";
+  if (normalizedPath === "/integrations/1c/finance") return "ONE_C_SOURCE_FINANCE_VIEW";
   if (normalizedPath.startsWith("/integrations/1c")) return isRead ? "MATERIALS_VIEW" : "MATERIALS_MANAGE";
   if (normalizedPath.startsWith("/accounting")) return accountingPermission(method, normalizedPath);
   if (normalizedPath.startsWith("/admin/users")) return "USER_MANAGEMENT";

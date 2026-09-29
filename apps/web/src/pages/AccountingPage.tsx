@@ -21,6 +21,7 @@ import { CustomSelect } from "../components/CustomSelect.js";
 import { DateTimePicker } from "../components/DateTimePicker.js";
 import { useApi } from "../hooks/use-api.js";
 import { useDateFilter } from "../hooks/use-date-filter.js";
+import { oneCDocumentStatus, sourceMoney, sumSourceDecimals } from "../hooks/use-one-c-source.js";
 import { useMobileLayout } from "../hooks/use-mobile-layout.js";
 import { formatDate, formatMoney, formatNumber } from "../lib/format.js";
 import type {
@@ -76,8 +77,43 @@ interface OneCFinance {
   receivedPayments?: string;
   paidPayments?: string;
   receivables?: Array<{ counterparty: string; amount: string; currency: string }>;
-  incomingPayments?: Array<{ externalId: string; number: string; documentAt: string; counterparty: string; amount: string; currency: string; posted: boolean; deleted: boolean }>;
-  outgoingPayments?: Array<{ externalId: string; number: string; documentAt: string; counterparty: string; amount: string; currency: string; posted: boolean; deleted: boolean }>;
+  incomingPayments?: Array<FinancePayment>;
+  outgoingPayments?: Array<FinancePayment>;
+}
+
+interface FinancePayment {
+  externalId: string;
+  number: string;
+  documentAt: string;
+  counterparty: string;
+  amount: string;
+  currency: string;
+  purpose?: string;
+  posted: boolean;
+  deleted: boolean;
+}
+
+const almatyDay = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Asia/Almaty", year: "numeric", month: "2-digit", day: "2-digit",
+});
+
+function paymentDate(value: string): string {
+  const parts = almatyDay.formatToParts(new Date(value));
+  const part = (name: string) => parts.find((item) => item.type === name)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+function paymentTotal(rows: Array<FinancePayment & { direction: "Поступление" | "Оплата" }>, direction: "Поступление" | "Оплата"): string {
+  const currencies = new Map<string, string[]>();
+  for (const row of rows) {
+    if (row.direction !== direction || !row.posted || row.deleted) continue;
+    const currency = ["тенге", "тг", "₸", "kzt"].includes(row.currency.toLocaleLowerCase("ru")) ? "KZT" : row.currency;
+    const amounts = currencies.get(currency) ?? [];
+    amounts.push(row.amount);
+    currencies.set(currency, amounts);
+  }
+  return currencies.size === 0 ? sourceMoney("0", "KZT") : [...currencies]
+    .map(([currency, amounts]) => sourceMoney(sumSourceDecimals(amounts), currency)).join(" · ");
 }
 
 export function AccountingPage({ actorRole }: { actorRole: string | undefined }) {
@@ -91,11 +127,16 @@ export function AccountingPage({ actorRole }: { actorRole: string | undefined })
   const [createOpen, setCreateOpen] = useState(false);
   const [createType, setCreateType] = useState<AccountingDocumentType | undefined>();
   const [template, setTemplate] = useState<AccountingDocument | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(() => window.location.hash.startsWith("#accounting/")
+    ? window.location.hash.slice("#accounting/".length) || null : null);
+  const [selectedPayment, setSelectedPayment] = useState<(FinancePayment & { direction: "Поступление" | "Оплата" }) | null>(null);
+  const [showDebtors, setShowDebtors] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(50);
   useEffect(() => {
     setFrom(selectedDate);
     setTo(selectedDate);
   }, [selectedDate, allDates]);
+  useEffect(() => setVisibleCount(50), [allDates, from, query, status, to, type]);
   const params = useMemo(() => {
     const search = new URLSearchParams(allDates ? {} : { from: dayStartIso(from), to: dayEndIso(to) });
     if (type !== "ALL") search.set("type", type);
@@ -104,13 +145,32 @@ export function AccountingPage({ actorRole }: { actorRole: string | undefined })
     return search.toString();
   }, [allDates, from, to, query, status, type]);
   const documents = useApi<AccountingResponse>(`/accounting?${params}`);
-  const oneCFinance = useApi<OneCFinance>("/integrations/1c/finance");
+  const oneCFinance = useApi<OneCFinance>(["ADMIN", "DIRECTOR", "ACCOUNTANT"].includes(actorRole ?? "")
+    ? "/integrations/1c/finance" : null);
+  const datedPayments = useMemo(() => [
+    ...(oneCFinance.data?.incomingPayments ?? []).map((value) => ({ ...value, direction: "Поступление" as const })),
+    ...(oneCFinance.data?.outgoingPayments ?? []).map((value) => ({ ...value, direction: "Оплата" as const })),
+  ].filter((payment) => allDates || paymentDate(payment.documentAt) >= from && paymentDate(payment.documentAt) <= to),
+  [allDates, from, oneCFinance.data, to]);
+  const payments = useMemo(() => {
+    if (!oneCFinance.data?.available || type !== "ALL" || status !== "ALL") return [];
+    const normalized = query.trim().toLocaleLowerCase("ru");
+    return datedPayments.filter((payment) => [payment.number, payment.counterparty, payment.purpose ?? "", payment.direction]
+        .some((value) => value.toLocaleLowerCase("ru").includes(normalized)));
+  }, [datedPayments, oneCFinance.data, query, status, type]);
+  const paymentTotals = useMemo(() => ({
+    incoming: paymentTotal(datedPayments, "Поступление"),
+    outgoing: paymentTotal(datedPayments, "Оплата"),
+  }), [datedPayments]);
+  const journal = useMemo(() => [
+    ...(documents.data?.items ?? []).map((value) => ({ kind: "document" as const, value, date: value.documentAt })),
+    ...payments.map((value) => ({ kind: "payment" as const, value, date: value.documentAt })),
+  ].sort((a, b) => b.date.localeCompare(a.date)), [documents.data, payments]);
 
   if (documents.loading) return <LoadingState />;
   if (documents.error !== null) return <ErrorState message={documents.error} retry={documents.reload} />;
   const data = documents.data ?? { items: [], summary: { totals: [], byStatus: [], byType: [] } };
   const total = data.summary.totals.find((item) => item.currency === "KZT") ?? data.summary.totals[0];
-  const statusCount = (value: AccountingDocumentStatus) => data.summary.byStatus.find((item) => item.status === value)?.count ?? 0;
 
   return (
     <>
@@ -121,29 +181,11 @@ export function AccountingPage({ actorRole }: { actorRole: string | undefined })
 
       <div className="accounting-summary">
         <Panel><span><BadgeDollarSign size={19} /></span><div><strong>{total === undefined ? formatMoney(0) : formatMoney(total.amount, total.currency)}</strong><small>сумма документов</small></div></Panel>
-        <Panel><span className="amber"><FileText size={19} /></span><div><strong>{statusCount("DRAFT")}</strong><small>черновиков</small></div></Panel>
-        <Panel><span className="blue"><Send size={19} /></span><div><strong>{statusCount("ISSUED")}</strong><small>выставлено</small></div></Panel>
-        <Panel><span className="green"><CheckCircle2 size={19} /></span><div><strong>{statusCount("PAID")}</strong><small>оплачено</small></div></Panel>
+        <Panel><button type="button" className="accounting-kpi-button" onClick={() => setShowDebtors(true)} disabled={!oneCFinance.data?.available}><span className="amber"><FileText size={19} /></span><span><strong>{oneCFinance.data?.available ? sourceMoney(oneCFinance.data.totalReceivables ?? "0", "KZT") : "—"}</strong><small>дебиторка на дату снимка</small></span></button></Panel>
+        <Panel><span className="blue"><Send size={19} /></span><div><strong title={paymentTotals.incoming}>{oneCFinance.data?.available ? paymentTotals.incoming : "—"}</strong><small>поступило платежей</small></div></Panel>
+        <Panel><span className="green"><CheckCircle2 size={19} /></span><div><strong title={paymentTotals.outgoing}>{oneCFinance.data?.available ? paymentTotals.outgoing : "—"}</strong><small>оплачено поставщикам</small></div></Panel>
       </div>
-
-      {oneCFinance.data?.available ? <Panel className="one-c-finance-panel">
-        <div className="table-toolbar"><div><h2>Данные из 1С</h2><p>Срез на {formatDate(oneCFinance.data.snapshotAt ?? "", true)}</p></div></div>
-        <div className="one-c-finance-kpis">
-          <div><small>Дебиторская задолженность</small><strong>{formatMoney(oneCFinance.data.totalReceivables ?? "0", "KZT")}</strong></div>
-          <div><small>Поступившие платежи</small><strong>{formatMoney(oneCFinance.data.receivedPayments ?? "0", "KZT")}</strong></div>
-          <div><small>Исходящие платежи</small><strong>{formatMoney(oneCFinance.data.paidPayments ?? "0", "KZT")}</strong></div>
-          <div><small>Авансы клиентов</small><strong>{formatMoney(oneCFinance.data.totalPrepayments ?? "0", "KZT")}</strong></div>
-        </div>
-        <div className="one-c-finance-columns">
-          <div><h3>Долги клиентов</h3>{(oneCFinance.data.receivables ?? []).length === 0 ? <p>Задолженности нет</p> :
-            oneCFinance.data.receivables?.map((row) => <div className="one-c-finance-row" key={row.counterparty}><span>{row.counterparty}</span><strong>{formatMoney(row.amount, row.currency)}</strong></div>)}</div>
-          <div><h3>Последние платежи</h3>{[...(oneCFinance.data.incomingPayments ?? []).map((row) => ({ ...row, direction: "Поступление" })),
-            ...(oneCFinance.data.outgoingPayments ?? []).map((row) => ({ ...row, direction: "Оплата" }))]
-            .filter((row) => row.posted && !row.deleted).sort((a, b) => b.documentAt.localeCompare(a.documentAt)).slice(0, 8)
-            .map((row) => <div className="one-c-finance-row" key={`${row.direction}:${row.externalId}`}><span><b>{row.direction}</b> · {row.counterparty}<small>{formatDate(row.documentAt)} · №{row.number}</small></span><strong>{formatMoney(row.amount, row.currency)}</strong></div>)}</div>
-        </div>
-      </Panel> : null}
-      {oneCFinance.error !== null ? <Panel className="one-c-finance-panel"><p>Данные 1С сейчас недоступны: {oneCFinance.error}</p></Panel> : null}
+      {oneCFinance.error !== null ? <p className="inline-load-error" role="alert">Не удалось загрузить часть финансовых данных. <button type="button" onClick={() => void oneCFinance.reload()}>Повторить</button></p> : null}
 
       <Panel className="accounting-filter-panel">
         <div className="accounting-filters">
@@ -158,45 +200,69 @@ export function AccountingPage({ actorRole }: { actorRole: string | undefined })
       </Panel>
 
       <Panel className="table-panel">
-        <div className="table-toolbar"><div><h2>Журнал документов</h2></div><span className="expense-count">{data.items.length} документов</span></div>
-        {data.items.length === 0 ? <EmptyState title="Документов за период нет" text="Измените фильтры или создайте первый бухгалтерский документ." /> : (
+        <div className="table-toolbar"><div><h2>Журнал документов и платежей</h2></div><span className="expense-count">{journal.length} записей</span></div>
+        {journal.length === 0 ? <EmptyState title="Записей за период нет" text="Измените фильтры или создайте первый бухгалтерский документ." /> : (
           <>
           <div className="data-table-wrap desktop-document-table">
             <table className="data-table accounting-table">
               <thead><tr><th>Документ</th><th>Дата</th><th>Контрагент</th><th>Основание</th><th>Без НДС</th><th>НДС</th><th>Итого</th><th>Статус</th><th aria-label="Открыть" /></tr></thead>
-              <tbody>{data.items.map((document) => (
-                <tr key={document.id} onClick={() => setSelectedId(document.id)}>
-                  <td><strong>{document.number}</strong><small>{TYPE_LABELS[document.type]}</small></td>
-                  <td>{formatDate(document.documentAt)}</td>
-                  <td>{document.counterparty}</td>
-                  <td>{document.basis ?? "—"}</td>
-                  <td>{formatMoney(document.subtotal, document.currency)}</td>
-                  <td>{formatMoney(document.vatAmount, document.currency)}</td>
-                  <td><strong>{formatMoney(document.totalAmount, document.currency)}</strong></td>
-                  <td><StatusBadge status={document.status} /></td>
-                  <td><button type="button" className="row-action" aria-label={`Открыть ${document.number}`}><ChevronRight size={16} /></button></td>
+              <tbody>{journal.slice(0, visibleCount).map((entry) => entry.kind === "document" ? (
+                <tr key={`document:${entry.value.id}`} onClick={() => setSelectedId(entry.value.id)}>
+                  <td><strong>{entry.value.number}</strong><small>{TYPE_LABELS[entry.value.type]}</small></td>
+                  <td>{formatDate(entry.value.documentAt)}</td>
+                  <td>{entry.value.counterparty}</td>
+                  <td>{entry.value.basis ?? "—"}</td>
+                  <td>{formatMoney(entry.value.subtotal, entry.value.currency)}</td>
+                  <td>{formatMoney(entry.value.vatAmount, entry.value.currency)}</td>
+                  <td><strong>{formatMoney(entry.value.totalAmount, entry.value.currency)}</strong></td>
+                  <td><StatusBadge status={entry.value.status} /></td>
+                  <td><button type="button" className="row-action" aria-label={`Открыть ${entry.value.number}`}><ChevronRight size={16} /></button></td>
                 </tr>
-              ))}</tbody>
+              ) : <tr key={`payment:${entry.value.direction}:${entry.value.externalId}`} onClick={() => setSelectedPayment(entry.value)}>
+                <td><strong>{entry.value.number}</strong><small>{entry.value.direction}</small></td>
+                <td>{formatDate(entry.value.documentAt)}</td>
+                <td>{entry.value.counterparty}</td>
+                <td>{entry.value.purpose || "—"}</td><td>—</td><td>—</td>
+                <td><strong>{sourceMoney(entry.value.amount, entry.value.currency)}</strong></td>
+                <td><span className="soft-tag">{oneCDocumentStatus(entry.value.posted, entry.value.deleted)}</span></td>
+                <td><button type="button" className="row-action" aria-label={`Открыть платёж ${entry.value.number}`}><ChevronRight size={16} /></button></td>
+              </tr>)}</tbody>
             </table>
           </div>
           {mobileLayout ? <div className="mobile-document-cards" aria-label="Журнал бухгалтерских документов">
-            {data.items.map((document) => (
-              <button type="button" className="mobile-document-card" key={document.id} onClick={() => setSelectedId(document.id)}>
-                <div className="mobile-document-card-head"><span>{TYPE_LABELS[document.type]}</span><StatusBadge status={document.status} /></div>
-                <strong>{document.number}</strong>
-                <small>{document.customer?.name ?? document.counterparty}</small>
-                <div className="mobile-document-card-meta"><span>{formatDate(document.documentAt)}</span><span>{document.basis ?? "Без основания"}</span></div>
-                <div className="mobile-document-card-footer"><strong>{formatMoney(document.totalAmount, document.currency)}</strong><span>{document.dueAt === null ? "Без срока" : `до ${formatDate(document.dueAt)}`}</span></div>
-              </button>
-            ))}
+            {journal.slice(0, visibleCount).map((entry) => entry.kind === "document" ? <button type="button" className="mobile-document-card" key={`document:${entry.value.id}`} onClick={() => setSelectedId(entry.value.id)}>
+                <div className="mobile-document-card-head"><span>{TYPE_LABELS[entry.value.type]}</span><StatusBadge status={entry.value.status} /></div>
+                <strong>{entry.value.number}</strong><small>{entry.value.customer?.name ?? entry.value.counterparty}</small>
+                <div className="mobile-document-card-meta"><span>{formatDate(entry.value.documentAt)}</span><span>{entry.value.basis ?? "Без основания"}</span></div>
+                <div className="mobile-document-card-footer"><strong>{formatMoney(entry.value.totalAmount, entry.value.currency)}</strong><span>{entry.value.dueAt === null ? "Без срока" : `до ${formatDate(entry.value.dueAt)}`}</span></div>
+              </button> : <button type="button" className="mobile-document-card" key={`payment:${entry.value.direction}:${entry.value.externalId}`} onClick={() => setSelectedPayment(entry.value)}>
+                <div className="mobile-document-card-head"><span>{entry.value.direction}</span><span className="soft-tag">{oneCDocumentStatus(entry.value.posted, entry.value.deleted)}</span></div>
+                <strong>{entry.value.number}</strong><small>{entry.value.counterparty}</small>
+                <div className="mobile-document-card-meta"><span>{formatDate(entry.value.documentAt)}</span><span>{entry.value.purpose || "Без назначения"}</span></div>
+                <div className="mobile-document-card-footer"><strong>{sourceMoney(entry.value.amount, entry.value.currency)}</strong></div>
+              </button>)}
           </div> : null}
+          {journal.length > visibleCount ? <div className="journal-more"><button type="button" className="button ghost small" onClick={() => setVisibleCount((count) => count + 50)}>Показать ещё</button></div> : null}
           {allDates && data.items.length >= 500 ? <p className="history-limit-note">Лимит списка — 500 записей. Для поиска более ранних выберите дату.</p> : null}
           </>
         )}
       </Panel>
 
       {createOpen ? <CreateAccountingModal initialType={createType} template={template} onClose={() => setCreateOpen(false)} onCreated={async () => { setCreateOpen(false); setTemplate(null); await documents.reload(); }} /> : null}
-      {selectedId === null ? null : <AccountingDetail id={selectedId} actorRole={actorRole} onClose={() => setSelectedId(null)} onChanged={documents.reload} onDuplicate={(document) => { setSelectedId(null); setCreateType(document.type); setTemplate(document); setCreateOpen(true); }} />}
+      {selectedId === null ? null : <AccountingDetail id={selectedId} actorRole={actorRole} onClose={() => { setSelectedId(null); if (window.location.hash.startsWith("#accounting/")) window.location.hash = "accounting"; }} onChanged={documents.reload} onDuplicate={(document) => { setSelectedId(null); setCreateType(document.type); setTemplate(document); setCreateOpen(true); }} />}
+      {selectedPayment ? <Modal title={`${selectedPayment.direction} №${selectedPayment.number}`} onClose={() => setSelectedPayment(null)}>
+        <div className="imported-record-detail"><p>{formatDate(selectedPayment.documentAt, true)} · {oneCDocumentStatus(selectedPayment.posted, selectedPayment.deleted)}</p>
+          <div><strong>Контрагент</strong><span>{selectedPayment.counterparty}</span></div>
+          <div><strong>Сумма</strong><span>{sourceMoney(selectedPayment.amount, selectedPayment.currency)}</span></div>
+          {selectedPayment.purpose ? <div><strong>Назначение</strong><span>{selectedPayment.purpose}</span></div> : null}
+          <p className="imported-record-note">Запись доступна только для просмотра.</p></div>
+      </Modal> : null}
+      {showDebtors && oneCFinance.data?.available ? <Modal title="Дебиторская задолженность" onClose={() => setShowDebtors(false)}>
+        <div className="imported-record-detail"><p>Состояние на {formatDate(oneCFinance.data.snapshotAt ?? "", true)} · авансы клиентов: {sourceMoney(oneCFinance.data.totalPrepayments ?? "0", "KZT")}</p>
+          {(oneCFinance.data.receivables ?? []).length === 0 ? <p>Задолженности нет</p> : oneCFinance.data.receivables?.map((row) =>
+            <div key={row.counterparty}><strong>{row.counterparty}</strong><span>{sourceMoney(row.amount, row.currency)}</span></div>)}
+        </div>
+      </Modal> : null}
     </>
   );
 }

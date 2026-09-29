@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Req, Res } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query, Req, Res } from "@nestjs/common";
 import type { Response } from "express";
 import { z } from "zod";
 import { config } from "../config.js";
@@ -100,7 +100,7 @@ export class OneCSyncController {
   @Get("finance")
   async finance(@Req() request: ApiRequest) {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
-    requirePermission(actor.role, "ACCOUNTING_VIEW");
+    requirePermission(actor.role, "ONE_C_SOURCE_FINANCE_VIEW");
     return getOneCFinance(workspaceId);
   }
 
@@ -114,15 +114,20 @@ export class OneCSyncController {
 
   @Get("source/:section")
   async sourceSection(@Req() request: ApiRequest, @Param("section") section: string,
-      @Res({ passthrough: true }) response: Response) {
+      @Res({ passthrough: true }) response: Response, @Query("date") date?: string) {
     const permission = section === "warehouses" ? "MATERIALS_VIEW"
       : section === "receipts" || section === "contracts" ? "ONE_C_SOURCE_FINANCE_VIEW"
         : section === "specifications" || section === "production" ? "RECIPES_VIEW" : null;
     if (!permission) throw new ApiError(404, "ONE_C_SOURCE_SECTION_NOT_FOUND", "Раздел данных 1С не найден");
     const { workspaceId, actor } = await getRequestContext(request, prisma);
     requirePermission(actor.role, permission);
+    if (date !== undefined && (!/^\d{4}-\d{2}-\d{2}$/u.test(date)
+      || Number.isNaN(Date.parse(`${date}T00:00:00Z`))
+      || new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date)) {
+      throw new ApiError(400, "INVALID_DATE", "Неверная дата");
+    }
     response.setHeader("Cache-Control", "no-store");
-    return readOneCSourceSection(workspaceId, actor.id, section as OneCSourceSection);
+    return readOneCSourceSection(workspaceId, actor.id, section as OneCSourceSection, date);
   }
 
   @Get("reviews")
