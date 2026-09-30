@@ -32,4 +32,13 @@ describe("unit conversion", () => {
       "Нельзя пересчитать PCS → KG",
     );
   });
+
+  it("preserves meters and pairs without inventing cross-dimensional conversions", () => {
+    expect(addQuantities({ value: "2.5", unit: "M" }, { value: "3", unit: "M" }).value.toString()).toBe("5.5");
+    expect(convertQuantity({ value: "12", unit: "PAIR" }, "PAIR").value.toString()).toBe("12");
+    for (const [from, to] of [["M", "KG"], ["KG", "M"], ["M", "L"], ["L", "M"],
+      ["PAIR", "PCS"], ["PCS", "PAIR"], ["PAIR", "KG"]] as const) {
+      expect(() => convertQuantity({ value: "1", unit: from }, to, "1000")).toThrow(`Нельзя пересчитать ${from} → ${to}`);
+    }
+  });
 });

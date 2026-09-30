@@ -61,8 +61,10 @@ async function main(): Promise<void> {
     const materialId = text(balance.materialId, "accountingInventory.materialId");
     const warehouseId = text(balance.warehouseId, "accountingInventory.warehouseId");
     if (!materialIds.has(materialId)) throw new Error("Бухгалтерский остаток ссылается на номенклатуру вне складского mapping");
-    const expectedAccount = accountForGroup.get(text(materialRows.get(materialId)?.groupName, "material.groupName"));
-    if (balance.accountCode !== expectedAccount) throw new Error(`Счёт 1С не соответствует группе материала ${materialId}`);
+    const group = materialRows.get(materialId)?.groupName;
+    const expectedAccount = group === null ? null : accountForGroup.get(text(group, "material.groupName"));
+    if (!["1310", "1320", "1330"].includes(String(balance.accountCode)) ||
+        (group !== null && balance.accountCode !== expectedAccount)) throw new Error(`Счёт 1С не соответствует группе материала ${materialId}`);
     const key = `${materialId}:${warehouseId}`;
     if (balanceKeys.has(key)) throw new Error(`Несколько бухгалтерских остатков для одного материала и склада ${key}`);
     balanceKeys.add(key);

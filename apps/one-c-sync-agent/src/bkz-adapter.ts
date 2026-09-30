@@ -3,7 +3,7 @@ import type { OneCDelta } from "./types.js";
 
 type Row = Record<string, unknown>;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
-const UNITS = ["G", "KG", "T", "ML", "L", "M3", "PCS"];
+const UNITS = ["G", "KG", "T", "ML", "L", "M3", "PCS", "M", "PAIR"];
 const TYPES = ["CEMENT", "WATER", "SAND", "AGGREGATE", "CHEMICAL_ADDITIVE", "REAGENT", "OTHER"];
 
 export interface BkzMapping {

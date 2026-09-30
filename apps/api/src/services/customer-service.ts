@@ -379,6 +379,8 @@ function customerTimelineUnitLabel(unit: Unit): string {
     [Unit.L]: "л",
     [Unit.M3]: "м³",
     [Unit.PCS]: "шт.",
+    [Unit.M]: "м",
+    [Unit.PAIR]: "пар",
   }[unit];
 }
 

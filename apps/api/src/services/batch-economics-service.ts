@@ -281,6 +281,8 @@ function unitsMatch(documentUnit: string, transferUnit: Unit): boolean {
     L: ["L", "Л"],
     M3: ["M3", "М3", "КУБ", "КУБ.М"],
     PCS: ["PCS", "ШТ", "ШТУКИ"],
+    M: ["M", "М"],
+    PAIR: ["PAIR", "ПАР", "ПАРА", "ПАРЫ"],
   };
   return aliases[transferUnit].includes(normalized);
 }

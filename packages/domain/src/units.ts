@@ -1,9 +1,9 @@
 import { Decimal } from "decimal.js";
 import { DomainError } from "./errors.js";
 
-export const UNITS = ["G", "KG", "T", "ML", "L", "M3", "PCS"] as const;
+export const UNITS = ["G", "KG", "T", "ML", "L", "M3", "PCS", "M", "PAIR"] as const;
 export type Unit = (typeof UNITS)[number];
-export type UnitDimension = "MASS" | "VOLUME" | "COUNT";
+export type UnitDimension = "MASS" | "VOLUME" | "COUNT" | "LENGTH" | "PAIR_COUNT";
 
 export interface QuantityInput {
   value: Decimal.Value;
@@ -25,6 +25,9 @@ const UNIT_META: Readonly<
   L: { dimension: "VOLUME", toBase: new Decimal("0.001") },
   M3: { dimension: "VOLUME", toBase: new Decimal(1) },
   PCS: { dimension: "COUNT", toBase: new Decimal(1) },
+  M: { dimension: "LENGTH", toBase: new Decimal(1) },
+  // A pair is a source accounting unit, not automatically two saleable pieces.
+  PAIR: { dimension: "PAIR_COUNT", toBase: new Decimal(1) },
 };
 
 export function isUnit(value: string): value is Unit {
@@ -53,7 +56,9 @@ export function convertQuantity(
     return { value: baseValue.div(target.toBase), unit: targetUnit };
   }
 
-  if (source.dimension === "COUNT" || target.dimension === "COUNT") {
+  const massVolume = (source.dimension === "MASS" && target.dimension === "VOLUME") ||
+    (source.dimension === "VOLUME" && target.dimension === "MASS");
+  if (!massVolume) {
     throw new DomainError(
       "INCOMPATIBLE_UNITS",
       `Нельзя пересчитать ${input.unit} → ${targetUnit}`,

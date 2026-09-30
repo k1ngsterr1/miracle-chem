@@ -15,8 +15,8 @@ function string(row: SourceRow, field: string): string {
   return value.trim();
 }
 
-function category(row: SourceRow): string {
-  return string(row, "groupName");
+function category(row: SourceRow): string | null {
+  return row.groupName === null ? null : string(row, "groupName");
 }
 
 /**
@@ -47,11 +47,12 @@ export function proposeBkzAuthorityMapping(
     if (item.service) { excludedServices.push(externalId); return []; }
     const sourceBaseUnitId = string(item, "unitId");
     const sourceUnit = string(item, "unitName").toLocaleLowerCase("ru");
-    const baseUnit = sourceUnit === "кг" ? "KG" : sourceUnit === "шт" ? "PCS" : null;
+    const baseUnit = sourceUnit === "кг" ? "KG" : sourceUnit === "шт" ? "PCS"
+      : sourceUnit === "м" ? "M" : sourceUnit === "пар" ? "PAIR" : null;
     if (!baseUnit) throw new Error(`Для номенклатуры ${externalId} не поддержана единица ${sourceUnit}`);
     const type = group === "Материалы" ? "REAGENT"
       : group === "Готовая продукция" ? "CHEMICAL_ADDITIVE"
-      : group === "Товары" ? "OTHER"
+      : group === "Товары" || group === null ? "OTHER"
       : null;
     if (!type) throw new Error(`Новая группа номенклатуры 1С «${group}» требует проверки`);
     const receiptUnits = new Map<string, string>([[sourceBaseUnitId, "1"]]);

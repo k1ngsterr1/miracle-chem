@@ -29,4 +29,11 @@ describe("1C authoritative catalog proposal", () => {
     snapshot.materials[0]!.unitName = "кг";
     expect(() => proposeBkzAuthorityMapping(snapshot, options)).toThrow("Новая группа");
   });
+
+  it.each([["м", "M"], ["пар", "PAIR"], ["шт", "PCS"]])("preserves root-level inventory in %s", (unitName, baseUnit) => {
+    const snapshot = sampleSnapshot();
+    snapshot.materials[0]!.groupName = null;
+    snapshot.materials[0]!.unitName = unitName;
+    expect(proposeBkzAuthorityMapping(snapshot, options).mapping.materials[0]).toMatchObject({ type: "OTHER", baseUnit });
+  });
 });

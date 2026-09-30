@@ -309,7 +309,7 @@ function parseQuantityChange(value: Prisma.JsonValue): QuantityChange {
   if (typeof quantityDelta !== "string" || !/^-?\d+(?:\.\d+)?$/u.test(quantityDelta)) {
     throw new ApiError(422, "INVALID_ADJUSTMENT_CHANGE", "quantityDelta должен быть десятичной строкой");
   }
-  const units: Unit[] = ["G", "KG", "T", "ML", "L", "M3", "PCS"];
+  const units: Unit[] = ["G", "KG", "T", "ML", "L", "M3", "PCS", "M", "PAIR"];
   if (typeof unit !== "string" || !units.includes(unit as Unit)) {
     throw new ApiError(422, "INVALID_ADJUSTMENT_CHANGE", "Укажите допустимую единицу измерения");
   }

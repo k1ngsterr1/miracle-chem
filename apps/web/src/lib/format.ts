@@ -18,6 +18,8 @@ export const unitLabel: Record<Unit, string> = {
   L: "л",
   M3: "м³",
   PCS: "шт",
+  M: "м",
+  PAIR: "пар",
 };
 
 export function formatNumber(value: string | number | null | undefined): string {

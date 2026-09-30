@@ -43,10 +43,12 @@ export async function projectOneCDirectories(tx: Prisma.TransactionClient, input
     const payloadHash = createHash("sha256").update(JSON.stringify(row)).digest("hex");
     if (ref?.payloadHash === payloadHash) continue;
     const baseUnit = row.unitName.trim().toLocaleLowerCase("ru") === "кг" ? Unit.KG
-      : row.unitName.trim().toLocaleLowerCase("ru") === "шт" ? Unit.PCS : null;
+      : row.unitName.trim().toLocaleLowerCase("ru") === "шт" ? Unit.PCS
+      : row.unitName.trim().toLocaleLowerCase("ru") === "м" ? Unit.M
+      : row.unitName.trim().toLocaleLowerCase("ru") === "пар" ? Unit.PAIR : null;
     const type = row.groupName === "Материалы" ? MaterialType.REAGENT
       : row.groupName === "Готовая продукция" ? MaterialType.CHEMICAL_ADDITIVE
-      : row.groupName === "Товары" ? MaterialType.OTHER : null;
+      : row.groupName === "Товары" || row.groupName === null ? MaterialType.OTHER : null;
     if (!baseUnit || !type || row.service || !row.name.trim() || !row.code.trim()) {
       throw new ApiError(422, "ONE_C_DIRECTORY_MAPPING_REQUIRED",
         `Требуется проверка номенклатуры «${row.name}»: группа или единица не входит в согласованное соответствие`,

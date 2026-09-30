@@ -39,6 +39,8 @@ enum Unit {
   L
   M3
   PCS
+  M
+  PAIR
 }
 
 enum RecipeStatus {

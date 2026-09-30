@@ -54,7 +54,9 @@ export async function projectFullSnapshot(tx: Transaction, input: FullSnapshotEn
     if (!materialId) throw new ApiError(422, "ONE_C_MATERIAL_UNMAPPED", `Не согласована номенклатура остатка ${balance.materialId}`);
     const group = sourceMaterials.get(balance.materialId)?.groupName;
     const expectedAccount = group === "Материалы" ? "1310" : group === "Готовая продукция" ? "1320" : group === "Товары" ? "1330" : null;
-    if (balance.accountCode !== expectedAccount) throw new ApiError(422, "ONE_C_ACCOUNT_MISMATCH", "Счёт остатка 1С не соответствует группе номенклатуры");
+    // Root-level items have no directory classification. Keep the actual source
+    // account (schema permits only 1310/1320/1330), never infer one from OTHER.
+    if (group !== null && balance.accountCode !== expectedAccount) throw new ApiError(422, "ONE_C_ACCOUNT_MISMATCH", "Счёт остатка 1С не соответствует группе номенклатуры");
     const quantity = number(balance.quantityDebit, "quantityDebit").sub(number(balance.quantityCredit, "quantityCredit"));
     const amount = number(balance.amountDebit, "amountDebit").sub(number(balance.amountCredit, "amountCredit"));
     if (quantity.isNegative() || amount.isNegative() || quantity.isZero() !== amount.isZero()) {

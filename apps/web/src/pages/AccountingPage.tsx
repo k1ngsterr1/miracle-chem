@@ -59,6 +59,8 @@ const DOCUMENT_UNIT_OPTIONS = [
   { value: "T", label: "т" },
   { value: "KG", label: "кг" },
   { value: "L", label: "л" },
+  { value: "M", label: "м" },
+  { value: "PAIR", label: "пар" },
 ];
 
 interface DraftLine {

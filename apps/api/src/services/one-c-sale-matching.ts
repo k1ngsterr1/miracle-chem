@@ -37,6 +37,7 @@ function normalizedUnit(value: string): Unit | null {
     л: Unit.L, l: Unit.L,
     м3: Unit.M3, m3: Unit.M3,
     шт: Unit.PCS, штука: Unit.PCS, штуки: Unit.PCS, pcs: Unit.PCS,
+    м: Unit.M, m: Unit.M, пар: Unit.PAIR, пара: Unit.PAIR, пары: Unit.PAIR, pair: Unit.PAIR,
   };
   return units[key] ?? null;
 }

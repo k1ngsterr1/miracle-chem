@@ -58,6 +58,8 @@ const UNIT_OPTIONS: Array<{ value: Unit; label: string }> = [
   { value: "L", label: "л" },
   { value: "M3", label: "м³" },
   { value: "PCS", label: "шт" },
+  { value: "M", label: "м" },
+  { value: "PAIR", label: "пар" },
 ];
 
 let nextComponentKey = 1;

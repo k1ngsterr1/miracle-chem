@@ -1,4 +1,4 @@
-export type Unit = "G" | "KG" | "T" | "ML" | "L" | "M3" | "PCS";
+export type Unit = "G" | "KG" | "T" | "ML" | "L" | "M3" | "PCS" | "M" | "PAIR";
 
 export interface QuantityMetric {
   value: string;

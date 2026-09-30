@@ -159,7 +159,7 @@ function formatQuantity(value: unknown): string {
 }
 
 function unitLabel(unit: string): string {
-  return ({ PCS: "шт.", KG: "кг", T: "т", L: "л", M3: "м³", SERVICE: "услуга" } as Record<string, string>)[unit] ?? unit;
+  return ({ PCS: "шт.", KG: "кг", T: "т", L: "л", M3: "м³", M: "м", PAIR: "пар", SERVICE: "услуга" } as Record<string, string>)[unit] ?? unit;
 }
 
 function escapeHtml(value: string): string {

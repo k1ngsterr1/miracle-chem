@@ -519,12 +519,43 @@ describe("Miracle Chem NestJS API integration", () => {
         payload: envelope("projected-1c-bad-unit", invalid) });
       expect(rejected.statusCode).toBe(422);
       expect((await prisma.material.findUniqueOrThrow({ where: { id: materialId } })).currentStock.toString()).toBe("20");
+      // Actual new 1C catalog shapes: hose in meters and gloves in pairs, no parent group.
+      const expanded = { ...newDirectory, generatedAt: "2026-09-27T09:15:00Z", readStartedAt: "2026-09-27T09:15:00Z",
+        materials: [...newDirectory.materials,
+          { ...newDirectory.materials[0]!, externalId: "77777777-7777-4777-8777-777777777782", code: "HOSE", name: "Hose", groupName: null, unitName: "м" },
+          { ...newDirectory.materials[0]!, externalId: "77777777-7777-4777-8777-777777777783", code: "GLOVES", name: "Gloves", groupName: null, unitName: "пар" },
+          { ...newDirectory.materials[0]!, externalId: "77777777-7777-4777-8777-777777777784", code: "FITTING", name: "Fitting", groupName: null, unitName: "шт" }],
+        accountingInventory: [...newDirectory.accountingInventory,
+          { ...newDirectory.accountingInventory[0]!, materialId: "77777777-7777-4777-8777-777777777782", quantityDebit: "5.5", amountDebit: "550" },
+          { ...newDirectory.accountingInventory[0]!, materialId: "77777777-7777-4777-8777-777777777783", accountCode: "1330", quantityDebit: "12", amountDebit: "240" },
+          { ...newDirectory.accountingInventory[0]!, materialId: "77777777-7777-4777-8777-777777777784", accountCode: "1320", quantityDebit: "4", amountDebit: "80" }],
+      };
+      const expandedEnvelope = { ...envelope("projected-1c-root-inventory", newDirectory), generatedAt: expanded.generatedAt, snapshot: expanded };
+      const rootInventory = await app.inject({ method: "POST", url: "/api/integrations/1c/snapshot", headers, payload: expandedEnvelope });
+      expect(rootInventory.statusCode).toBe(201);
+      const hose = await prisma.material.findUniqueOrThrow({ where: { workspaceId_code: { workspaceId, code: "HOSE" } }, include: { lots: true } });
+      const gloves = await prisma.material.findUniqueOrThrow({ where: { workspaceId_code: { workspaceId, code: "GLOVES" } } });
+      expect(hose).toMatchObject({ baseUnit: "M", type: "OTHER" });
+      expect(hose.currentStock.toString()).toBe("5.5");
+      expect(hose.costPerBaseUnit.toString()).toBe("100");
+      expect(hose.lots[0]).toMatchObject({ unit: "M", qualitySnapshot: { accountCode: "1310", bookValue: "550" } });
+      expect(gloves).toMatchObject({ baseUnit: "PAIR", type: "OTHER" });
+      expect(gloves.currentStock.toString()).toBe("12");
+      expect(gloves.costPerBaseUnit.toString()).toBe("20");
+      const fitting = await prisma.material.findUniqueOrThrow({ where: { workspaceId_code: { workspaceId, code: "FITTING" } }, include: { lots: true } });
+      expect(fitting).toMatchObject({ baseUnit: "PCS", type: "OTHER" });
+      expect(fitting.currentStock.toString()).toBe("4");
+      expect(fitting.lots[0]?.qualitySnapshot).toMatchObject({ accountCode: "1320" });
+      const replayInventory = await app.inject({ method: "POST", url: "/api/integrations/1c/snapshot", headers, payload: expandedEnvelope });
+      expect(replayInventory.json()).toMatchObject({ replayed: true });
+      expect(await prisma.material.count({ where: { workspaceId } })).toBe(5);
+      const checkedInventory = await app.inject({ method: "GET", url: "/api/integrations/1c/reconciliation", headers: financeHeaders });
+      expect(checkedInventory.json()).toMatchObject({ discrepancyCount: 0 });
     } finally {
       await prisma.accountingDocument.deleteMany({ where: { workspaceId,
         details: { path: ["source"], equals: "1C" } } });
-      await prisma.materialMovement.deleteMany({ where: { workspaceId,
-        materialLot: { materialId } } });
-      await prisma.materialLot.deleteMany({ where: { workspaceId, materialId } });
+      await prisma.materialMovement.deleteMany({ where: { workspaceId } });
+      await prisma.materialLot.deleteMany({ where: { workspaceId } });
       await prisma.oneCSyncRun.deleteMany({ where: { workspaceId } });
       await prisma.oneCSourceSnapshot.deleteMany({ where: { workspaceId, sourceInstanceId: sourceId } });
       await prisma.oneCExternalReference.deleteMany({ where: { workspaceId,
