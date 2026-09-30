@@ -1206,8 +1206,8 @@ describe("Miracle Chem NestJS API integration", () => {
     const gluconate = await prisma.material.create({
       data: {
         workspaceId: testIds.workspace,
-        code: "SODIUM-GLUCONATE-TEST",
-        name: "Глюконат натрия",
+        code: "00000000011",
+        name: "Глюканат натрия",
         type: MaterialType.REAGENT,
         baseUnit: Unit.KG,
         currentStock: "3000",

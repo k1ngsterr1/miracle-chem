@@ -4,7 +4,7 @@ import { Unit } from "../generated/prisma/index.js";
 export const MAIN_REAGENTS = [
   { code: "KT-1", name: "КТ-1", aliases: ["КТ-1", "КТ1", "KT-1", "KT1"] },
   { code: "KT-2", name: "КТ-2", aliases: ["КТ-2", "КТ2", "KT-2", "KT2"] },
-  { code: "SODIUM-GLUCONATE", name: "Глюконат Натрия", aliases: ["ГЛЮКОНАТ НАТРИЯ", "SODIUM GLUCONATE"] },
+  { code: "SODIUM-GLUCONATE", name: "Глюконат Натрия", aliases: ["ГЛЮКОНАТ НАТРИЯ", "ГЛЮКАНАТ НАТРИЯ", "SODIUM GLUCONATE"] },
   { code: "AOS", name: "Пеногаситель (АОС)", aliases: ["ПЕНОГАСИТЕЛ", "АОС", "AOS"] },
   { code: "SUGAR", name: "Сахар", aliases: ["САХАР", "SUGAR"] },
   { code: "SALT", name: "Соль", aliases: ["СОЛЬ", "SALT"] },
