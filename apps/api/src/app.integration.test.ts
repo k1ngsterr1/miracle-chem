@@ -370,14 +370,33 @@ describe("Miracle Chem NestJS API integration", () => {
       await prisma.oneCSourceSnapshot.create({ data: { workspaceId,
         sourceInstanceId: sourceId, organizationExternalId: organizationId,
         generatedAt: new Date("2026-09-27T07:00:00Z"), sha256: "1".repeat(64), payload: firstSnapshot } });
+      const waiting = await app.inject({ method: "GET", url: "/api/integrations/1c/status", headers: financeHeaders });
+      expect(waiting.json()).toMatchObject({ configured: true, state: "WAITING", snapshotAt: null });
       const first = await app.inject({ method: "POST", url: "/api/integrations/1c/snapshot", headers,
         payload: envelope("projected-1c-001", firstSnapshot) });
       expect(first.statusCode).toBe(201);
       expect(first.json()).toMatchObject({ status: "COMPLETED", summary: { appliedToOperationalTables: true,
         projection: { inventoryChanges: 1, documentChanges: 2 } } });
+      expect((await prisma.material.findUniqueOrThrow({ where: { id: materialId } })).costPerBaseUnit.toString()).toBe("15");
+      expect(await prisma.materialPriceHistory.count({ where: { materialId, source: "ONE_C_ACCOUNTING_BALANCE" } })).toBe(1);
+      const status = await app.inject({ method: "GET", url: "/api/integrations/1c/status", headers: financeHeaders });
+      expect(status.json()).toMatchObject({ configured: true, snapshotAt: "2026-09-27T08:00:00.000Z", queueState: "UNKNOWN" });
+      const materials = await app.inject({ method: "GET", url: "/api/materials", headers: financeHeaders });
+      expect(materials.json().items[0]).toMatchObject({ stockAuthority: "1C" });
+      for (const [url, payload] of [
+        ["/api/materials/receipts", { materialId, lotNumber: "FORBIDDEN", receivedAt: firstSnapshot.generatedAt, quantity: "1", unit: "KG", unitCost: "10" }],
+        ["/api/materials/consumptions", { materialId, consumedAt: firstSnapshot.generatedAt, quantity: "1", unit: "KG", reason: "Guard test" }],
+        ["/api/materials/purchase-batches", { number: "FORBIDDEN", receivedAt: firstSnapshot.generatedAt, items: [{ materialId, quantity: "1", unit: "KG", unitCost: "10" }] }],
+      ] as const) {
+        const denied = await app.inject({ method: "POST", url, headers: { ...financeHeaders, "idempotency-key": `guard-${url}` }, payload });
+        expect(denied.statusCode).toBe(409);
+        expect(denied.json().error.code).toBe("ONE_C_STOCK_READ_ONLY");
+      }
+      expect(await prisma.purchaseBatch.count({ where: { workspaceId } })).toBe(0);
       const replay = await app.inject({ method: "POST", url: "/api/integrations/1c/snapshot", headers,
         payload: envelope("projected-1c-001", firstSnapshot) });
       expect(replay.json()).toMatchObject({ replayed: true, runId: first.json().runId });
+      expect(await prisma.materialPriceHistory.count({ where: { materialId, source: "ONE_C_ACCOUNTING_BALANCE" } })).toBe(1);
       expect((await prisma.material.findUniqueOrThrow({ where: { id: materialId } })).currentStock.toString()).toBe("10");
       expect(await prisma.materialMovement.count({ where: { workspaceId,
         materialLot: { materialId } } })).toBe(1);
@@ -464,14 +483,49 @@ describe("Miracle Chem NestJS API integration", () => {
       expect(repaired.json()).toMatchObject({ verdict: "PARTIAL", discrepancyCount: 0 });
       const latestSource = await app.inject({ method: "GET", url: "/api/integrations/1c/source/receipts", headers: financeHeaders });
       expect(latestSource.json()).toMatchObject({ snapshotAt: "2026-09-27T08:15:00.000Z" });
+      const conflicted = snapshot("2026-09-27T08:30:00Z", "20", "900", "0");
+      await prisma.material.update({ where: { id: materialId }, data: { reservedStock: "1" } });
+      const failed = await app.inject({ method: "POST", url: "/api/integrations/1c/snapshot", headers,
+        payload: envelope("projected-1c-failed", conflicted) });
+      expect(failed.statusCode).toBe(409);
+      expect(failed.json().error).toMatchObject({ code: "ONE_C_STOCK_CONFLICT", details: { materialId } });
+      expect((await prisma.material.findUniqueOrThrow({ where: { id: materialId } })).currentStock.toString()).toBe("12");
+      expect(await prisma.oneCSourceSnapshot.count({ where: { workspaceId, generatedAt: new Date(conflicted.generatedAt) } })).toBe(0);
+      const errorStatus = await app.inject({ method: "GET", url: "/api/integrations/1c/status", headers: financeHeaders });
+      expect(errorStatus.json()).toMatchObject({ state: "ERROR", snapshotAt: "2026-09-27T08:15:00.000Z" });
+      await prisma.material.update({ where: { id: materialId }, data: { reservedStock: "0" } });
+      const retried = await app.inject({ method: "POST", url: "/api/integrations/1c/snapshot", headers,
+        payload: envelope("projected-1c-failed", conflicted) });
+      expect(retried.json()).toMatchObject({ status: "COMPLETED", replayed: false });
+      expect((await prisma.material.findUniqueOrThrow({ where: { id: materialId } })).currentStock.toString()).toBe("20");
+      const newDirectory = snapshot("2026-09-27T08:45:00Z", "20", "900", "0");
+      newDirectory.counterparties[0]!.name = "Renamed customer";
+      newDirectory.counterparties[0]!.taxId = "123456789012";
+      newDirectory.materials[0]!.name = "Renamed reagent";
+      newDirectory.materials.push({ ...newDirectory.materials[0]!, externalId: "77777777-7777-4777-8777-777777777780", code: "M2", name: "New reagent" });
+      newDirectory.counterparties.push({ ...newDirectory.counterparties[0]!, externalId: "77777777-7777-4777-8777-777777777781", code: "C2", name: "New customer" });
+      const extended = await app.inject({ method: "POST", url: "/api/integrations/1c/snapshot", headers,
+        payload: envelope("projected-1c-new-directory", newDirectory) });
+      expect(extended.statusCode).toBe(201);
+      expect(await prisma.material.count({ where: { workspaceId } })).toBe(2);
+      expect(await prisma.customer.count({ where: { workspaceId } })).toBe(2);
+      expect(await prisma.customer.findUnique({ where: { id: customerId } })).toMatchObject({ name: "Renamed customer", taxId: "123456789012" });
+      const renamedInvoice = await prisma.accountingDocument.findUniqueOrThrow({ where: { id: importedInvoice.id }, include: { items: true } });
+      expect(renamedInvoice).toMatchObject({ counterparty: "Renamed customer", counterpartyTaxId: "123456789012" });
+      expect(renamedInvoice.items[0]?.description).toBe("Renamed reagent");
+      const invalid = { ...newDirectory, generatedAt: "2026-09-27T09:00:00Z", readStartedAt: "2026-09-27T09:00:00Z",
+        materials: newDirectory.materials.map((row) => ({ ...row, unitName: "неизвестная" })) };
+      const rejected = await app.inject({ method: "POST", url: "/api/integrations/1c/snapshot", headers,
+        payload: envelope("projected-1c-bad-unit", invalid) });
+      expect(rejected.statusCode).toBe(422);
+      expect((await prisma.material.findUniqueOrThrow({ where: { id: materialId } })).currentStock.toString()).toBe("20");
     } finally {
       await prisma.accountingDocument.deleteMany({ where: { workspaceId,
         details: { path: ["source"], equals: "1C" } } });
       await prisma.materialMovement.deleteMany({ where: { workspaceId,
         materialLot: { materialId } } });
       await prisma.materialLot.deleteMany({ where: { workspaceId, materialId } });
-      await prisma.oneCSyncRun.deleteMany({ where: { workspaceId,
-        batchId: { in: ["projected-1c-001", "projected-1c-002"] } } });
+      await prisma.oneCSyncRun.deleteMany({ where: { workspaceId } });
       await prisma.oneCSourceSnapshot.deleteMany({ where: { workspaceId, sourceInstanceId: sourceId } });
       await prisma.oneCExternalReference.deleteMany({ where: { workspaceId,
         externalId: { startsWith: `${sourceId}:` } } });
@@ -480,6 +534,62 @@ describe("Miracle Chem NestJS API integration", () => {
       await prisma.auditLog.deleteMany({ where: { workspaceId } });
       await prisma.user.deleteMany({ where: { workspaceId } });
       await prisma.workspace.deleteMany({ where: { id: workspaceId } });
+    }
+  });
+
+  it("blocks reservations, actual consumption and lot adjustments for source-owned stock without partial writes", async () => {
+    const ref = await prisma.oneCExternalReference.create({ data: { workspaceId: testIds.workspace,
+      source: "1C", entityType: OneCSyncEntityType.MATERIAL, externalId: "stock-guard-test",
+      internalId: testIds.scarceMaterial, sourceUpdatedAt: new Date(), payloadHash: "0".repeat(64) } });
+    let guardedBatchId: string | undefined;
+    let adjustmentId: string | undefined;
+    const stockBefore = await prisma.material.findUniqueOrThrow({ where: { id: testIds.scarceMaterial } });
+    const lotBefore = await prisma.materialLot.findUniqueOrThrow({ where: { id: testIds.scarceLot } });
+    try {
+      const created = await app.inject({ method: "POST", url: "/api/batches", headers: contextHeaders,
+        payload: { number: "TEST-SOURCE-GUARD", scheduledAt: new Date().toISOString(),
+          recipeVersionId: testIds.recipeVersion, plannedVolume: "1", plannedVolumeUnit: "M3",
+          operatorId: testIds.actor, productionLineId: testIds.line } });
+      expect(created.statusCode).toBe(201);
+      guardedBatchId = created.json().id as string;
+      const start = await app.inject({ method: "POST", url: `/api/batches/${guardedBatchId}/start`,
+        headers: { ...contextHeaders, "idempotency-key": "source-guard-start" } });
+      expect(start.statusCode).toBe(409);
+      expect(start.json().error.code).toBe("ONE_C_STOCK_READ_ONLY");
+      const detail = await app.inject({ method: "GET", url: `/api/batches/${guardedBatchId}`, headers: contextHeaders });
+      expect(detail.json().stockManagedExternally).toBe(true);
+      await prisma.productionBatch.update({ where: { id: guardedBatchId }, data: { status: ProductionBatchStatus.IN_PROGRESS } });
+      const consumption = await app.inject({ method: "POST", url: `/api/batches/${guardedBatchId}/consumption`,
+        headers: { ...contextHeaders, "idempotency-key": "source-guard-consume" },
+        payload: { components: detail.json().components.map((component: { id: string; actualUnit: string }) => ({
+          batchComponentId: component.id, actualQuantity: "1", actualUnit: component.actualUnit,
+        })) } });
+      expect(consumption.statusCode).toBe(409);
+      expect(consumption.json().error.code).toBe("ONE_C_STOCK_READ_ONLY");
+      const adjustment = await app.inject({ method: "POST", url: "/api/adjustments", headers: contextHeaders,
+        payload: { targetType: "MATERIAL_LOT", targetId: testIds.scarceLot,
+          reason: "Source stock guard test", changes: { quantityDelta: "1", unit: "KG" } } });
+      expect(adjustment.statusCode).toBe(201);
+      adjustmentId = adjustment.json().id as string;
+      await app.inject({ method: "POST", url: `/api/adjustments/${adjustmentId}/approve`, headers: contextHeaders });
+      const apply = await app.inject({ method: "POST", url: `/api/adjustments/${adjustmentId}/apply`,
+        headers: { ...contextHeaders, "idempotency-key": "source-guard-adjust" } });
+      expect(apply.statusCode).toBe(409);
+      expect(apply.json().error.code).toBe("ONE_C_STOCK_READ_ONLY");
+      const stockAfter = await prisma.material.findUniqueOrThrow({ where: { id: testIds.scarceMaterial } });
+      const lotAfter = await prisma.materialLot.findUniqueOrThrow({ where: { id: testIds.scarceLot } });
+      expect(stockAfter.currentStock.toString()).toBe(stockBefore.currentStock.toString());
+      expect(stockAfter.reservedStock.toString()).toBe(stockBefore.reservedStock.toString());
+      expect(lotAfter.availableQuantity.toString()).toBe(lotBefore.availableQuantity.toString());
+      expect(lotAfter.reservedQuantity.toString()).toBe(lotBefore.reservedQuantity.toString());
+      expect(await prisma.materialMovement.count({ where: { batchId: guardedBatchId } })).toBe(0);
+      const cancel = await app.inject({ method: "POST", url: `/api/batches/${guardedBatchId}/cancel`,
+        headers: { ...contextHeaders, "idempotency-key": "source-guard-cancel" }, payload: { reason: "Cancel test plan" } });
+      expect(cancel.statusCode).toBe(200);
+    } finally {
+      if (guardedBatchId) await prisma.productionBatch.delete({ where: { id: guardedBatchId } });
+      if (adjustmentId) await prisma.adjustmentDocument.delete({ where: { id: adjustmentId } });
+      await prisma.oneCExternalReference.delete({ where: { id: ref.id } });
     }
   });
 

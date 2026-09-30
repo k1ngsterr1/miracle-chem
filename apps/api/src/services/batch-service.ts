@@ -5,6 +5,7 @@ import {
   recipeScaleFactor,
 } from "@betonflow/domain";
 import { Decimal } from "decimal.js";
+import { requireCrmStockAuthority } from "./one-c-stock-authority-service.js";
 import {
   AuditEntityType,
   MaterialMovementType,
@@ -232,6 +233,7 @@ export async function startBatch(
           });
         }
 
+        await requireCrmStockAuthority(tx, workspaceId, batch.components.map((component) => component.materialId));
         for (const component of batch.components) {
           let remaining = new Decimal(component.plannedQuantity.toString());
           const lots = await tx.materialLot.findMany({
@@ -370,6 +372,7 @@ export async function confirmBatchConsumption(
         if (input.components.length !== batch.components.length) {
           throw new ApiError(400, "ALL_COMPONENTS_REQUIRED", "Передайте факт по каждому компоненту замеса");
         }
+        await requireCrmStockAuthority(tx, workspaceId, batch.components.map((component) => component.materialId));
 
         for (const component of batch.components) {
           const actualInput = input.components.find((item) => item.batchComponentId === component.id);

@@ -69,6 +69,7 @@ function permissionForRequest(method: string, path: string): Permission | null {
   if (normalizedPath.startsWith("/customers")) return isRead ? "CUSTOMERS_VIEW" : "CUSTOMERS_MANAGE";
   if (normalizedPath.startsWith("/attachments")) return isRead ? "ATTACHMENTS_VIEW" : "ATTACHMENTS_MANAGE";
   if (normalizedPath.startsWith("/adjustments")) return isRead ? "ADJUSTMENTS_VIEW" : "ADJUSTMENTS_MANAGE";
+  if (normalizedPath === "/integrations/1c/status") return "DASHBOARD_VIEW";
   if (normalizedPath === "/integrations/1c/finance") return "ONE_C_SOURCE_FINANCE_VIEW";
   if (normalizedPath.startsWith("/integrations/1c")) return isRead ? "MATERIALS_VIEW" : "MATERIALS_MANAGE";
   if (normalizedPath.startsWith("/accounting")) return accountingPermission(method, normalizedPath);

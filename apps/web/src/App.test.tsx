@@ -315,7 +315,7 @@ describe("Miracle Chem app shell", () => {
     fireEvent.change(screen.getByLabelText("Электронная почта"), { target: { value: "admin@miracle-chem.local" } });
     fireEvent.change(screen.getByLabelText("Пароль"), { target: { value: "MiracleChem#2026" } });
     fireEvent.click(screen.getByRole("button", { name: /^Войти$/u }));
-    await waitFor(() => expect(screen.getByText("Произведено сегодня")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Произведено за день")).toBeInTheDocument());
   });
 
   it("loads the dashboard and keeps production modules visible", async () => {
@@ -324,11 +324,11 @@ describe("Miracle Chem app shell", () => {
     expect(screen.getByRole("status", { name: "Проверка доступа" })).toBeInTheDocument();
     expect(screen.queryByText("Загрузка модуля…")).not.toBeInTheDocument();
     expect(screen.queryByText("Загружаем производственные данные…")).not.toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText("Произведено сегодня")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Произведено за день")).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Выберите дату для данных CRM" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Дашборд" })).toBeInTheDocument();
     expect(screen.queryByText("Добрый день, производство")).not.toBeInTheDocument();
-    expect(screen.getByText("Доход за день")).toBeInTheDocument();
+    expect(screen.getByText("Реализация за день")).toBeInTheDocument();
     expect(screen.getAllByText("Дебиторская задолженность").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("ТОО Test Buyer")).toBeInTheDocument();
     expect(screen.getByText("Основные реагенты на складе")).toBeInTheDocument();
@@ -544,7 +544,7 @@ describe("Miracle Chem app shell", () => {
 
   it("opens modules through the global search", async () => {
     render(<App />);
-    await waitFor(() => expect(screen.getByText("Произведено сегодня")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Произведено за день")).toBeInTheDocument());
 
     const search = screen.getByPlaceholderText("Найти раздел CRM…");
     fireEvent.focus(search);
@@ -560,7 +560,7 @@ describe("Miracle Chem app shell", () => {
 
   it("shows the single production line and tank without redundant selectors", async () => {
     render(<App />);
-    await waitFor(() => expect(screen.getByText("Произведено сегодня")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Произведено за день")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: /Производство/u }));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Замесы" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Запланировать замес" }));
@@ -678,7 +678,7 @@ describe("Miracle Chem app shell", () => {
 
   it("opens the dedicated goods receipt power of attorney form", async () => {
     render(<App />);
-    await waitFor(() => expect(screen.getByText("Произведено сегодня")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Произведено за день")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: /Бухгалтерия/u }));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Бухгалтерия" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Доверенность" }));

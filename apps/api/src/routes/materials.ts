@@ -88,6 +88,10 @@ export class MaterialController {
       },
       orderBy: [{ type: "asc" }, { name: "asc" }],
     });
+    const sourceRefs = await prisma.oneCExternalReference.findMany({ where: {
+      workspaceId, source: "1C", entityType: "MATERIAL", internalId: { in: materials.map((material) => material.id) },
+    }, select: { internalId: true } });
+    const sourceMaterialIds = new Set(sourceRefs.map((ref) => ref.internalId));
     const gluconateMaterialIds = materials
       .filter((material) => matchesMaterial(material, SODIUM_GLUCONATE))
       .map((material) => material.id);
@@ -126,6 +130,7 @@ export class MaterialController {
     return {
       items: materials.map((material) => ({
         ...material,
+        stockAuthority: sourceMaterialIds.has(material.id) ? "1C" : "CRM",
         isCritical: material.minimumStock.gt(0) && material.currentStock.lte(material.minimumStock),
         freeStock: material.currentStock.sub(material.reservedStock),
       })),

@@ -161,7 +161,10 @@ export class BatchController {
     if (batch === null) throw new ApiError(404, "BATCH_NOT_FOUND", "Замес не найден");
     const economics = await getBatchEconomics(workspaceId, batch.id);
     const stockReadiness = buildBatchStockReadiness(batch);
-    return { ...batch, economics, stockReadiness };
+    const sourceMaterials = await prisma.oneCExternalReference.findMany({ where: {
+      workspaceId, source: "1C", entityType: "MATERIAL", internalId: { in: batch.components.map((component) => component.materialId) },
+    }, select: { internalId: true } });
+    return { ...batch, economics, stockReadiness, stockManagedExternally: sourceMaterials.length > 0 };
   }
 
   @Post()

@@ -11,6 +11,7 @@ import { ApiError } from "../lib/api-error.js";
 import { writeAudit } from "../lib/audit.js";
 import { runIdempotent } from "../lib/idempotency.js";
 import { prisma } from "../lib/prisma.js";
+import { requireCrmStockAuthority } from "./one-c-stock-authority-service.js";
 
 export interface PurchaseBatchItemInput {
   materialId: string;
@@ -82,6 +83,7 @@ export async function createPurchaseBatch(
       if (materials.length !== materialIds.length) {
         throw new ApiError(404, "PURCHASE_MATERIAL_NOT_FOUND", "Один из реагентов не найден");
       }
+      await requireCrmStockAuthority(tx, workspaceId, materialIds);
       if (input.recipeVersionId !== undefined) {
         const recipeVersion = await tx.recipeVersion.findFirst({
           where: { id: input.recipeVersionId, workspaceId },

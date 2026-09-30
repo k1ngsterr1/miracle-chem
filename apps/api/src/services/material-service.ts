@@ -12,6 +12,7 @@ import { ApiError } from "../lib/api-error.js";
 import { runIdempotent } from "../lib/idempotency.js";
 import { writeAudit } from "../lib/audit.js";
 import { startOfAlmatyDay } from "../lib/date-filter.js";
+import { requireCrmStockAuthority } from "./one-c-stock-authority-service.js";
 
 export interface CreateMaterialInput {
   code: string;
@@ -99,6 +100,7 @@ export async function receiveMaterial(
   actorId: string | undefined,
   idempotencyKey: string,
   input: ReceiveMaterialInput,
+  origin: "CRM" | "ONE_C" = "CRM",
 ) {
   return prisma.$transaction(
     (tx) =>
@@ -115,6 +117,7 @@ export async function receiveMaterial(
           throw new ApiError(404, "MATERIAL_NOT_FOUND", "Материал не найден");
         }
         const density = input.densityKgPerM3 ?? material.densityKgPerM3?.toString();
+        if (origin === "CRM") await requireCrmStockAuthority(tx, workspaceId, [material.id]);
         const normalized = convertQuantity(
           { value: input.quantity, unit: input.unit },
           material.baseUnit,
@@ -243,6 +246,7 @@ export async function consumeMaterial(
           material.baseUnit,
           material.densityKgPerM3?.toString(),
         ).value;
+        await requireCrmStockAuthority(tx, workspaceId, [material.id]);
         const freeStock = new Decimal(material.currentStock.toString()).sub(
           material.reservedStock.toString(),
         );

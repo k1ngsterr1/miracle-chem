@@ -262,6 +262,8 @@ export async function getDashboard(workspaceId: string, timezone: string, select
 
   return {
     period: { from: today.from.toISOString(), to: today.to.toISOString(), timezone },
+    financialBasis: { source: oneCFinance ? "1C" : "CRM", snapshotAt: oneCFinance?.snapshotAt ?? null,
+      receivablesScope: "CURRENT" },
     metrics: {
       consumedMaterials: groupQuantities(consumption.map((item) => ({ value: item.baseQuantity, unit: item.baseUnit }))),
       produced: groupQuantities(

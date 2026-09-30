@@ -25,6 +25,7 @@ import { Modal, PageSkeleton } from "./components/ui.js";
 import { DateTimePicker } from "./components/DateTimePicker.js";
 import { DateFilterProvider, todayDate, useDateFilter } from "./hooks/use-date-filter.js";
 import { LoginPage } from "./pages/LoginPage.js";
+import { SyncStatus } from "./components/SyncStatus.js";
 
 function cachePageLoader<T>(load: () => Promise<T>): () => Promise<T> {
   let promise: Promise<T> | undefined;
@@ -300,6 +301,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
                 </div>
               ) : null}
             </div>
+            <SyncStatus />
             <div className={`global-date-filter${allDates ? " all-dates" : ""}`}>
               <div className="global-date-copy"><small>Период</small></div>
               <button type="button" className="global-date-all" aria-pressed={allDates} onClick={() => setAllDates(!allDates)}>Все даты</button>

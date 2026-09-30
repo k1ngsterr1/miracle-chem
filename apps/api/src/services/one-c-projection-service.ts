@@ -6,6 +6,7 @@ import {
 } from "../generated/prisma/index.js";
 import { ApiError } from "../lib/api-error.js";
 import type { FullSnapshotEnvelope } from "./one-c-full-snapshot-service.js";
+import { projectOneCDirectories } from "./one-c-directory-service.js";
 
 type Snapshot = FullSnapshotEnvelope["snapshot"];
 type Transaction = Prisma.TransactionClient;
@@ -39,6 +40,7 @@ export async function projectFullSnapshot(tx: Transaction, input: FullSnapshotEn
     }
   }
 
+  const directoryChanges = await projectOneCDirectories(tx, input);
   const materialRefs = await tx.oneCExternalReference.findMany({
     where: { workspaceId, source: "1C", entityType: OneCSyncEntityType.MATERIAL,
       externalId: { startsWith: `${sourceInstanceId}:` } },
@@ -80,13 +82,17 @@ export async function projectFullSnapshot(tx: Transaction, input: FullSnapshotEn
   let inventoryChanges = 0;
   for (const ref of materialRefs) {
     const material = await tx.material.findFirst({ where: { id: ref.internalId, workspaceId }, select: {
-      id: true, currentStock: true, reservedStock: true, baseUnit: true,
+      id: true, name: true, currentStock: true, reservedStock: true, baseUnit: true, costPerBaseUnit: true,
       lots: { select: { id: true, lotNumber: true, availableQuantity: true, reservedQuantity: true } },
     } });
     if (!material) throw new ApiError(422, "ONE_C_MATERIAL_MISSING", "Согласованный материал отсутствует в CRM");
     const nonSourceStock = material.lots.filter((lot) => !lot.lotNumber.startsWith("1C-OPEN-") && lot.availableQuantity.gt(0));
     if (nonSourceStock.length || material.reservedStock.gt(0) || material.lots.some((lot) => lot.reservedQuantity.gt(0))) {
-      throw new ApiError(409, "ONE_C_STOCK_CONFLICT", "Есть локальные партии или резервы: автоматическая сверка остатка 1С остановлена");
+      throw new ApiError(409, "ONE_C_STOCK_CONFLICT", `Обмен остановлен: у «${material.name}» есть локальные партии или резервы`, {
+        materialId: material.id, reservedStock: material.reservedStock.toString(),
+        localLots: nonSourceStock.map((lot) => ({ id: lot.id, number: lot.lotNumber, quantity: lot.availableQuantity.toString() })),
+        reservedLots: material.lots.filter((lot) => lot.reservedQuantity.gt(0)).map((lot) => ({ id: lot.id, number: lot.lotNumber, quantity: lot.reservedQuantity.toString() })),
+      });
     }
     let stock = new Decimal(material.currentStock.toString());
     const lotStock = material.lots.reduce((total, lot) => total.add(lot.availableQuantity.toString()), new Decimal(0));
@@ -127,7 +133,16 @@ export async function projectFullSnapshot(tx: Transaction, input: FullSnapshotEn
         inventoryChanges += 1;
       }
     }
-    await tx.material.update({ where: { id: material.id }, data: { currentStock: stock.toString() } });
+    const bookValue = [...byWarehouse.values()].reduce((sum, balance) => sum.add(balance.amount), new Decimal(0));
+    const currentCost = stock.gt(0) ? bookValue.div(stock).toDecimalPlaces(4, Decimal.ROUND_HALF_UP).toString() : null;
+    if (currentCost !== null && !material.costPerBaseUnit.eq(currentCost)) {
+      await tx.materialPriceHistory.create({ data: { workspaceId, materialId: material.id,
+        pricePerBaseUnit: currentCost, currency: "KZT", effectiveAt: new Date(snapshot.generatedAt),
+        source: "ONE_C_ACCOUNTING_BALANCE",
+        note: "Средняя учётная цена по бухгалтерскому остатку" } });
+    }
+    await tx.material.update({ where: { id: material.id }, data: { currentStock: stock.toString(),
+      ...(currentCost !== null ? { costPerBaseUnit: currentCost } : {}) } });
   }
 
   const importedBy = await tx.user.findFirst({ where: { workspaceId, email: `1c-import-${workspaceId}@miracle-chem.local` }, select: { id: true } });
@@ -141,7 +156,9 @@ export async function projectFullSnapshot(tx: Transaction, input: FullSnapshotEn
       const sourceKey = `${kind}:${row.externalId}`;
       presentDocuments.add(sourceKey);
       const itemRows = lines.filter((line) => line.documentId === row.externalId);
-      const rowHash = sourceHash({ row, itemRows });
+      const customer = counterparties.get(row.counterpartyId)!;
+      const rowHash = sourceHash({ row, itemRows, customer: { name: customer.name, taxId: customer.taxId },
+        productNames: itemRows.map((line) => sourceMaterials.get(line.materialId)?.name) });
       // Buyer invoices do not require posting in 1C; a non-deleted invoice is issued.
       const status = row.deleted ? AccountingDocumentStatus.CANCELLED
         : kind === "INVOICE" || row.posted ? AccountingDocumentStatus.ISSUED : AccountingDocumentStatus.DRAFT;
@@ -151,7 +168,6 @@ export async function projectFullSnapshot(tx: Transaction, input: FullSnapshotEn
       const previousDetails = existing?.details && typeof existing.details === "object" && !Array.isArray(existing.details)
         ? existing.details as Record<string, unknown> : null;
       if (previousDetails?.oneCPayloadHash === rowHash && existing?.status === status) continue;
-      const customer = counterparties.get(row.counterpartyId)!;
       const vat = itemRows.reduce((sum, line) => sum.add(number(line.vatAmount, "line.vatAmount")), new Decimal(0));
       const total = number(row.amount, "document.amount");
       if (vat.gt(total)) throw new ApiError(422, "ONE_C_DOCUMENT_TOTAL_INVALID", "НДС документа превышает сумму");
@@ -201,5 +217,5 @@ export async function projectFullSnapshot(tx: Transaction, input: FullSnapshotEn
       documentChanges += 1;
     }
   }
-  return { inventoryChanges, documentChanges, financialReadModel: true };
+  return { directoryChanges, inventoryChanges, documentChanges, financialReadModel: true };
 }

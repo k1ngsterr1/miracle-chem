@@ -20,6 +20,7 @@ import {
 } from "../services/one-c-sync-service.js";
 import { fullSnapshotSchema, receiveFullSnapshot } from "../services/one-c-full-snapshot-service.js";
 import { getOneCFinance } from "../services/one-c-finance-service.js";
+import { getOneCSyncStatus } from "../services/one-c-status-service.js";
 import { reconcileLatestOneCWorkspace } from "../services/one-c-reconciliation-service.js";
 import { readOneCSourceSection, type OneCSourceSection } from "../services/one-c-source-read-service.js";
 import { finalizeOneCArchive, listOneCArchives, oneCArchiveChunkSchema, oneCArchiveStartSchema,
@@ -95,6 +96,16 @@ export class OneCSyncController {
     const { workspaceId, actor } = await getRequestContext(request, prisma);
     requirePermission(actor.role, "MATERIALS_VIEW");
     return { items: await listOneCSyncRuns(workspaceId) };
+  }
+
+  @Get("status")
+  async status(@Req() request: ApiRequest, @Res({ passthrough: true }) response: Response) {
+    const { workspaceId, actor } = await getRequestContext(request, prisma);
+    requirePermission(actor.role, "DASHBOARD_VIEW");
+    response.setHeader("Cache-Control", "no-store");
+    const status = await getOneCSyncStatus(workspaceId);
+    return { ...status, error: status.error && !["ADMIN", "DIRECTOR"].includes(actor.role)
+      ? { code: status.error.code, message: "Обмен завершился ошибкой. Обратитесь к администратору." } : status.error };
   }
 
   @Get("finance")

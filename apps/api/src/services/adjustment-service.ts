@@ -1,5 +1,6 @@
 import { convertQuantity } from "@betonflow/domain";
 import { Decimal } from "decimal.js";
+import { requireCrmStockAuthority } from "./one-c-stock-authority-service.js";
 import {
   AdjustmentStatus,
   AdjustmentTargetType,
@@ -177,6 +178,7 @@ async function applyTargetChange(
     }
     const material = await tx.material.findFirst({ where: { id: lot.materialId, workspaceId } });
     if (material === null) throw new ApiError(404, "MATERIAL_NOT_FOUND", "Материал не найден");
+    await requireCrmStockAuthority(tx, workspaceId, [material.id]);
     const materialAfter = new Decimal(material.currentStock.toString()).add(delta);
     if (materialAfter.isNegative()) throw new ApiError(409, "INVALID_ADJUSTED_STOCK", "Остаток материала не может быть отрицательным");
     await tx.materialLot.update({ where: { id: lot.id }, data: { availableQuantity: after.toString() } });

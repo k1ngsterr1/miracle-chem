@@ -6,6 +6,7 @@ export interface QuantityMetric {
 }
 
 export interface DashboardData {
+  financialBasis?: { source: "1C" | "CRM"; snapshotAt: string | null; receivablesScope: "CURRENT" };
   period: { from: string; to: string; timezone: string };
   metrics: {
     consumedMaterials: QuantityMetric[];
@@ -193,6 +194,7 @@ export interface MaterialMovement {
 }
 
 export interface Material {
+  stockAuthority?: "1C" | "CRM";
   id: string;
   code: string;
   name: string;
@@ -430,6 +432,7 @@ export interface BatchEconomics {
 }
 
 export interface Batch {
+  stockManagedExternally?: boolean;
   id: string;
   number: string;
   status: string;

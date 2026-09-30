@@ -32,7 +32,7 @@ const ProductionTrendChart = lazy(() => import("../components/DashboardCharts.js
 const DashboardAnalyticsCharts = lazy(() => import("../components/DashboardCharts.js").then((module) => ({ default: module.DashboardAnalyticsCharts })));
 
 export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" | "materials" | "transfers" | "expenses" | "accounting") => void }) {
-  const { allDates } = useDateFilter();
+  const { allDates, selectedDate } = useDateFilter();
   const dashboard = useApi<DashboardData>("/dashboard?analytics=false");
   const batches = useApi<{ items: Batch[] }>("/batches");
   const compactDashboard = useMobileLayout();
@@ -46,6 +46,9 @@ export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" |
   if (dashboard.error !== null) return <ErrorState message={dashboard.error} retry={dashboard.reload} />;
   if (dashboard.data === null) return null;
   const data = dashboard.data;
+  const periodLabel = allDates ? "все даты" : formatDate(`${selectedDate}T12:00:00`);
+  const sourceFinance = data.financialBasis?.source === "1C";
+  const debtAsOf = data.financialBasis?.snapshotAt;
   const stockWarnings = data.stockWarnings ?? [];
   const missingReagents = (data.mainReagents ?? []).filter((reagent) => reagent.missing);
   const stockAlertCount = stockWarnings.length + missingReagents.length;
@@ -87,14 +90,14 @@ export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" |
       ) : null}
 
       <div className="kpi-grid">
-        <Kpi icon={<FlaskConical />} label={allDates ? "Расход сырья за всё время" : "Расход сырья сегодня"} value={formatMetric(data.metrics.consumedMaterials)} hint="фактическое списание" tone="lime" badge={allDates ? "все даты" : "сегодня"} />
-        <Kpi icon={<PackageCheck />} label={allDates ? "Произведено за всё время" : "Произведено сегодня"} value={formatMetric(data.metrics.produced)} hint="готового продукта" tone="blue" badge={allDates ? "все даты" : "сегодня"} />
-        <Kpi icon={<Truck />} label="Отгружено" value={formatMetric(data.metrics.sentToLrt)} hint="подтверждённые отправки" tone="violet" badge={allDates ? "все даты" : "сегодня"} />
+        <Kpi icon={<FlaskConical />} label={allDates ? "Расход сырья за всё время" : "Расход сырья за день"} value={formatMetric(data.metrics.consumedMaterials)} hint="фактическое списание по замесам" tone="lime" badge={periodLabel} />
+        <Kpi icon={<PackageCheck />} label={allDates ? "Произведено за всё время" : "Произведено за день"} value={formatMetric(data.metrics.produced)} hint="готового продукта по замесам" tone="blue" badge={periodLabel} />
+        <Kpi icon={<Truck />} label="Отгружено" value={formatMetric(data.metrics.sentToLrt)} hint="подтверждённые отправки" tone="violet" badge={periodLabel} />
         <Kpi icon={<Boxes />} label="Доступный остаток" value={formatMetric(data.metrics.availableProduct)} hint="по всем партиям" tone="amber" badge="сейчас" />
         <Kpi icon={<CircleGauge />} label="Активные замесы" value={String(data.metrics.activeBatches)} hint={`${active.filter((batch) => batch.status === "IN_PROGRESS").length} сейчас в работе`} tone="green" badge="сейчас" />
-        <Kpi icon={<TrendingDown />} label={allDates ? "Потери за всё время" : "Потери за день"} value={`${data.metrics.lossPercent}%`} hint="от общего выпуска" tone="red" warning={Number(data.metrics.lossPercent) > 2} badge={allDates ? "все даты" : "сегодня"} />
-        <Kpi icon={<BadgeDollarSign />} label={allDates ? "Доход за всё время" : "Доход за день"} value={formatExpenseTotals(data.metrics.dailyRevenue ?? [])} hint="по выставленным и оплаченным счетам" tone="green" badge={allDates ? "все даты" : "сегодня"} />
-        <Kpi icon={<Landmark />} label="Дебиторская задолженность" value={formatExpenseTotals(data.metrics.accountsReceivable ?? [])} hint={`${(data.receivables ?? []).reduce((sum, item) => sum + item.invoiceCount, 0)} неоплаченных счетов`} tone="amber" badge="текущая" />
+        <Kpi icon={<TrendingDown />} label={allDates ? "Потери за всё время" : "Потери за день"} value={`${data.metrics.lossPercent}%`} hint="от выпуска по замесам" tone="red" warning={Number(data.metrics.lossPercent) > 2} badge={periodLabel} />
+        <Kpi icon={<BadgeDollarSign />} label={allDates ? "Реализация за всё время" : "Реализация за день"} value={formatExpenseTotals(data.metrics.dailyRevenue ?? [])} hint={sourceFinance ? "по проведённым реализациям, не оплаты" : "по выставленным и оплаченным счетам"} tone="green" badge={periodLabel} />
+        <Kpi icon={<Landmark />} label="Дебиторская задолженность" value={formatExpenseTotals(data.metrics.accountsReceivable ?? [])} hint={debtAsOf ? `На ${formatDate(debtAsOf, true)} · не зависит от периода` : "Текущая · не зависит от периода"} tone="amber" badge={sourceFinance ? "по обмену" : "текущая"} />
       </div>
 
       <Panel className="receivables-panel">
@@ -103,7 +106,7 @@ export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" |
           action={<button className="text-button" onClick={() => onNavigate("accounting")}>Открыть бухгалтерию <ChevronRight size={15} /></button>}
         />
         {(data.receivables ?? []).length === 0 ? (
-          <EmptyState title="Задолженности нет" text="Все выставленные клиентам счета оплачены." />
+          <EmptyState title="Задолженности нет" text={debtAsOf ? `По данным на ${formatDate(debtAsOf, true)}` : "По текущим данным"} />
         ) : (
           <div className="receivables-list">
             {data.receivables.map((item) => {
@@ -112,7 +115,7 @@ export function DashboardPage({ onNavigate }: { onNavigate: (target: "batches" |
                 <button type="button" key={`${item.counterpartyTaxId ?? item.counterparty}-${item.currency}`} onClick={() => onNavigate("accounting")}>
                   <span className="receivable-avatar">{counterpartyInitials(item.counterparty)}</span>
                   <span className="receivable-client"><strong>{item.counterparty}</strong><small>{item.counterpartyTaxId === null ? "БИН не указан" : `БИН ${item.counterpartyTaxId}`}</small></span>
-                  <span className="receivable-meta"><small>Неоплаченные счета</small><strong>{item.invoiceCount}</strong></span>
+                  <span className="receivable-meta"><small>{sourceFinance ? "Выставлено счетов" : "Неоплаченные счета"}</small><strong>{item.invoiceCount}</strong></span>
                   <span className="receivable-meta"><small>Последний документ</small><strong>{formatDate(item.lastDocumentAt)}</strong></span>
                   <span className="receivable-amount"><small>Отгружено / к оплате</small><strong>{formatMoney(item.amount, item.currency)}</strong>{overdue ? <em>Просрочено {formatMoney(item.overdueAmount, item.currency)}</em> : <em>{item.nearestDueAt === null ? "Срок не указан" : "В пределах срока"}</em>}</span>
                   <ChevronRight size={17} />

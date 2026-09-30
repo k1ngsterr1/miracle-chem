@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { AuditEntityType, OneCSyncRunStatus, type Prisma } from "../generated/prisma/index.js";
+import { AuditEntityType, OneCSyncRunStatus, Prisma } from "../generated/prisma/index.js";
 import { ApiError } from "../lib/api-error.js";
 import { prisma } from "../lib/prisma.js";
 import { projectFullSnapshot } from "./one-c-projection-service.js";
@@ -116,7 +116,9 @@ export async function receiveFullSnapshot(input: FullSnapshotEnvelope) {
     if (existing !== null) {
       const previousHash = (existing.summary as Record<string, unknown> | null)?.sha256;
       if (previousHash !== sha256) throw new ApiError(409, "ONE_C_BATCH_CHANGED", "Повторный batchId содержит другой снимок 1С");
-      return { status: "COMPLETED" as const, replayed: true, runId: existing.id, sha256 };
+      if (existing.status === OneCSyncRunStatus.COMPLETED) {
+        return { status: "COMPLETED" as const, replayed: true, runId: existing.id, sha256 };
+      }
     }
     const newest = await tx.oneCSourceSnapshot.findFirst({
       where: { workspaceId: input.workspaceId, sourceInstanceId: input.sourceInstanceId },
@@ -143,24 +145,41 @@ export async function receiveFullSnapshot(input: FullSnapshotEnvelope) {
       !Array.isArray(baseline.payload) && (baseline.payload as Record<string, unknown>).schemaVersion === 1;
     const projection = staged ? await projectFullSnapshot(tx, input, sha256) : null;
     const summary = { sha256, snapshotId: saved.id, counts, appliedToOperationalTables: projection !== null, projection };
-    const run = await tx.oneCSyncRun.create({ data: { workspaceId: input.workspaceId, source, batchId: input.batchId,
+    const runData = { workspaceId: input.workspaceId, source, batchId: input.batchId,
       generatedAt: new Date(input.generatedAt), status: OneCSyncRunStatus.COMPLETED,
-      completedAt: new Date(), summary } });
+      completedAt: new Date(), summary, error: Prisma.DbNull };
+    const run = await tx.oneCSyncRun.upsert({
+      where: { workspaceId_source_batchId: { workspaceId: input.workspaceId, source, batchId: input.batchId } },
+      create: runData, update: runData,
+    });
     await tx.auditLog.create({ data: { workspaceId: input.workspaceId,
       action: "ONE_C_FULL_SNAPSHOT_RECEIVED", entityType: AuditEntityType.ONE_C_SYNC,
       entityId: run.id, after: summary } });
     return { status: "COMPLETED" as const, replayed: false, runId: run.id, sha256, summary };
-    }, { maxWait: 10_000, timeout: 120_000 });
+    }, { maxWait: 10_000, timeout: 120_000, isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   } catch (error) {
     // Two identical deliveries can race before either transaction sees the run.
     if (typeof error === "object" && error !== null && "code" in error && error.code === "P2002") {
       const run = await prisma.oneCSyncRun.findUnique({
         where: { workspaceId_source_batchId: { workspaceId: input.workspaceId, source, batchId: input.batchId } },
       });
-      if (run && (run.summary as Record<string, unknown> | null)?.sha256 === sha256) {
+      if (run?.status === OneCSyncRunStatus.COMPLETED && (run.summary as Record<string, unknown> | null)?.sha256 === sha256) {
         return { status: "COMPLETED" as const, replayed: true, runId: run.id, sha256 };
       }
     }
+    // The projection transaction rolls back entirely. Record the failed attempt separately,
+    // without overwriting a concurrent success or accepting a changed batchId on retry.
+    const failure = error instanceof ApiError
+      ? { code: error.code, message: error.message, details: error.details ?? null }
+      : { code: "ONE_C_SNAPSHOT_FAILED", message: "Не удалось применить снимок. Агент повторит временную ошибку." };
+    await prisma.oneCSyncRun.createMany({ data: [{ workspaceId: input.workspaceId, source, batchId: input.batchId,
+      generatedAt: new Date(input.generatedAt), status: OneCSyncRunStatus.FAILED,
+      completedAt: new Date(), summary: { sha256 }, error: failure as Prisma.InputJsonValue }],
+      skipDuplicates: true }).then(() => prisma.oneCSyncRun.updateMany({
+        where: { workspaceId: input.workspaceId, source, batchId: input.batchId, status: OneCSyncRunStatus.FAILED,
+          summary: { path: ["sha256"], equals: sha256 } },
+        data: { completedAt: new Date(), error: failure as Prisma.InputJsonValue },
+      })).catch(() => { /* Keep the original error if the database is unavailable. */ });
     throw error;
   }
 }

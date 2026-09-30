@@ -381,7 +381,7 @@ async function syncReceipt(
     unitCost: input.unitCost,
     currency: input.currency,
     qualitySnapshot: asJson({ source: "1C", documentNumber: input.number, externalId: input.externalId }),
-  }) as { materialLotId: string };
+  }, "ONE_C") as { materialLotId: string };
   await prisma.$transaction(async (tx) => {
     await saveReference(tx, workspaceId, source, OneCSyncEntityType.PURCHASE_RECEIPT, input.externalId, result.materialLotId, input.updatedAt, input);
   });

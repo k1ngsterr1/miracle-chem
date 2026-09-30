@@ -168,6 +168,7 @@ export function MaterialsPage({ actorRole }: { actorRole: string | undefined }) 
   if (purchaseBatches.error !== null) return <ErrorState message={purchaseBatches.error} retry={purchaseBatches.reload} />;
   if (recipes.error !== null) return <ErrorState message={recipes.error} retry={recipes.reload} />;
   const all = materials.data?.items ?? [];
+  const writableMaterials = all.filter((material) => material.stockAuthority !== "1C");
   const gluconate = materials.data?.summary?.sodiumGluconate;
   const recipeItems = recipes.data?.items ?? [];
   const pendingReviews = (oneCSyncReviews.data?.items ?? []).filter((review) => review.status === "PENDING");
@@ -203,10 +204,10 @@ export function MaterialsPage({ actorRole }: { actorRole: string | undefined }) 
         title="Склад"
         actions={(
           <>
-            {canMoveMaterials ? <button className="button ghost" disabled={all.length === 0} onClick={() => setConsumptionMaterial(all[0] ?? null)}>
+            {canMoveMaterials ? <button className="button ghost" disabled={writableMaterials.length === 0} title={writableMaterials.length === 0 ? "Остатками управляет 1С" : undefined} onClick={() => setConsumptionMaterial(writableMaterials[0] ?? null)}>
               <ChevronUp size={17} /> Расход
             </button> : null}
-            {canMoveMaterials ? <button className="button ghost" disabled={all.length === 0} onClick={() => setReceiptMaterial(all[0] ?? null)}>
+            {canMoveMaterials ? <button className="button ghost" disabled={writableMaterials.length === 0} title={writableMaterials.length === 0 ? "Остатками управляет 1С" : undefined} onClick={() => setReceiptMaterial(writableMaterials[0] ?? null)}>
               <ChevronDown size={17} /> Приход
             </button> : null}
             {canManageMaterials ? <button className="button ghost" onClick={() => setCreateOpen(true)}>
@@ -215,7 +216,7 @@ export function MaterialsPage({ actorRole }: { actorRole: string | undefined }) 
             {canViewAdjustments ? <button className="button ghost" onClick={() => setAdjustmentsOpen(true)}>
               <History size={17} /> Корректировки
             </button> : null}
-            {canManageMaterials && canViewRecipes ? <button className="button primary" disabled={all.length === 0} onClick={() => setPurchaseOpen(true)}>
+            {canManageMaterials && canViewRecipes ? <button className="button primary" disabled={writableMaterials.length === 0} title={writableMaterials.length === 0 ? "Остатками управляет 1С" : undefined} onClick={() => setPurchaseOpen(true)}>
               <PackageOpen size={17} /> Новая партия
             </button> : null}
           </>
@@ -341,17 +342,17 @@ export function MaterialsPage({ actorRole }: { actorRole: string | undefined }) 
         />
       )}
       {createOpen ? <CreateMaterialModal onClose={() => setCreateOpen(false)} onCreated={async () => { setCreateOpen(false); await materials.reload(); }} /> : null}
-      {purchaseOpen ? <PurchaseBatchModal materials={all} recipes={recipeItems} suppliers={purchaseBatches.data?.suppliers ?? []} onClose={() => setPurchaseOpen(false)} onCreated={async () => { setPurchaseOpen(false); await Promise.all([materials.reload(), purchaseBatches.reload()]); }} /> : null}
+      {purchaseOpen ? <PurchaseBatchModal materials={writableMaterials} recipes={recipeItems} suppliers={purchaseBatches.data?.suppliers ?? []} onClose={() => setPurchaseOpen(false)} onCreated={async () => { setPurchaseOpen(false); await Promise.all([materials.reload(), purchaseBatches.reload()]); }} /> : null}
       {selectedPurchase === null ? null : <PurchaseBatchDetail batch={selectedPurchase} onClose={() => setSelectedPurchase(null)} />}
       {selectedReceipt ? <Modal title={`Поступление №${selectedReceipt[0]?.number ?? ""}`} onClose={() => setSelectedReceipt(null)}>
         <div className="imported-record-detail"><p>{formatDate(selectedReceipt[0]?.receivedAt ?? "", true)} · {selectedReceipt[0]?.supplier} · {selectedReceipt[0]?.warehouse}</p>
           <h3>Материалы</h3>{selectedReceipt.map((item) => <div key={`${item.documentId}:${item.lineNumber}`}><strong>{item.material}</strong><span>{sourceDecimal(item.quantity)} {item.unitName}</span><small>{sourceDecimal(item.amount)} {item.currencyName} · {sourceDecimal(item.unitPrice)} {item.currencyName} за {item.unitName}</small></div>)}
           <p className="imported-record-note">Запись доступна только для просмотра.</p></div>
       </Modal> : null}
-      {receiptMaterial === null ? null : <ReceiptModal materials={all} initial={receiptMaterial} onClose={() => setReceiptMaterial(null)} onCreated={async () => { setReceiptMaterial(null); await materials.reload(); }} />}
-      {consumptionMaterial === null ? null : <ConsumptionModal materials={all} initial={consumptionMaterial} onClose={() => setConsumptionMaterial(null)} onCreated={async () => { setConsumptionMaterial(null); await materials.reload(); }} />}
+      {receiptMaterial === null ? null : <ReceiptModal materials={writableMaterials} initial={receiptMaterial} onClose={() => setReceiptMaterial(null)} onCreated={async () => { setReceiptMaterial(null); await materials.reload(); }} />}
+      {consumptionMaterial === null ? null : <ConsumptionModal materials={writableMaterials} initial={consumptionMaterial} onClose={() => setConsumptionMaterial(null)} onCreated={async () => { setConsumptionMaterial(null); await materials.reload(); }} />}
       {reviewAction === null ? null : <RejectOneCReviewModal review={reviewAction} busy={reviewBusy} onClose={() => setReviewAction(null)} onReject={rejectReview} />}
-      {adjustmentsOpen ? <AdjustmentsModal materials={all} canApply={canApplyAdjustments} onClose={() => setAdjustmentsOpen(false)} /> : null}
+      {adjustmentsOpen ? <AdjustmentsModal materials={writableMaterials} canApply={canApplyAdjustments} onClose={() => setAdjustmentsOpen(false)} /> : null}
     </>
   );
 }
@@ -621,8 +622,10 @@ function MaterialDetail({
         <div className="detail-volume"><strong>{formatNumber(detail.currentStock)} {unitLabel[detail.baseUnit]}</strong><span>на складе</span></div>
       </div>
       <div className="warehouse-detail-actions">
-        <button className="button ghost small" onClick={onConsumption}><ChevronUp size={15} /> Оформить расход</button>
-        <button className="button primary small" onClick={onReceipt}><ChevronDown size={15} /> Оформить приход</button>
+        {material.stockAuthority === "1C" ? <span>Остатки обновляются из 1С. Складские операции оформляются там.</span> : <>
+          <button className="button ghost small" onClick={onConsumption}><ChevronUp size={15} /> Оформить расход</button>
+          <button className="button primary small" onClick={onReceipt}><ChevronDown size={15} /> Оформить приход</button>
+        </>}
       </div>
       {history.loading ? <LoadingState /> : history.error !== null ? <ErrorState message={history.error} retry={history.reload} /> : (
         <div className="warehouse-history-grid">
