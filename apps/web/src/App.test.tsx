@@ -241,6 +241,11 @@ describe("Miracle Chem app shell", () => {
         ? authSession
         : url.endsWith("/meta")
         ? meta
+        : url.includes("/historical-workbooks/warehouse")
+          ? { claims: [], checkpoints: [] }
+        : url.includes("/historical-workbooks/sales") || url.includes("/historical-workbooks/formulas")
+          || url.includes("/historical-workbooks/material-usage") || url.includes("/historical-workbooks/customers")
+          ? { items: [] }
         : url.endsWith("/materials")
           ? warehouse
         : url.endsWith("/formulas")
@@ -476,6 +481,27 @@ describe("Miracle Chem app shell", () => {
     expect(screen.queryByRole("button", { name: /Начать замес/u })).not.toBeInTheDocument();
   });
 
+  it("keeps Excel production visible when a 1C report has the same date", async () => {
+    const fallbackFetch = globalThis.fetch;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("/historical-workbooks/production")) {
+        return { ok: true, status: 200, json: async () => ({ items: [{
+          id: "excel-production-1", fileName: "Отчет 2026 Сентябрь.xlsx", sourceSheet: "производство",
+          sourceRows: [10], dateFrom: "2026-09-27", dateTo: "2026-09-27", customer: "ETG",
+          volumeM3: "10", ingredients: [{ name: "КТ1", rate: "270", consumed: "2700" }],
+        }] }) } as Response;
+      }
+      return fallbackFetch(input, init);
+    }));
+    window.location.hash = "batches";
+    render(<App />);
+    await screen.findByRole("heading", { name: "Замесы" });
+    fireEvent.click(screen.getByRole("button", { name: "Все даты" }));
+    expect(await screen.findByText("PROD-1")).toBeInTheDocument();
+    expect(await screen.findByText("ETG")).toBeInTheDocument();
+    expect(screen.getByText("Показано 2 из 2")).toBeInTheDocument();
+  });
+
   it("lists imported payments with accounting documents and keeps their details read-only", async () => {
     const originalFetch = vi.mocked(fetch);
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -493,7 +519,7 @@ describe("Miracle Chem app shell", () => {
     expect(screen.queryByRole("heading", { name: "Данные из 1С" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Все даты" }));
     expect(await screen.findByText("PAY-1")).toBeInTheDocument();
-    expect(screen.getByText("Журнал документов и платежей")).toBeInTheDocument();
+    expect(screen.getByText("Журнал операций")).toBeInTheDocument();
     expect(screen.queryByText("Поступление · 1С")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Открыть платёж PAY-1" }));
     const paymentDialog = screen.getByRole("dialog", { name: "Поступление №PAY-1" });

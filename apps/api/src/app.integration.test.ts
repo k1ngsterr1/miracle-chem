@@ -230,11 +230,24 @@ describe("Miracle Chem NestJS API integration", () => {
       sha256: "a".repeat(64), payload: { schemaVersion: 1, sourceKey: "integration-test",
         fileName: "history.xlsx", sha256: "a".repeat(64),
         sheets: [{ name: "реализация", maxRow: 1, maxColumn: 1, rows: [{ number: 1,
-          cells: [{ address: "A1", value: "private financial data" }] }] }],
+          cells: [{ address: "A1", value: "private financial data" }] }] },
+        { name: "вирт склад", maxRow: 7, maxColumn: 10, rows: [
+          { number: 4, cells: [{ address: "A4", value: "Поставщик" }, { address: "B4", value: "КТ1" },
+            { address: "E4", value: "29700" }, { address: "J4", value: "кт1" }] },
+          { number: 5, cells: [{ address: "H5", value: "2026-08-01" }, { address: "I5", value: "точка отчета" },
+            { address: "J5", value: "29700" }] },
+          { number: 6, cells: [{ address: "I6", value: "расход" }, { address: "J6", value: "30000" }] },
+          { number: 7, cells: [{ address: "I7", value: "остаток" }, { address: "J7", value: "-300" }] },
+        ] }],
         production: [{ sourceSheet: "производство", sourceRows: [2], dateFrom: "2026-08-01",
           dateTo: "2026-08-01", customer: null, volumeM3: "10",
           ingredients: [{ name: "КТ1", rate: "270", consumed: "2700", sourceRow: 2 }] }],
-        formulas: [], sales: [], unlabelledSalesMetrics: [] },
+        formulas: [{ sourceSheet: "Формулы", sourceRows: [3, 4], number: "1", customer: "M-DAT",
+          components: [{ name: "КТ1", quantity: "180", unitPrice: "100", lineTotal: "18000", sourceRow: 3 }],
+          total: "18000", costPerUnit: "18" }],
+        sales: [{ sourceSheet: "реализация", sourceRows: [5], date: "2026-08-01", customer: "M-DAT",
+          quantityM3: "10", unitPrice: "1000", total: "10000", acceptedDate: null, acceptedQuantity: null }],
+        unlabelledSalesMetrics: [] },
     } });
     try {
       const production = await app.inject({ method: "GET", url: "/api/historical-workbooks/production?date=2026-08-01",
@@ -244,6 +257,68 @@ describe("Miracle Chem NestJS API integration", () => {
       const otherDate = await app.inject({ method: "GET", url: "/api/historical-workbooks/production?date=2026-08-02",
         headers: contextHeaders });
       expect(otherDate.json().items).toHaveLength(0);
+      const sales = await app.inject({ method: "GET", url: "/api/historical-workbooks/sales?date=2026-08-01",
+        headers: contextHeaders });
+      expect(sales.statusCode).toBe(200);
+      expect(sales.headers["cache-control"]).toBe("private, no-store");
+      expect(sales.json().items).toMatchObject([{ customer: "M-DAT", quantityM3: "10", workbookId: workbook.id }]);
+      const salesOutsidePeriod = await app.inject({ method: "GET",
+        url: "/api/historical-workbooks/sales?from=2026-09-01&to=2026-09-30", headers: contextHeaders });
+      expect(salesOutsidePeriod.json().items).toHaveLength(0);
+      const formulas = await app.inject({ method: "GET", url: "/api/historical-workbooks/formulas",
+        headers: contextHeaders });
+      expect(formulas.json().items).toMatchObject([{ number: "1", total: "18000" }]);
+      expect(formulas.headers["cache-control"]).toBe("private, no-store");
+      const usage = await app.inject({ method: "GET", url: "/api/historical-workbooks/material-usage?date=2026-08-01",
+        headers: contextHeaders });
+      expect(usage.json().items).toMatchObject([{ name: "КТ1", consumed: "2700", dateFrom: "2026-08-01" }]);
+      const warehouse = await app.inject({ method: "GET", url: "/api/historical-workbooks/warehouse",
+        headers: contextHeaders });
+      expect(warehouse.statusCode).toBe(200);
+      expect(warehouse.json()).toMatchObject({ claims: [{ material: "КТ1", quantityKg: "29700" }],
+        checkpoints: [{ dateFrom: "2026-08-01", materials: [{ after: "-300" }] }] });
+      const warehouseOtherDay = await app.inject({ method: "GET",
+        url: "/api/historical-workbooks/warehouse?date=2026-08-02", headers: contextHeaders });
+      expect(warehouseOtherDay.json()).toMatchObject({ claims: [], checkpoints: [] });
+      const customers = await app.inject({ method: "GET", url: "/api/historical-workbooks/customers",
+        headers: contextHeaders });
+      expect(customers.json().items).toMatchObject([{ name: "M-DAT", sales: [{ quantityM3: "10" }],
+        formulas: [{ number: "1" }] }]);
+      const customerListForViewer = await app.inject({ method: "GET", url: "/api/historical-workbooks/customers",
+        headers: viewerHeaders });
+      expect(customerListForViewer.statusCode).toBe(200);
+      const salesDeniedToViewer = await app.inject({ method: "GET", url: "/api/historical-workbooks/sales",
+        headers: viewerHeaders });
+      expect(salesDeniedToViewer.statusCode).toBe(403);
+      const formulasDeniedToViewer = await app.inject({ method: "GET", url: "/api/historical-workbooks/formulas",
+        headers: viewerHeaders });
+      expect(formulasDeniedToViewer.statusCode).toBe(403);
+      const logisticsUser = await prisma.user.create({ data: { workspaceId: testIds.workspace,
+        name: "Historical Sales Viewer", email: "historical-sales-viewer@miracle-chem.test",
+        passwordHash: hashPassword("Integration#2026"), role: UserRole.STOREKEEPER } });
+      try {
+        const logisticsSales = await app.inject({ method: "GET", url: "/api/historical-workbooks/sales",
+          headers: { "x-workspace-id": testIds.workspace, "x-actor-id": logisticsUser.id } });
+        expect(logisticsSales.statusCode).toBe(200);
+        expect(logisticsSales.json().items).toMatchObject([{ quantityM3: "10", unitPrice: null, total: null }]);
+      } finally {
+        await prisma.user.delete({ where: { id: logisticsUser.id } });
+      }
+      const invalidDate = await app.inject({ method: "GET", url: "/api/historical-workbooks/sales?date=not-a-date",
+        headers: contextHeaders });
+      expect(invalidDate.statusCode).toBe(400);
+      const malformed = await prisma.historicalWorkbook.create({ data: { workspaceId: testIds.workspace,
+        sourceKey: "malformed-test", fileName: "malformed.xlsx", sha256: "b".repeat(64),
+        payload: { schemaVersion: 1, sourceKey: "malformed-test", fileName: "malformed.xlsx",
+          sha256: "b".repeat(64), sheets: [], production: [], sales: [], formulas: [{ number: "1" }],
+          unlabelledSalesMetrics: [] } } });
+      try {
+        const broken = await app.inject({ method: "GET", url: "/api/historical-workbooks/formulas",
+          headers: contextHeaders });
+        expect(broken.statusCode).toBe(409);
+      } finally {
+        await prisma.historicalWorkbook.delete({ where: { id: malformed.id } });
+      }
       const list = await app.inject({ method: "GET", url: "/api/historical-workbooks", headers: contextHeaders });
       expect(list.statusCode).toBe(200);
       expect(list.json().items[0].fileName).toBe("history.xlsx");

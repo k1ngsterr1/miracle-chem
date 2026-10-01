@@ -74,12 +74,8 @@ export function BatchesPage({ meta, actorRole }: { meta: MetaData | null; actorR
   const [selectedHistorical, setSelectedHistorical] = useState<HistoricalProduction | null>(null);
   const [visibleCount, setVisibleCount] = useState(50);
   const canManageBatches = ["ADMIN", "DIRECTOR", "TECHNOLOGIST", "OPERATOR"].includes(actorRole ?? "");
-  const oneCProductionDates = useMemo(() => new Set(production.items.map((report) => report.documentAt.slice(0, 10))), [production.items]);
-  // A workbook row has no 1C document ID. Prefer 1C in the common journal on
-  // overlapping days; the full Excel row remains available in historical reports.
-  const unmatchedHistory = useMemo(() => (production.loading ? [] : historical.data?.items ?? []).filter((item) =>
-    ![...oneCProductionDates].some((day) => item.dateFrom <= day && item.dateTo >= day)),
-  [historical.data, oneCProductionDates, production.loading]);
+  // A shared date does not prove that a workbook row is the same 1C document.
+  const history = historical.data?.items ?? [];
   const rows = useMemo(() => {
     const normalized = query.toLocaleLowerCase("ru");
     const crm = (batches.data?.items ?? []).filter((batch) => matchesBatchFilter(batch.status, filter) &&
@@ -90,12 +86,12 @@ export function BatchesPage({ meta, actorRole }: { meta: MetaData | null; actorR
       [report.number, report.warehouse, ...report.products.flatMap((part) => [part.material, part.specification])]
         .some((value) => value.toLocaleLowerCase("ru").includes(normalized)))
       .map((value) => ({ kind: "report" as const, value, date: value.documentAt }));
-    const history = unmatchedHistory.filter((item) => (filter === "ALL" || filter === "COMPLETED") &&
+    const historicalRows = history.filter((item) => (filter === "ALL" || filter === "COMPLETED") &&
       [item.customer ?? "", item.dateFrom, item.part ?? "", ...item.ingredients.map((part) => part.name)]
         .some((value) => value.toLocaleLowerCase("ru").includes(normalized)))
       .map((value) => ({ kind: "history" as const, value, date: `${value.dateFrom}T12:00:00.000Z` }));
-    return [...crm, ...imported, ...history].sort((a, b) => b.date.localeCompare(a.date));
-  }, [batches.data, filter, production.items, query, unmatchedHistory]);
+    return [...crm, ...imported, ...historicalRows].sort((a, b) => b.date.localeCompare(a.date));
+  }, [batches.data, filter, history, production.items, query]);
   useEffect(() => setVisibleCount(50), [allDates, filter, query, selectedDate]);
 
   if (batches.loading) return <LoadingState />;
@@ -110,7 +106,7 @@ export function BatchesPage({ meta, actorRole }: { meta: MetaData | null; actorR
       />
 
       <div className="summary-strip">
-        <Summary value={String(allBatches.length + production.items.length + unmatchedHistory.length)} label="записей в журнале" icon={<Factory />} />
+        <Summary value={String(allBatches.length + production.items.length + history.length)} label="записей в журнале" icon={<Factory />} />
         <Summary value={formatNumber((batches.data?.items ?? []).filter((item) => item.status === "COMPLETED").reduce((sum, item) => sum + Number(item.actualOutput ?? 0), 0))} label="м³ по замесам" icon={<FlaskConical />} />
         <Summary value={formatMoney((batches.data?.items ?? []).reduce((sum, item) => sum + Number(item.totalCost), 0))} label="стоимость по замесам" icon={<CircleGauge />} />
         <Summary value={String((batches.data?.items ?? []).filter((item) => item.status === "PLANNED").length)} label="в очереди" icon={<ShieldCheck />} />
@@ -123,7 +119,7 @@ export function BatchesPage({ meta, actorRole }: { meta: MetaData | null; actorR
               const count = allBatches.filter((batch) => matchesBatchFilter(batch.status, id)).length
                 + (id === "ALL" ? production.items.length : id === "COMPLETED"
                   ? production.items.filter((report) => report.posted && !report.deleted).length : 0)
-                + (["ALL", "COMPLETED"].includes(id) ? unmatchedHistory.length : 0);
+                + (["ALL", "COMPLETED"].includes(id) ? history.length : 0);
               return <button type="button" key={id} className={`${tone}${filter === id ? " active" : ""}`} aria-pressed={filter === id} onClick={() => setFilter(id)}><i aria-hidden="true" /><span>{label}</span><em>{count}</em></button>;
             })}
           </div>

@@ -23,7 +23,9 @@ describe("read-only and quality role actions", () => {
   it("does not expose customer write actions to read-only roles", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      const payload = url.endsWith("/customers/customer-1")
+      const payload = url.includes("/historical-workbooks/customers")
+        ? { items: [] }
+        : url.endsWith("/customers/customer-1")
         ? { ...customer, timeline: [] }
         : url.endsWith("/customers")
           ? { items: [customer], summary: { activeCustomers: 1, concreteRecipes: 0, formulasInUse: 0 } }

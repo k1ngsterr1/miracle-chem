@@ -35,6 +35,8 @@ import type {
   SupplierSummary,
   Unit,
 } from "../types.js";
+import type { HistoricalMaterialUsage, HistoricalWarehouseCheckpoint,
+  HistoricalWarehouseClaim } from "../types/historical.js";
 import { formatDate, formatMoney, formatNumber, unitLabel } from "../lib/format.js";
 import {
   EmptyState,
@@ -115,6 +117,9 @@ export function MaterialsPage({ actorRole }: { actorRole: string | undefined }) 
   const materials = useApi<MaterialListResponse>("/materials");
   const purchaseBatches = useApi<{ items: PurchaseBatch[]; suppliers: SupplierSummary[] }>("/materials/purchase-batches");
   const receipts = useOneCSource<OneCReceipt>("receipts", "receivedAt", ["ADMIN", "DIRECTOR"].includes(actorRole ?? ""));
+  const workbookUsage = useApi<{ items: HistoricalMaterialUsage[] }>("/historical-workbooks/material-usage");
+  const workbookWarehouse = useApi<{ claims: HistoricalWarehouseClaim[];
+    checkpoints: HistoricalWarehouseCheckpoint[] }>("/historical-workbooks/warehouse");
   const canManageMaterials = ["ADMIN", "DIRECTOR", "TECHNOLOGIST", "STOREKEEPER"].includes(actorRole ?? "");
   const canMoveMaterials = ["ADMIN", "DIRECTOR", "TECHNOLOGIST", "OPERATOR", "STOREKEEPER"].includes(actorRole ?? "");
   const canViewRecipes = ["ADMIN", "DIRECTOR", "TECHNOLOGIST"].includes(actorRole ?? "");
@@ -129,6 +134,10 @@ export function MaterialsPage({ actorRole }: { actorRole: string | undefined }) 
   const [selectedReceipt, setSelectedReceipt] = useState<OneCReceipt[] | null>(null);
   const [purchaseQuery, setPurchaseQuery] = useState("");
   const [visiblePurchases, setVisiblePurchases] = useState(30);
+  const [visibleUsage, setVisibleUsage] = useState(30);
+  const [selectedUsage, setSelectedUsage] = useState<HistoricalMaterialUsage | null>(null);
+  const [selectedWarehouseClaim, setSelectedWarehouseClaim] = useState<HistoricalWarehouseClaim | null>(null);
+  const [selectedCheckpoint, setSelectedCheckpoint] = useState<HistoricalWarehouseCheckpoint | null>(null);
   const [receiptMaterial, setReceiptMaterial] = useState<Material | null>(null);
   const [consumptionMaterial, setConsumptionMaterial] = useState<Material | null>(null);
   const [reviewAction, setReviewAction] = useState<OneCSyncReview | null>(null);
@@ -292,6 +301,40 @@ export function MaterialsPage({ actorRole }: { actorRole: string | undefined }) 
       </Panel>
       {receipts.error ? <p className="inline-load-error" role="alert">Не удалось загрузить часть поступлений. <button type="button" onClick={() => void receipts.reload()}>Повторить</button></p> : null}
 
+      {(workbookUsage.data?.items.length ?? 0) > 0 ? <Panel className="table-panel">
+        <div className="table-toolbar"><div><h2>Расход реагентов по выпуску</h2></div><span className="soft-tag">{workbookUsage.data?.items.length} записей</span></div>
+        <div className="data-table-wrap"><table className="data-table"><thead><tr><th>Период</th><th>Реагент</th><th>Клиент</th><th>Выпуск</th><th>Норма</th><th>Расход</th></tr></thead><tbody>
+          {workbookUsage.data?.items.slice(0, visibleUsage).map((row) => <tr key={row.id} onClick={() => setSelectedUsage(row)}>
+            <td>{row.dateFrom === row.dateTo ? row.dateFrom : `${row.dateFrom} — ${row.dateTo}`}</td>
+            <td><strong>{row.name}</strong></td><td>{row.customer ?? "Не указан"}</td>
+            <td>{formatNumber(row.volumeM3)} м³</td><td>{formatNumber(row.rate)} на м³</td>
+            <td><strong>{formatNumber(row.consumed)}</strong></td>
+          </tr>)}
+        </tbody></table></div>
+        {(workbookUsage.data?.items.length ?? 0) > visibleUsage ? <div className="journal-more"><button type="button" className="button ghost small" onClick={() => setVisibleUsage((count) => count + 30)}>Показать ещё</button></div> : null}
+      </Panel> : null}
+      {workbookUsage.error ? <p className="inline-load-error" role="alert">Не удалось загрузить расход из Excel. <button type="button" onClick={() => void workbookUsage.reload()}>Повторить</button></p> : null}
+
+      {(workbookWarehouse.data?.claims.length ?? 0) + (workbookWarehouse.data?.checkpoints.length ?? 0) > 0 ? <Panel className="table-panel">
+        <div className="table-toolbar"><div><h2>Складские данные по отчётам</h2></div><span className="soft-tag">Для сверки</span></div>
+        {(workbookWarehouse.data?.claims.length ?? 0) > 0 ? <div className="data-table-wrap"><table className="data-table">
+          <thead><tr><th>Материал</th><th>Источник</th><th>Количество, кг</th><th>Файл</th></tr></thead><tbody>
+            {workbookWarehouse.data?.claims.map((row) => <tr key={row.id} onClick={() => setSelectedWarehouseClaim(row)}>
+              <td><strong>{row.material}</strong></td><td>{row.supplier ?? "Не указан"}</td>
+              <td>{formatNumber(row.quantityKg)}</td><td>{row.fileName}</td>
+            </tr>)}
+          </tbody></table></div> : null}
+        {(workbookWarehouse.data?.checkpoints.length ?? 0) > 0 ? <div className="data-table-wrap"><table className="data-table">
+          <thead><tr><th>Контрольная дата</th><th>Реагенты</th><th>Расчётный остаток</th><th>Источник</th></tr></thead><tbody>
+            {workbookWarehouse.data?.checkpoints.map((row) => <tr key={row.id} onClick={() => setSelectedCheckpoint(row)}>
+              <td><strong>{row.periodLabel}</strong></td><td>{row.materials.length} поз.</td>
+              <td>{row.materials.some((item) => item.after !== null && Number(item.after) < 0) ? <span className="soft-tag warning">Есть отрицательные значения</span> : <span className="soft-tag">По расчёту</span>}</td>
+              <td>{row.fileName}</td>
+            </tr>)}
+          </tbody></table></div> : null}
+      </Panel> : null}
+      {workbookWarehouse.error ? <p className="inline-load-error" role="alert">Не удалось загрузить складские строки Excel. <button type="button" onClick={() => void workbookWarehouse.reload()}>Повторить</button></p> : null}
+
       <Panel className="table-panel">
         <div className="table-toolbar">
           <div><h2>Складской журнал</h2></div>
@@ -348,6 +391,29 @@ export function MaterialsPage({ actorRole }: { actorRole: string | undefined }) 
         <div className="imported-record-detail"><p>{formatDate(selectedReceipt[0]?.receivedAt ?? "", true)} · {selectedReceipt[0]?.supplier} · {selectedReceipt[0]?.warehouse}</p>
           <h3>Материалы</h3>{selectedReceipt.map((item) => <div key={`${item.documentId}:${item.lineNumber}`}><strong>{item.material}</strong><span>{sourceDecimal(item.quantity)} {item.unitName}</span><small>{sourceDecimal(item.amount)} {item.currencyName} · {sourceDecimal(item.unitPrice)} {item.currencyName} за {item.unitName}</small></div>)}
           <p className="imported-record-note">Запись доступна только для просмотра.</p></div>
+      </Modal> : null}
+      {selectedUsage ? <Modal title={`Расход ${selectedUsage.name}`} onClose={() => setSelectedUsage(null)}>
+        <div className="imported-record-detail">
+          <p>{selectedUsage.dateFrom}{selectedUsage.dateFrom === selectedUsage.dateTo ? "" : ` — ${selectedUsage.dateTo}`} · {selectedUsage.customer ?? "Клиент не указан"}</p>
+          <div><strong>Выпуск</strong><span>{formatNumber(selectedUsage.volumeM3)} м³</span></div>
+          <div><strong>Норма</strong><span>{formatNumber(selectedUsage.rate)} на м³</span></div>
+          <div><strong>Расход по отчёту</strong><span>{formatNumber(selectedUsage.consumed)}</span></div>
+          <p className="imported-record-note">{selectedUsage.fileName} · лист «{selectedUsage.sourceSheet}», строка {selectedUsage.sourceRow}. Единица реагента в файле не подписана. Расход показан для сверки и не меняет текущий остаток склада.</p>
+        </div>
+      </Modal> : null}
+      {selectedWarehouseClaim ? <Modal title={selectedWarehouseClaim.material} onClose={() => setSelectedWarehouseClaim(null)}>
+        <div className="imported-record-detail"><p>Количество, указанное в разделе «на складе приход»</p>
+          <div><strong>Материал</strong><span>{selectedWarehouseClaim.material}</span></div>
+          <div><strong>Источник</strong><span>{selectedWarehouseClaim.supplier ?? "Не указан"}</span></div>
+          <div><strong>Количество</strong><span>{formatNumber(selectedWarehouseClaim.quantityKg)} кг</span></div>
+          <p className="imported-record-note">{selectedWarehouseClaim.fileName} · лист «{selectedWarehouseClaim.sourceSheet}», строка {selectedWarehouseClaim.sourceRow}. Дата и номер поступления не указаны; это не складская операция и не текущий остаток.</p>
+        </div>
+      </Modal> : null}
+      {selectedCheckpoint ? <Modal title={`Складской расчёт · ${selectedCheckpoint.periodLabel}`} onClose={() => setSelectedCheckpoint(null)}>
+        <div className="imported-record-detail"><h3>Реагенты</h3>
+          {selectedCheckpoint.materials.map((item) => <div key={item.name}><strong>{item.name}</strong><span>{item.after === null ? "—" : formatNumber(item.after)}</span><small>Было {item.before === null ? "—" : formatNumber(item.before)} · расход {item.used === null ? "—" : formatNumber(item.used)}</small></div>)}
+          <p className="imported-record-note">{selectedCheckpoint.fileName} · лист «{selectedCheckpoint.sourceSheet}», строки {selectedCheckpoint.sourceRows[0]}–{selectedCheckpoint.sourceRows.at(-1)}. Это расчётный, не физический остаток; отрицательные значения требуют сверки и не обновляют склад CRM.</p>
+        </div>
       </Modal> : null}
       {receiptMaterial === null ? null : <ReceiptModal materials={writableMaterials} initial={receiptMaterial} onClose={() => setReceiptMaterial(null)} onCreated={async () => { setReceiptMaterial(null); await materials.reload(); }} />}
       {consumptionMaterial === null ? null : <ConsumptionModal materials={writableMaterials} initial={consumptionMaterial} onClose={() => setConsumptionMaterial(null)} onCreated={async () => { setConsumptionMaterial(null); await materials.reload(); }} />}

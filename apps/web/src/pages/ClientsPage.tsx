@@ -42,6 +42,13 @@ interface AdditiveFormulaOption {
   }>;
 }
 
+interface HistoricalCustomer {
+  name: string;
+  production: Array<{ id: string; dateFrom: string; dateTo: string; volumeM3: string; fileName: string }>;
+  sales: Array<{ id: string; date: string; quantityM3: string; fileName: string }>;
+  formulas: Array<{ id: string; number: string; fileName: string }>;
+}
+
 interface ComponentDraft {
   key: number;
   name: string;
@@ -72,9 +79,11 @@ function emptyComponent(): ComponentDraft {
 
 export function ClientsPage({ actorRole }: { actorRole: string | undefined }) {
   const customers = useApi<CustomerResponse>("/customers");
+  const historicalCustomers = useApi<{ items: HistoricalCustomer[] }>("/historical-workbooks/customers");
   const formulas = useApi<{ items: AdditiveFormulaOption[] }>("/formulas");
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedHistoricalName, setSelectedHistoricalName] = useState<string | null>(null);
   const [customerModalOpen, setCustomerModalOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [recipeModalOpen, setRecipeModalOpen] = useState(false);
@@ -102,6 +111,13 @@ export function ClientsPage({ actorRole }: { actorRole: string | undefined }) {
       ...customer.concreteRecipes.flatMap((recipe) => [recipe.name, recipe.concreteGrade, recipe.additiveFormulaVersion.formula.name]),
     ].some((value) => value?.toLocaleLowerCase("ru").includes(query)));
   }, [customers.data, search]);
+  const unmatchedHistoricalCustomers = useMemo(() => {
+    const knownNames = new Set((customers.data?.items ?? []).map((customer) => customer.name.trim().toLocaleLowerCase("ru")));
+    const needle = search.trim().toLocaleLowerCase("ru");
+    return (historicalCustomers.data?.items ?? []).filter((customer) => !knownNames.has(customer.name.trim().toLocaleLowerCase("ru"))
+      && customer.name.toLocaleLowerCase("ru").includes(needle));
+  }, [customers.data, historicalCustomers.data, search]);
+  const selectedHistorical = historicalCustomers.data?.items.find((customer) => customer.name === selectedHistoricalName) ?? null;
 
   const formulaOptions = (formulas.data?.items ?? []).flatMap((formula) => formula.versions
     .filter((version) => version.dosagePercent !== null && version.components.length > 0)
@@ -114,6 +130,19 @@ export function ClientsPage({ actorRole }: { actorRole: string | undefined }) {
   if (customers.loading || formulas.loading) return <LoadingState />;
   if (customers.error !== null) return <ErrorState message={customers.error} retry={customers.reload} />;
   if (formulas.error !== null) return <ErrorState message={formulas.error} retry={formulas.reload} />;
+
+  if (selectedHistorical !== null) return <>
+    <div className="client-detail-nav"><button type="button" onClick={() => setSelectedHistoricalName(null)}><ChevronLeft size={17} /> Все клиенты</button></div>
+    <PageHeader title={selectedHistorical.name} />
+    <Panel className="clients-panel"><div className="clients-toolbar"><div><h2>История клиента</h2></div><span className="soft-tag">По Excel</span></div>
+      <div className="imported-record-detail">
+        {selectedHistorical.production.map((row) => <div key={row.id}><strong>Выпуск · {row.dateFrom === row.dateTo ? row.dateFrom : `${row.dateFrom} — ${row.dateTo}`}</strong><span>{formatNumber(row.volumeM3)} м³</span><small>{row.fileName}</small></div>)}
+        {selectedHistorical.sales.map((row) => <div key={row.id}><strong>Реализация · {row.date}</strong><span>{formatNumber(row.quantityM3)} м³</span><small>{row.fileName}</small></div>)}
+        {selectedHistorical.formulas.map((row) => <div key={row.id}><strong>Состав добавки №{row.number}</strong><span>По отчёту</span><small>{row.fileName}</small></div>)}
+        <p className="imported-record-note">Название перенесено из Excel. Юридическая связь с клиентом из 1С не подтверждена, поэтому реквизиты, дебиторка и документы здесь не объединяются автоматически.</p>
+      </div>
+    </Panel>
+  </>;
 
   async function submitCustomer(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -263,6 +292,15 @@ export function ClientsPage({ actorRole }: { actorRole: string | undefined }) {
           {customerDetail.error === null && timelineReady && (selected.timeline?.length ?? 0) > 0 ? <div className="client-timeline">{selected.timeline?.map((event) => <CustomerTimelineEvent key={event.id} event={event} />)}</div> : null}
         </section>
 
+        {(historicalCustomers.data?.items ?? []).filter((item) => item.name.trim().toLocaleLowerCase("ru") === selected.name.trim().toLocaleLowerCase("ru")).map((item) =>
+          <Panel className="clients-panel" key={item.name}><div className="clients-toolbar"><div><h2>История по Excel</h2></div></div>
+            <div className="imported-record-detail">
+              {item.production.map((row) => <div key={row.id}><strong>Выпуск · {row.dateFrom}</strong><span>{formatNumber(row.volumeM3)} м³</span><small>{row.fileName}</small></div>)}
+              {item.sales.map((row) => <div key={row.id}><strong>Реализация · {row.date}</strong><span>{formatNumber(row.quantityM3)} м³</span><small>{row.fileName}</small></div>)}
+              {item.formulas.map((row) => <div key={row.id}><strong>Формула №{row.number}</strong><span>По отчёту</span><small>{row.fileName}</small></div>)}
+            </div>
+          </Panel>)}
+
         {recipeModalOpen ? (
           <Modal title="Новый состав бетона клиента" wide onClose={() => setRecipeModalOpen(false)}>
             <form onSubmit={(event) => void submitRecipe(event)}>
@@ -312,7 +350,7 @@ export function ClientsPage({ actorRole }: { actorRole: string | undefined }) {
           <div><h2>Клиентская база</h2></div>
           <label className={`client-search${search === "" ? "" : " filled"}`}><Search size={16} /><input value={search} placeholder="Клиент, марка или добавка…" onChange={(event) => setSearch(event.target.value)} /></label>
         </div>
-        {filteredCustomers.length === 0 ? (
+        {filteredCustomers.length === 0 && unmatchedHistoricalCustomers.length === 0 ? (
           <EmptyState title={search === "" ? "Клиентов пока нет" : "Ничего не найдено"} text={search === "" ? "Добавьте первого клиента без демонстрационных данных." : "Измените запрос поиска."} />
         ) : (
           <div className="client-list">
@@ -326,6 +364,14 @@ export function ClientsPage({ actorRole }: { actorRole: string | undefined }) {
                 <ChevronRight size={18} />
               </button>
             ))}
+            {unmatchedHistoricalCustomers.map((customer) => <button type="button" className="client-list-card" key={`historical:${customer.name}`} onClick={() => setSelectedHistoricalName(customer.name)}>
+              <span className="client-avatar">{customerInitials(customer.name)}</span>
+              <span className="client-main"><strong>{customer.name}</strong><small>Название из Excel · реквизиты не подтверждены</small></span>
+              <span className="client-recipe-count"><strong>{customer.production.length}</strong><small>выпусков</small></span>
+              <span className="client-debt"><strong>{customer.sales.length}</strong><small>реализаций</small></span>
+              <span className="client-formula-tags"><small>{customer.formulas.length} составов добавки</small></span>
+              <ChevronRight size={18} />
+            </button>)}
           </div>
         )}
       </Panel>

@@ -24,6 +24,7 @@ import type {
   Recipe,
   RecipeCalculation,
 } from "../types.js";
+import type { HistoricalFormula } from "../types/historical.js";
 import { formatMoney, formatNumber, unitLabel } from "../lib/format.js";
 import { ErrorState, LoadingState, Modal, PageHeader, Panel, PanelHeader } from "../components/ui.js";
 
@@ -72,9 +73,11 @@ interface Evaluation {
 export function FormulaPage() {
   const { selectedDate } = useDateFilter();
   const formulas = useApi<{ items: StoredFormula[] }>("/formulas");
+  const workbookFormulas = useApi<{ items: HistoricalFormula[] }>("/historical-workbooks/formulas");
   const recipes = useApi<{ items: Recipe[] }>("/recipes");
   const materials = useApi<MaterialListResponse>("/materials");
   const [selectedId, setSelectedId] = useState<string>("");
+  const [selectedWorkbookFormula, setSelectedWorkbookFormula] = useState<HistoricalFormula | null>(null);
   const selected = useMemo(
     () => formulas.data?.items.find((formula) => formula.id === selectedId) ?? formulas.data?.items[0] ?? null,
     [formulas.data, selectedId],
@@ -194,6 +197,17 @@ export function FormulaPage() {
         title="Калькулятор производства"
         actions={<button className="button primary" disabled={massMaterials.length === 0} onClick={() => setCreateAdditiveOpen(true)}><Plus size={17} /> Новая формула добавки</button>}
       />
+      {(workbookFormulas.data?.items.length ?? 0) > 0 ? <Panel className="table-panel">
+        <div className="table-toolbar"><div><h2>Составы добавок</h2></div><span className="soft-tag">{workbookFormulas.data?.items.length} записей</span></div>
+        <div className="data-table-wrap"><table className="data-table"><thead><tr><th>Формула</th><th>Клиент</th><th>Компоненты</th><th>Итог в файле</th><th>На единицу</th></tr></thead><tbody>
+          {workbookFormulas.data?.items.map((row) => <tr key={row.id} onClick={() => setSelectedWorkbookFormula(row)}>
+            <td><strong>№{row.number}</strong><small>{row.fileName}</small></td>
+            <td>{row.customer ?? "Не указан"}</td><td>{row.components.map((part) => part.name).join(", ")}</td>
+            <td>{formatNumber(row.total)}</td><td>{row.costPerUnit === null ? "—" : formatNumber(row.costPerUnit)}</td>
+          </tr>)}
+        </tbody></table></div>
+      </Panel> : null}
+      {workbookFormulas.error ? <p className="inline-load-error" role="alert">Не удалось загрузить формулы из Excel. <button type="button" onClick={() => void workbookFormulas.reload()}>Повторить</button></p> : null}
       <Panel className="additive-calculator-panel">
         <div className="calculator-heading"><span><Percent size={21} /></span><div><h2>Расчёт добавки по проценту</h2></div></div>
         <div className="additive-calculator-controls">
@@ -269,6 +283,14 @@ export function FormulaPage() {
         </Panel>
       </div>
       {createAdditiveOpen ? <NewAdditiveFormulaModal materials={massMaterials} onClose={() => setCreateAdditiveOpen(false)} onCreated={async (formulaId) => { setCreateAdditiveOpen(false); setSelectedId(formulaId); await formulas.reload(); }} /> : null}
+      {selectedWorkbookFormula ? <Modal title={`Состав добавки №${selectedWorkbookFormula.number}`} onClose={() => setSelectedWorkbookFormula(null)}>
+        <div className="imported-record-detail">
+          <p>{selectedWorkbookFormula.customer ?? "Клиент не указан"} · {selectedWorkbookFormula.fileName}</p>
+          <h3>Компоненты</h3>
+          {selectedWorkbookFormula.components.map((part) => <div key={part.sourceRow}><strong>{part.name}</strong><span>{formatNumber(part.quantity)}</span><small>Цена {formatNumber(part.unitPrice)} · сумма {formatNumber(part.lineTotal)}</small></div>)}
+          <p className="imported-record-note">Лист «{selectedWorkbookFormula.sourceSheet}», строки {selectedWorkbookFormula.sourceRows[0]}–{selectedWorkbookFormula.sourceRows.at(-1)}. Единицы и дозировка в файле не указаны, поэтому состав пока не доступен в калькуляторе.</p>
+        </div>
+      </Modal> : null}
     </>
   );
 }

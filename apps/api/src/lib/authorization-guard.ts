@@ -40,6 +40,11 @@ function permissionForRequest(method: string, path: string): Permission | null {
   if (normalizedPath === "/dashboard" || normalizedPath.startsWith("/dashboard/") || normalizedPath === "/meta") return "DASHBOARD_VIEW";
   if (normalizedPath.startsWith("/reports")) return "REPORTS_VIEW";
   if (normalizedPath === "/historical-workbooks/production" && isRead) return "BATCHES_VIEW";
+  if (normalizedPath === "/historical-workbooks/sales" && isRead) return "HISTORICAL_SALES_VIEW";
+  if (normalizedPath === "/historical-workbooks/formulas" && isRead) return "FORMULAS_VIEW";
+  if (normalizedPath === "/historical-workbooks/material-usage" && isRead) return "MATERIALS_VIEW";
+  if (normalizedPath === "/historical-workbooks/customers" && isRead) return "CUSTOMERS_VIEW";
+  if (normalizedPath === "/historical-workbooks/warehouse" && isRead) return "MATERIALS_VIEW";
   if (normalizedPath.startsWith("/historical-workbooks") && isRead) return "ONE_C_SOURCE_FINANCE_VIEW";
   if (normalizedPath.startsWith("/materials")) {
     if (isRead) return "MATERIALS_VIEW";

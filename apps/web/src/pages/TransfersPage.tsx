@@ -21,6 +21,7 @@ import { useApi } from "../hooks/use-api.js";
 import { useDateFilter } from "../hooks/use-date-filter.js";
 import { sourceDecimal, sourceMoney } from "../hooks/use-one-c-source.js";
 import type { MetaData, Transfer } from "../types.js";
+import type { HistoricalSale } from "../types/historical.js";
 import { formatDate, formatNumber, unitLabel } from "../lib/format.js";
 import {
   ErrorState,
@@ -68,22 +69,27 @@ export function TransfersPage({ meta, actorRole }: { meta: MetaData | null; acto
   const transfers = useApi<{ items: Transfer[] }>("/transfers");
   const sales = useApi<{ items: OneCSale[]; hasMore: boolean }>(["ADMIN", "DIRECTOR"].includes(actorRole ?? "")
     ? allDates ? "/transfers/one-c-sales" : `/transfers/one-c-sales?date=${selectedDate}` : null);
+  const workbookSales = useApi<{ items: HistoricalSale[] }>("/historical-workbooks/sales");
   const [createOpen, setCreateOpen] = useState(false);
   const [template, setTemplate] = useState<Transfer | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedWorkbookSale, setSelectedWorkbookSale] = useState<HistoricalSale | null>(null);
   const [query, setQuery] = useState("");
   const [visibleCount, setVisibleCount] = useState(30);
   const entries = useMemo(() => [
     ...(transfers.data?.items ?? []).map((value) => ({ kind: "transfer" as const, value, date: value.transferAt })),
     ...(sales.data?.items ?? []).map((value) => ({ kind: "sale" as const, value, date: value.documentAt })),
+    ...(workbookSales.data?.items ?? []).map((value) => ({ kind: "workbook-sale" as const, value, date: `${value.date}T12:00:00.000Z` })),
   ].filter((entry) => {
     const needle = query.trim().toLocaleLowerCase("ru");
     if (!needle) return true;
     const fields = entry.kind === "transfer"
       ? [entry.value.number, entry.value.customer?.name, ...entry.value.items.map((item) => item.productLot.concreteGrade)]
-      : [entry.value.number, entry.value.counterparty, ...entry.value.items.map((item) => item.description)];
+      : entry.kind === "sale"
+        ? [entry.value.number, entry.value.counterparty, ...entry.value.items.map((item) => item.description)]
+        : [entry.value.customer, entry.value.date, entry.value.fileName];
     return fields.some((field) => field?.toLocaleLowerCase("ru").includes(needle));
-  }).sort((a, b) => b.date.localeCompare(a.date)), [query, sales.data, transfers.data]);
+  }).sort((a, b) => b.date.localeCompare(a.date)), [query, sales.data, transfers.data, workbookSales.data]);
   useEffect(() => setVisibleCount(30), [allDates, query, selectedDate]);
   const grouped = useMemo(() => {
     const items = transfers.data?.items ?? [];
@@ -108,17 +114,38 @@ export function TransfersPage({ meta, actorRole }: { meta: MetaData | null; acto
         <div className="table-toolbar"><div><h2>Журнал отгрузок</h2></div><div className="toolbar-actions"><label className="inline-search"><Search size={16} /><input aria-label="Поиск по отгрузкам" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Номер, клиент или продукт" /></label><span className="soft-tag">{entries.length} записей</span></div></div>
         <div className="transfer-cards">{entries.slice(0, visibleCount).map((entry) => entry.kind === "transfer"
           ? <TransferCard key={`transfer:${entry.value.id}`} transfer={entry.value} onOpen={setSelectedId} />
-          : <SaleCard key={`sale:${entry.value.id}`} sale={entry.value} onOpenTransfer={setSelectedId} />)}</div>
+          : entry.kind === "sale"
+            ? <SaleCard key={`sale:${entry.value.id}`} sale={entry.value} onOpenTransfer={setSelectedId} />
+            : <WorkbookSaleCard key={`workbook-sale:${entry.value.id}`} sale={entry.value} onOpen={setSelectedWorkbookSale} />)}</div>
         {entries.length > visibleCount ? <div className="journal-more"><button type="button" className="button ghost small" onClick={() => setVisibleCount((count) => count + 30)}>Показать ещё</button></div> : null}
-        {entries.length === 0 && !sales.loading ? <p className="journal-empty">За выбранную дату записей нет.</p> : null}
+        {entries.length === 0 && !sales.loading && !workbookSales.loading ? <p className="journal-empty">За выбранную дату записей нет.</p> : null}
         {sales.error ? <p className="inline-load-error" role="alert">Не удалось загрузить часть записей. <button type="button" onClick={() => void sales.reload()}>Повторить</button></p> : null}
+        {workbookSales.error ? <p className="inline-load-error" role="alert">Не удалось загрузить данные Excel. <button type="button" onClick={() => void workbookSales.reload()}>Повторить</button></p> : null}
         {sales.data?.hasMore ? <p className="history-limit-note">Показаны последние 500 документов реализации; для более ранних выберите дату.</p> : null}
         {allDates && (transfers.data?.items.length ?? 0) >= 500 ? <p className="history-limit-note">Лимит списка — 500 записей. Для поиска более ранних выберите дату.</p> : null}
       </Panel>
       {createOpen ? <CreateTransferModal meta={meta} template={template} onClose={() => setCreateOpen(false)} onCreated={async () => { setCreateOpen(false); setTemplate(null); await transfers.reload(); }} /> : null}
       {selectedId === null ? null : <TransferDetailModal id={selectedId} actorRole={actorRole} onClose={() => setSelectedId(null)} onChanged={transfers.reload} onDuplicate={(transfer) => { setSelectedId(null); setTemplate(transfer); setCreateOpen(true); }} />}
+      {selectedWorkbookSale ? <Modal title={`Реализация ${selectedWorkbookSale.customer}`} onClose={() => setSelectedWorkbookSale(null)}>
+        <div className="imported-record-detail">
+          <p>{formatDate(`${selectedWorkbookSale.date}T12:00:00.000Z`)} · {formatNumber(selectedWorkbookSale.quantityM3)} м³</p>
+          {selectedWorkbookSale.unitPrice === null ? null : <div><strong>Цена за м³</strong><span>{formatNumber(selectedWorkbookSale.unitPrice)}</span></div>}
+          {selectedWorkbookSale.total === null ? null : <div><strong>Сумма по отчёту</strong><span>{formatNumber(selectedWorkbookSale.total)}</span></div>}
+          {selectedWorkbookSale.acceptedQuantity === null ? null : <div><strong>Принято</strong><span>{formatNumber(selectedWorkbookSale.acceptedQuantity)} м³{selectedWorkbookSale.acceptedDate ? ` · ${selectedWorkbookSale.acceptedDate}` : ""}</span></div>}
+          <p className="imported-record-note">{selectedWorkbookSale.fileName} · лист «{selectedWorkbookSale.sourceSheet}», строка {selectedWorkbookSale.sourceRows[0]}. Валюта и номер первичного документа в файле не указаны; запись не создаёт отгрузку или счёт.</p>
+        </div>
+      </Modal> : null}
     </>
   );
+}
+
+function WorkbookSaleCard({ sale, onOpen }: { sale: HistoricalSale; onOpen: (sale: HistoricalSale) => void }) {
+  return <article className="transfer-sale-card" onClick={() => onOpen(sale)}>
+    <div className="transfer-card-head"><div><span>Реализация</span><h3>{sale.customer}</h3></div><span className="soft-tag">По отчёту</span></div>
+    <div className="transfer-points"><span><small>Получатель</small><strong>{sale.customer}</strong></span><span /><span><small>Количество</small><strong>{formatNumber(sale.quantityM3)} м³</strong></span></div>
+    <div className="transfer-meta"><span><small>Дата</small><strong>{formatDate(`${sale.date}T12:00:00.000Z`)}</strong></span><span><small>Сумма в файле</small><strong>{sale.total === null ? "—" : formatNumber(sale.total)}</strong></span><span><small>Принято</small><strong>{sale.acceptedQuantity === null ? "—" : `${formatNumber(sale.acceptedQuantity)} м³`}</strong></span></div>
+    <button type="button" className="card-link" onClick={(event) => { event.stopPropagation(); onOpen(sale); }}>Открыть запись <ChevronRight size={15} /></button>
+  </article>;
 }
 
 function TransferCard({ transfer, onOpen }: { transfer: Transfer; onOpen: (id: string) => void }) {

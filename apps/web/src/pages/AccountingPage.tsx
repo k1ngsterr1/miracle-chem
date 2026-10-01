@@ -32,6 +32,7 @@ import type {
   MetaData,
   Transfer,
 } from "../types.js";
+import type { HistoricalSale } from "../types/historical.js";
 import { EmptyState, ErrorState, LoadingState, Modal, PageHeader, Panel, StatusBadge } from "../components/ui.js";
 
 const TYPE_LABELS: Record<AccountingDocumentType, string> = {
@@ -132,6 +133,7 @@ export function AccountingPage({ actorRole }: { actorRole: string | undefined })
   const [selectedId, setSelectedId] = useState<string | null>(() => window.location.hash.startsWith("#accounting/")
     ? window.location.hash.slice("#accounting/".length) || null : null);
   const [selectedPayment, setSelectedPayment] = useState<(FinancePayment & { direction: "Поступление" | "Оплата" }) | null>(null);
+  const [selectedWorkbookSale, setSelectedWorkbookSale] = useState<HistoricalSale | null>(null);
   const [showDebtors, setShowDebtors] = useState(false);
   const [visibleCount, setVisibleCount] = useState(50);
   useEffect(() => {
@@ -147,6 +149,8 @@ export function AccountingPage({ actorRole }: { actorRole: string | undefined })
     return search.toString();
   }, [allDates, from, to, query, status, type]);
   const documents = useApi<AccountingResponse>(`/accounting?${params}`);
+  const workbookSales = useApi<{ items: HistoricalSale[] }>(allDates
+    ? "/historical-workbooks/sales" : `/historical-workbooks/sales?from=${from}&to=${to}`);
   const oneCFinance = useApi<OneCFinance>(["ADMIN", "DIRECTOR", "ACCOUNTANT"].includes(actorRole ?? "")
     ? "/integrations/1c/finance" : null);
   const datedPayments = useMemo(() => [
@@ -164,10 +168,17 @@ export function AccountingPage({ actorRole }: { actorRole: string | undefined })
     incoming: paymentTotal(datedPayments, "Поступление"),
     outgoing: paymentTotal(datedPayments, "Оплата"),
   }), [datedPayments]);
+  const historicalSales = useMemo(() => {
+    if (type !== "ALL" || status !== "ALL") return [];
+    const needle = query.trim().toLocaleLowerCase("ru");
+    return (workbookSales.data?.items ?? []).filter((sale) => [sale.customer, sale.date, sale.fileName]
+      .some((value) => value.toLocaleLowerCase("ru").includes(needle)));
+  }, [query, status, type, workbookSales.data]);
   const journal = useMemo(() => [
     ...(documents.data?.items ?? []).map((value) => ({ kind: "document" as const, value, date: value.documentAt })),
     ...payments.map((value) => ({ kind: "payment" as const, value, date: value.documentAt })),
-  ].sort((a, b) => b.date.localeCompare(a.date)), [documents.data, payments]);
+    ...historicalSales.map((value) => ({ kind: "historical-sale" as const, value, date: `${value.date}T12:00:00.000Z` })),
+  ].sort((a, b) => b.date.localeCompare(a.date)), [documents.data, historicalSales, payments]);
 
   if (documents.loading) return <LoadingState />;
   if (documents.error !== null) return <ErrorState message={documents.error} retry={documents.reload} />;
@@ -188,6 +199,7 @@ export function AccountingPage({ actorRole }: { actorRole: string | undefined })
         <Panel><span className="green"><CheckCircle2 size={19} /></span><div><strong title={paymentTotals.outgoing}>{oneCFinance.data?.available ? paymentTotals.outgoing : "—"}</strong><small>оплачено поставщикам</small></div></Panel>
       </div>
       {oneCFinance.error !== null ? <p className="inline-load-error" role="alert">Не удалось загрузить часть финансовых данных. <button type="button" onClick={() => void oneCFinance.reload()}>Повторить</button></p> : null}
+      {workbookSales.error !== null ? <p className="inline-load-error" role="alert">Не удалось загрузить реализации из Excel. <button type="button" onClick={() => void workbookSales.reload()}>Повторить</button></p> : null}
 
       <Panel className="accounting-filter-panel">
         <div className="accounting-filters">
@@ -202,7 +214,7 @@ export function AccountingPage({ actorRole }: { actorRole: string | undefined })
       </Panel>
 
       <Panel className="table-panel">
-        <div className="table-toolbar"><div><h2>Журнал документов и платежей</h2></div><span className="expense-count">{journal.length} записей</span></div>
+        <div className="table-toolbar"><div><h2>Журнал операций</h2></div><span className="expense-count">{journal.length} записей</span></div>
         {journal.length === 0 ? <EmptyState title="Записей за период нет" text="Измените фильтры или создайте первый бухгалтерский документ." /> : (
           <>
           <div className="data-table-wrap desktop-document-table">
@@ -220,7 +232,7 @@ export function AccountingPage({ actorRole }: { actorRole: string | undefined })
                   <td><StatusBadge status={entry.value.status} /></td>
                   <td><button type="button" className="row-action" aria-label={`Открыть ${entry.value.number}`}><ChevronRight size={16} /></button></td>
                 </tr>
-              ) : <tr key={`payment:${entry.value.direction}:${entry.value.externalId}`} onClick={() => setSelectedPayment(entry.value)}>
+              ) : entry.kind === "payment" ? <tr key={`payment:${entry.value.direction}:${entry.value.externalId}`} onClick={() => setSelectedPayment(entry.value)}>
                 <td><strong>{entry.value.number}</strong><small>{entry.value.direction}</small></td>
                 <td>{formatDate(entry.value.documentAt)}</td>
                 <td>{entry.value.counterparty}</td>
@@ -228,6 +240,12 @@ export function AccountingPage({ actorRole }: { actorRole: string | undefined })
                 <td><strong>{sourceMoney(entry.value.amount, entry.value.currency)}</strong></td>
                 <td><span className="soft-tag">{oneCDocumentStatus(entry.value.posted, entry.value.deleted)}</span></td>
                 <td><button type="button" className="row-action" aria-label={`Открыть платёж ${entry.value.number}`}><ChevronRight size={16} /></button></td>
+              </tr> : <tr key={`historical-sale:${entry.value.id}`} onClick={() => setSelectedWorkbookSale(entry.value)}>
+                <td><strong>Реализация</strong><small>По Excel</small></td>
+                <td>{formatDate(entry.date)}</td><td>{entry.value.customer}</td>
+                <td>{formatNumber(entry.value.quantityM3)} м³{entry.value.unitPrice === null ? "" : ` · цена ${formatNumber(entry.value.unitPrice)}`}</td>
+                <td>—</td><td>—</td><td><strong>{entry.value.total === null ? "—" : formatNumber(entry.value.total)}</strong></td>
+                <td><span className="soft-tag">Для сверки</span></td><td><ChevronRight size={16} /></td>
               </tr>)}</tbody>
             </table>
           </div>
@@ -237,11 +255,16 @@ export function AccountingPage({ actorRole }: { actorRole: string | undefined })
                 <strong>{entry.value.number}</strong><small>{entry.value.customer?.name ?? entry.value.counterparty}</small>
                 <div className="mobile-document-card-meta"><span>{formatDate(entry.value.documentAt)}</span><span>{entry.value.basis ?? "Без основания"}</span></div>
                 <div className="mobile-document-card-footer"><strong>{formatMoney(entry.value.totalAmount, entry.value.currency)}</strong><span>{entry.value.dueAt === null ? "Без срока" : `до ${formatDate(entry.value.dueAt)}`}</span></div>
-              </button> : <button type="button" className="mobile-document-card" key={`payment:${entry.value.direction}:${entry.value.externalId}`} onClick={() => setSelectedPayment(entry.value)}>
+              </button> : entry.kind === "payment" ? <button type="button" className="mobile-document-card" key={`payment:${entry.value.direction}:${entry.value.externalId}`} onClick={() => setSelectedPayment(entry.value)}>
                 <div className="mobile-document-card-head"><span>{entry.value.direction}</span><span className="soft-tag">{oneCDocumentStatus(entry.value.posted, entry.value.deleted)}</span></div>
                 <strong>{entry.value.number}</strong><small>{entry.value.counterparty}</small>
                 <div className="mobile-document-card-meta"><span>{formatDate(entry.value.documentAt)}</span><span>{entry.value.purpose || "Без назначения"}</span></div>
                 <div className="mobile-document-card-footer"><strong>{sourceMoney(entry.value.amount, entry.value.currency)}</strong></div>
+              </button> : <button type="button" className="mobile-document-card" key={`historical-sale:${entry.value.id}`} onClick={() => setSelectedWorkbookSale(entry.value)}>
+                <div className="mobile-document-card-head"><span>Реализация по Excel</span><span className="soft-tag">Для сверки</span></div>
+                <strong>{entry.value.customer}</strong><small>{formatNumber(entry.value.quantityM3)} м³</small>
+                <div className="mobile-document-card-meta"><span>{formatDate(entry.date)}</span></div>
+                <div className="mobile-document-card-footer"><strong>{entry.value.total === null ? "—" : formatNumber(entry.value.total)}</strong></div>
               </button>)}
           </div> : null}
           {journal.length > visibleCount ? <div className="journal-more"><button type="button" className="button ghost small" onClick={() => setVisibleCount((count) => count + 50)}>Показать ещё</button></div> : null}
@@ -258,6 +281,14 @@ export function AccountingPage({ actorRole }: { actorRole: string | undefined })
           <div><strong>Сумма</strong><span>{sourceMoney(selectedPayment.amount, selectedPayment.currency)}</span></div>
           {selectedPayment.purpose ? <div><strong>Назначение</strong><span>{selectedPayment.purpose}</span></div> : null}
           <p className="imported-record-note">Запись доступна только для просмотра.</p></div>
+      </Modal> : null}
+      {selectedWorkbookSale ? <Modal title={`Реализация ${selectedWorkbookSale.customer}`} onClose={() => setSelectedWorkbookSale(null)}>
+        <div className="imported-record-detail"><p>{selectedWorkbookSale.date} · {formatNumber(selectedWorkbookSale.quantityM3)} м³</p>
+          {selectedWorkbookSale.unitPrice === null ? null : <div><strong>Цена</strong><span>{formatNumber(selectedWorkbookSale.unitPrice)}</span></div>}
+          {selectedWorkbookSale.total === null ? null : <div><strong>Сумма по отчёту</strong><span>{formatNumber(selectedWorkbookSale.total)}</span></div>}
+          {selectedWorkbookSale.acceptedQuantity === null ? null : <div><strong>Принято</strong><span>{formatNumber(selectedWorkbookSale.acceptedQuantity)} м³</span></div>}
+          <p className="imported-record-note">{selectedWorkbookSale.fileName} · лист «{selectedWorkbookSale.sourceSheet}», строка {selectedWorkbookSale.sourceRows[0]}. Это не счёт, не платёж и не дебиторская задолженность: номера документа и валюта в файле не указаны.</p>
+        </div>
       </Modal> : null}
       {showDebtors && oneCFinance.data?.available ? <Modal title="Дебиторская задолженность" onClose={() => setShowDebtors(false)}>
         <div className="imported-record-detail"><p>Состояние на {formatDate(oneCFinance.data.snapshotAt ?? "", true)} · авансы клиентов: {sourceMoney(oneCFinance.data.totalPrepayments ?? "0", "KZT")}</p>

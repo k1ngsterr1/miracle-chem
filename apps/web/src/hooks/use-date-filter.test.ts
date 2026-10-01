@@ -8,17 +8,27 @@ describe("applySelectedDate", () => {
     expect(applySelectedDate("/dashboard/analytics", "2026-08-29")).toBe("/dashboard/analytics?date=2026-08-29");
     expect(applySelectedDate("/historical-workbooks/production", "2026-08-29"))
       .toBe("/historical-workbooks/production?date=2026-08-29");
+    expect(applySelectedDate("/historical-workbooks/sales", "2026-08-29"))
+      .toBe("/historical-workbooks/sales?date=2026-08-29");
+    expect(applySelectedDate("/historical-workbooks/material-usage", "2026-08-29"))
+      .toBe("/historical-workbooks/material-usage?date=2026-08-29");
+    expect(applySelectedDate("/historical-workbooks/warehouse", "2026-08-29"))
+      .toBe("/historical-workbooks/warehouse?date=2026-08-29");
   });
 
   it("preserves a manually selected report period", () => {
     expect(applySelectedDate("/reports/production?from=2026-08-01&to=2026-08-31", "2026-08-29"))
       .toBe("/reports/production?from=2026-08-01&to=2026-08-31");
+    expect(applySelectedDate("/historical-workbooks/sales?from=2026-08-01&to=2026-08-31", "2026-08-29"))
+      .toBe("/historical-workbooks/sales?from=2026-08-01&to=2026-08-31");
   });
 
   it("removes the working-day filter across operational lists in all-dates mode", () => {
     expect(applySelectedDate("/batches", "2026-08-29", true)).toBe("/batches");
     expect(applySelectedDate("/historical-workbooks/production", "2026-08-29", true))
       .toBe("/historical-workbooks/production");
+    expect(applySelectedDate("/historical-workbooks/sales", "2026-08-29", true))
+      .toBe("/historical-workbooks/sales");
     expect(applySelectedDate("/transfers?status=SENT", "2026-08-29", true)).toBe("/transfers?status=SENT");
     expect(applySelectedDate("/recipes?date=2026-08-29", "2026-08-29", true)).toBe("/recipes");
     expect(applySelectedDate("/materials/purchase-batches", "2026-08-29", true)).toBe("/materials/purchase-batches");
