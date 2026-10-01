@@ -15,7 +15,8 @@
     "db:generate": "npm run db:generate -w @betonflow/api",
     "db:migrate": "npm run db:migrate -w @betonflow/api",
     "db:seed": "npm run db:seed -w @betonflow/api",
-    "db:import-1c": "npm run db:import-1c -w @betonflow/api --"
+    "db:import-1c": "npm run db:import-1c -w @betonflow/api --",
+    "db:import-historical-workbook": "npm run db:import-historical-workbook -w @betonflow/api --"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

@@ -10,6 +10,7 @@ import { CalculatorController } from "./routes/calculator.js";
 import { CustomerController } from "./routes/customers.js";
 import { ExpenseController } from "./routes/expenses.js";
 import { FormulaController } from "./routes/formulas.js";
+import { HistoricalWorkbookController } from "./routes/historical-workbooks.js";
 import { MaterialController } from "./routes/materials.js";
 import { MetaController } from "./routes/meta.js";
 import { OneCSyncController } from "./routes/one-c-sync.js";
@@ -46,6 +47,7 @@ class PrismaLifecycle implements OnApplicationShutdown {
     MaterialController,
     RecipeController,
     FormulaController,
+    HistoricalWorkbookController,
     BatchController,
     TransferController,
     ReportController,

@@ -9,6 +9,6 @@
     "exactOptionalPropertyTypes": false,
     "types": ["node", "vitest/globals"]
   },
-  "include": ["src/**/*.ts", "prisma/seed.ts"],
+  "include": ["src/**/*.ts", "prisma/seed.ts", "prisma/import-historical-workbook.ts"],
   "exclude": ["src/**/*.test.ts"]
 }

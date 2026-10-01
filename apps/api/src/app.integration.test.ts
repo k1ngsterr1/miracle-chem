@@ -224,6 +224,43 @@ afterAll(async () => {
 }, 30_000);
 
 describe("Miracle Chem NestJS API integration", () => {
+  it("exposes historical workbook production read-only and protects financial sheets", async () => {
+    const workbook = await prisma.historicalWorkbook.create({ data: {
+      workspaceId: testIds.workspace, sourceKey: "integration-test", fileName: "history.xlsx",
+      sha256: "a".repeat(64), payload: { schemaVersion: 1, sourceKey: "integration-test",
+        fileName: "history.xlsx", sha256: "a".repeat(64),
+        sheets: [{ name: "реализация", maxRow: 1, maxColumn: 1, rows: [{ number: 1,
+          cells: [{ address: "A1", value: "private financial data" }] }] }],
+        production: [{ sourceSheet: "производство", sourceRows: [2], dateFrom: "2026-08-01",
+          dateTo: "2026-08-01", customer: null, volumeM3: "10",
+          ingredients: [{ name: "КТ1", rate: "270", consumed: "2700", sourceRow: 2 }] }],
+        formulas: [], sales: [], unlabelledSalesMetrics: [] },
+    } });
+    try {
+      const production = await app.inject({ method: "GET", url: "/api/historical-workbooks/production?date=2026-08-01",
+        headers: contextHeaders });
+      expect(production.statusCode).toBe(200);
+      expect(production.json().items).toHaveLength(1);
+      const otherDate = await app.inject({ method: "GET", url: "/api/historical-workbooks/production?date=2026-08-02",
+        headers: contextHeaders });
+      expect(otherDate.json().items).toHaveLength(0);
+      const list = await app.inject({ method: "GET", url: "/api/historical-workbooks", headers: contextHeaders });
+      expect(list.statusCode).toBe(200);
+      expect(list.json().items[0].fileName).toBe("history.xlsx");
+      const detail = await app.inject({ method: "GET", url: `/api/historical-workbooks/${workbook.id}`,
+        headers: contextHeaders });
+      expect(detail.statusCode).toBe(200);
+      const denied = await app.inject({ method: "GET", url: `/api/historical-workbooks/${workbook.id}`,
+        headers: viewerHeaders });
+      expect(denied.statusCode).toBe(403);
+      const blockedWrite = await app.inject({ method: "POST", url: "/api/historical-workbooks", headers: contextHeaders,
+        payload: {} });
+      expect(blockedWrite.statusCode).toBe(404);
+    } finally {
+      await prisma.historicalWorkbook.delete({ where: { id: workbook.id } });
+    }
+  });
+
   it("accepts every 1C financial collection as an immutable full snapshot without changing stock", async () => {
     const organizationId = "88888888-8888-4888-8888-888888888881";
     const sourceInstanceId = "88888888-8888-4888-8888-888888888882";

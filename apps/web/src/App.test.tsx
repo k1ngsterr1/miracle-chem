@@ -257,6 +257,24 @@ describe("Miracle Chem app shell", () => {
           ? { items: [], summary: { totals: [], byStatus: [], byType: [] } }
         : url.includes("/reports/production?")
           ? { items: [{ batchNumber: "ZM-TEST-1", status: "COMPLETED", actualOutput: "5", outputUnit: "M3" }] }
+        : url.includes("/historical-workbooks/production")
+          ? { items: [] }
+        : url.endsWith("/historical-workbooks")
+          ? { items: [{ id: "history-1", fileName: "Отчет 2026 Сентябрь.xlsx", sha256: "a".repeat(64),
+            sheets: [{ name: "производство", rowCount: 2 }], productionCount: 1, formulaCount: 1,
+            salesCount: 1, unlabelledSalesMetricCount: 0 }] }
+        : url.includes("/historical-workbooks/history-1")
+          ? { payload: { fileName: "Отчет 2026 Сентябрь.xlsx",
+            sheets: [{ name: "производство", maxRow: 2, maxColumn: 2, rows: [
+              { number: 1, cells: [{ address: "A1", value: "Клиент" }] },
+              { number: 2, cells: [{ address: "B2", value: "ETG" }] }] }],
+            production: [{ sourceRows: [2], dateFrom: "2026-09-11", dateTo: "2026-09-11",
+              customer: "ETG", volumeM3: "10", ingredients: [{ name: "КТ1", rate: "270", consumed: "2700" }] }],
+            formulas: [{ number: "5", customer: "ETG", total: "215121", costPerUnit: "215.121",
+              components: [{ name: "КТ1", quantity: "270", unitPrice: "515", lineTotal: "139050" }] }],
+            sales: [{ date: "2026-09-11", customer: "ETG", quantityM3: "10", unitPrice: "1000",
+              total: "10000", acceptedDate: "2026-09-13", acceptedQuantity: "10" }],
+            unlabelledSalesMetrics: [] } }
         : url.endsWith("/integrations/1c/reconciliation")
           ? { verdict: "PARTIAL", source: { generatedAt: "2026-09-28T08:00:00Z" },
             discrepancyCount: 0, countsByArea: {}, notProjected: { receipts: 2 } }
@@ -733,6 +751,18 @@ describe("Miracle Chem app shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Все даты" }));
     await waitFor(() => expect(window.location.hash).toBe("#reports/production"));
     expect(await screen.findByText("ZM-TEST-1")).toBeInTheDocument();
+  });
+
+  it("opens the historical Excel source with production, sales and original cells", async () => {
+    window.location.hash = "reports";
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Все даты" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Исторические отчёты/u }));
+    await waitFor(() => expect(window.location.hash).toBe("#reports/historical"));
+    expect(await screen.findByText("Отчет 2026 Сентябрь.xlsx")).toBeInTheDocument();
+    expect(await screen.findByText("КТ1: 2 700")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "производство" }));
+    expect(await screen.findByText("Клиент")).toBeInTheDocument();
   });
 
   it("opens the administrator-only 1C archive and its source records", async () => {

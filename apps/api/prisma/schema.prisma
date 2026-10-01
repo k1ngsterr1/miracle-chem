@@ -267,6 +267,7 @@ model Workspace {
   oneCSyncReviews         OneCSyncReview[]
   oneCSourceSnapshots     OneCSourceSnapshot[]
   oneCArchiveImports      OneCArchiveImport[]
+  historicalWorkbooks     HistoricalWorkbook[]
 
   @@map("workspaces")
 }
@@ -341,6 +342,22 @@ model OneCSourceSnapshot {
   @@unique([workspaceId, sourceInstanceId, sha256])
   @@index([workspaceId, generatedAt])
   @@map("one_c_source_snapshots")
+}
+
+model HistoricalWorkbook {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @db.Uuid
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sourceKey   String    @db.VarChar(80)
+  fileName    String    @db.VarChar(255)
+  sha256      String    @db.VarChar(64)
+  active      Boolean   @default(true)
+  payload     Json
+  importedAt  DateTime  @default(now())
+
+  @@unique([workspaceId, sourceKey, sha256])
+  @@index([workspaceId, sourceKey, active])
+  @@map("historical_workbooks")
 }
 
 model OneCArchiveImport {

@@ -43,7 +43,7 @@ describe("read-only and quality role actions", () => {
   it("keeps the quality manager out of production-creation actions", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      const payload = url.includes("/batches") || url.includes("/recipes") ? { items: [] } : {};
+      const payload = url.includes("/batches") || url.includes("/recipes") || url.includes("/historical-workbooks") ? { items: [] } : {};
       return { ok: true, status: 200, json: async () => payload } as Response;
     }));
 

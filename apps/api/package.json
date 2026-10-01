@@ -12,7 +12,8 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
-    "db:import-1c": "tsx prisma/import-1c.ts"
+    "db:import-1c": "tsx prisma/import-1c.ts",
+    "db:import-historical-workbook": "tsx prisma/import-historical-workbook.ts"
   },
   "dependencies": {
     "@betonflow/domain": "0.1.0",

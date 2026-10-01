@@ -119,6 +119,7 @@ function usesOperationalDate(path: string): boolean {
   return pathname === "/dashboard"
     || pathname === "/dashboard/analytics"
     || pathname === "/batches"
+    || pathname === "/historical-workbooks/production"
     || pathname === "/transfers"
     || pathname === "/wagons"
     || pathname === "/materials/purchase-batches"

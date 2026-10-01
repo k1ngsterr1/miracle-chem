@@ -19,8 +19,9 @@ import { useApi } from "../hooks/use-api.js";
 import { useDateFilter } from "../hooks/use-date-filter.js";
 import { formatNumber } from "../lib/format.js";
 import { ErrorState, LoadingState, PageHeader, Panel } from "../components/ui.js";
+import { HistoricalReportsPage } from "./HistoricalReportsPage.js";
 
-type ReportType = "production" | "materials" | "balance" | "recipe-efficiency" | "lrt" | "expenses";
+type ReportType = "production" | "materials" | "balance" | "recipe-efficiency" | "lrt" | "expenses" | "historical";
 
 const REPORTS = {
   production: {
@@ -59,9 +60,15 @@ const REPORTS = {
     icon: WalletCards,
     path: "/reports/expenses",
   },
+  historical: {
+    title: "Исторические отчёты",
+    description: "Выпуск, расход, формулы и исходные листы за июль—октябрь 2026.",
+    icon: FileSpreadsheet,
+    path: "/historical-workbooks",
+  },
 } as const;
 
-export function ReportsPage() {
+export function ReportsPage({ actorRole }: { actorRole: string | undefined }) {
   const [route, setRoute] = useState(readReportRoute);
   const { selectedDate, allDates } = useDateFilter();
   const previousPeriod = useRef(`${selectedDate}:${allDates}`);
@@ -86,7 +93,11 @@ export function ReportsPage() {
     if (window.location.hash !== nextHash) window.location.hash = nextHash;
   }
 
-  if (route.type === null) return <ReportCatalog onOpen={(type) => navigate(type)} />;
+  const canViewHistorical = ["ADMIN", "DIRECTOR", "ACCOUNTANT"].includes(actorRole ?? "");
+  if (route.type === null || route.type === "historical" && !canViewHistorical) {
+    return <ReportCatalog canViewHistorical={canViewHistorical} onOpen={(type) => navigate(type)} />;
+  }
+  if (route.type === "historical") return <HistoricalReportsPage onBack={() => navigate(null)} />;
 
   return (
     <ReportWorkspace
@@ -99,14 +110,15 @@ export function ReportsPage() {
   );
 }
 
-function ReportCatalog({ onOpen }: { onOpen: (type: ReportType) => void }) {
+function ReportCatalog({ onOpen, canViewHistorical }: { onOpen: (type: ReportType) => void; canViewHistorical: boolean }) {
   return (
     <>
       <PageHeader
         title="Производственные отчёты"
       />
       <div className="report-cards">
-        {(Object.entries(REPORTS) as Array<[ReportType, (typeof REPORTS)[ReportType]]>).map(([id, item]) => (
+        {(Object.entries(REPORTS) as Array<[ReportType, (typeof REPORTS)[ReportType]]>)
+          .filter(([id]) => id !== "historical" || canViewHistorical).map(([id, item]) => (
           <button key={id} type="button" onClick={() => onOpen(id)}>
             <span><item.icon size={20} /></span>
             <div><strong>{item.title}</strong><p>{item.description}</p><small>Открыть отчёт <ChevronRight size={13} /></small></div>
@@ -124,7 +136,7 @@ function ReportWorkspace({
   onBackToReport,
   onOpenRow,
 }: {
-  type: ReportType;
+  type: Exclude<ReportType, "historical">;
   rowIndex: number | null;
   onBackToCatalog: () => void;
   onBackToReport: () => void;

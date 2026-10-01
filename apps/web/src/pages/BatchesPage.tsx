@@ -45,11 +45,25 @@ const FILTERS = [
 
 type BatchFilter = (typeof FILTERS)[number]["id"];
 
+interface HistoricalProduction {
+  id: string;
+  fileName: string;
+  sourceSheet: string;
+  sourceRows: number[];
+  dateFrom: string;
+  dateTo: string;
+  customer: string | null;
+  part?: string | null;
+  volumeM3: string;
+  ingredients: Array<{ name: string; rate: string; consumed: string }>;
+}
+
 export function BatchesPage({ meta, actorRole }: { meta: MetaData | null; actorRole: string | undefined }) {
   const { selectedDate, allDates } = useDateFilter();
   const batches = useApi<{ items: Batch[] }>("/batches");
   const production = useOneCSource<OneCProductionReport>("production", "documentAt",
     ["ADMIN", "DIRECTOR", "TECHNOLOGIST"].includes(actorRole ?? ""));
+  const historical = useApi<{ items: HistoricalProduction[] }>("/historical-workbooks/production");
   const recipes = useApi<{ items: Recipe[] }>("/recipes");
   const [filter, setFilter] = useState<BatchFilter>("ALL");
   const [query, setQuery] = useState("");
@@ -57,8 +71,15 @@ export function BatchesPage({ meta, actorRole }: { meta: MetaData | null; actorR
   const [template, setTemplate] = useState<Batch | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedReport, setSelectedReport] = useState<OneCProductionReport | null>(null);
+  const [selectedHistorical, setSelectedHistorical] = useState<HistoricalProduction | null>(null);
   const [visibleCount, setVisibleCount] = useState(50);
   const canManageBatches = ["ADMIN", "DIRECTOR", "TECHNOLOGIST", "OPERATOR"].includes(actorRole ?? "");
+  const oneCProductionDates = useMemo(() => new Set(production.items.map((report) => report.documentAt.slice(0, 10))), [production.items]);
+  // A workbook row has no 1C document ID. Prefer 1C in the common journal on
+  // overlapping days; the full Excel row remains available in historical reports.
+  const unmatchedHistory = useMemo(() => (production.loading ? [] : historical.data?.items ?? []).filter((item) =>
+    ![...oneCProductionDates].some((day) => item.dateFrom <= day && item.dateTo >= day)),
+  [historical.data, oneCProductionDates, production.loading]);
   const rows = useMemo(() => {
     const normalized = query.toLocaleLowerCase("ru");
     const crm = (batches.data?.items ?? []).filter((batch) => matchesBatchFilter(batch.status, filter) &&
@@ -69,8 +90,12 @@ export function BatchesPage({ meta, actorRole }: { meta: MetaData | null; actorR
       [report.number, report.warehouse, ...report.products.flatMap((part) => [part.material, part.specification])]
         .some((value) => value.toLocaleLowerCase("ru").includes(normalized)))
       .map((value) => ({ kind: "report" as const, value, date: value.documentAt }));
-    return [...crm, ...imported].sort((a, b) => b.date.localeCompare(a.date));
-  }, [batches.data, filter, production.items, query]);
+    const history = unmatchedHistory.filter((item) => (filter === "ALL" || filter === "COMPLETED") &&
+      [item.customer ?? "", item.dateFrom, item.part ?? "", ...item.ingredients.map((part) => part.name)]
+        .some((value) => value.toLocaleLowerCase("ru").includes(normalized)))
+      .map((value) => ({ kind: "history" as const, value, date: `${value.dateFrom}T12:00:00.000Z` }));
+    return [...crm, ...imported, ...history].sort((a, b) => b.date.localeCompare(a.date));
+  }, [batches.data, filter, production.items, query, unmatchedHistory]);
   useEffect(() => setVisibleCount(50), [allDates, filter, query, selectedDate]);
 
   if (batches.loading) return <LoadingState />;
@@ -85,7 +110,7 @@ export function BatchesPage({ meta, actorRole }: { meta: MetaData | null; actorR
       />
 
       <div className="summary-strip">
-        <Summary value={String(allBatches.length + production.items.length)} label="записей в журнале" icon={<Factory />} />
+        <Summary value={String(allBatches.length + production.items.length + unmatchedHistory.length)} label="записей в журнале" icon={<Factory />} />
         <Summary value={formatNumber((batches.data?.items ?? []).filter((item) => item.status === "COMPLETED").reduce((sum, item) => sum + Number(item.actualOutput ?? 0), 0))} label="м³ по замесам" icon={<FlaskConical />} />
         <Summary value={formatMoney((batches.data?.items ?? []).reduce((sum, item) => sum + Number(item.totalCost), 0))} label="стоимость по замесам" icon={<CircleGauge />} />
         <Summary value={String((batches.data?.items ?? []).filter((item) => item.status === "PLANNED").length)} label="в очереди" icon={<ShieldCheck />} />
@@ -97,7 +122,8 @@ export function BatchesPage({ meta, actorRole }: { meta: MetaData | null; actorR
             {FILTERS.map(({ id, label, tone }) => {
               const count = allBatches.filter((batch) => matchesBatchFilter(batch.status, id)).length
                 + (id === "ALL" ? production.items.length : id === "COMPLETED"
-                  ? production.items.filter((report) => report.posted && !report.deleted).length : 0);
+                  ? production.items.filter((report) => report.posted && !report.deleted).length : 0)
+                + (["ALL", "COMPLETED"].includes(id) ? unmatchedHistory.length : 0);
               return <button type="button" key={id} className={`${tone}${filter === id ? " active" : ""}`} aria-pressed={filter === id} onClick={() => setFilter(id)}><i aria-hidden="true" /><span>{label}</span><em>{count}</em></button>;
             })}
           </div>
@@ -112,6 +138,19 @@ export function BatchesPage({ meta, actorRole }: { meta: MetaData | null; actorR
             <thead><tr><th>Замес / отчёт</th><th>Время</th><th>Рецептура / спецификация</th><th>Линия / склад</th><th>Объём</th><th>Выполнение</th><th>Статус</th><th /></tr></thead>
             <tbody>
               {rows.slice(0, visibleCount).map((row) => {
+                if (row.kind === "history") {
+                  const item = row.value;
+                  return <tr key={item.id} onClick={() => setSelectedHistorical(item)}>
+                    <td><div className="primary-cell"><span className="batch-code-icon"><Factory size={16} /></span><span><strong>{item.customer ?? "Производство"}{item.part ? ` · партия ${item.part}` : ""}</strong><small>Историческая запись</small></span></div></td>
+                    <td><strong>{formatDate(`${item.dateFrom}T12:00:00.000Z`)}</strong><small>{item.dateTo !== item.dateFrom ? `по ${formatDate(`${item.dateTo}T12:00:00.000Z`)}` : "Время не указано"}</small></td>
+                    <td><strong>{item.ingredients.map((part) => part.name).join(", ")}</strong><small>Фактический расход</small></td>
+                    <td><strong>—</strong><small>Не указано</small></td>
+                    <td><strong>{formatNumber(item.volumeM3)} м³</strong><small>по отчёту</small></td>
+                    <td>—</td>
+                    <td><span className="soft-tag">Выпущено</span></td>
+                    <td><button type="button" className="row-action" aria-label="Открыть историческую запись" onClick={(event) => { event.stopPropagation(); setSelectedHistorical(item); }}><MoreHorizontal size={18} /></button></td>
+                  </tr>;
+                }
                 if (row.kind === "report") {
                   const report = row.value;
                   return <tr key={`report:${report.externalId}`} onClick={() => setSelectedReport(report)}>
@@ -140,15 +179,16 @@ export function BatchesPage({ meta, actorRole }: { meta: MetaData | null; actorR
                   </tr>
                 );
               })}
-              {rows.length === 0 ? <tr className="table-empty-row"><td colSpan={8}>{production.loading ? "Загружаем записи…" : "По выбранным фильтрам записей нет."}</td></tr> : null}
+              {rows.length === 0 ? <tr className="table-empty-row"><td colSpan={8}>{production.loading || historical.loading ? "Загружаем записи…" : "По выбранным фильтрам записей нет."}</td></tr> : null}
             </tbody>
           </table>
         </div>
-        <div className="table-footer"><span>Показано {Math.min(rows.length, visibleCount)} из {allBatches.length + production.items.length}</span>
+        <div className="table-footer"><span>Показано {Math.min(rows.length, visibleCount)} из {rows.length}</span>
           {rows.length > visibleCount ? <button type="button" className="button ghost small" onClick={() => setVisibleCount((count) => count + 50)}>Показать ещё</button> : null}
           {allDates && allBatches.length >= 500 ? <span className="history-limit-note">Лимит списка — 500 записей. Для поиска более ранних выберите дату.</span> : null}</div>
       </Panel>
       {production.error ? <p className="inline-load-error" role="alert">Не удалось загрузить часть записей. <button type="button" onClick={() => void production.reload()}>Повторить</button></p> : null}
+      {historical.error ? <p className="inline-load-error" role="alert">Не удалось загрузить историю Excel. <button type="button" onClick={() => void historical.reload()}>Повторить</button></p> : null}
 
       {createOpen ? (
         <CreateBatchModal
@@ -179,6 +219,17 @@ export function BatchesPage({ meta, actorRole }: { meta: MetaData | null; actorR
               <div><small>Количество</small><strong>{sourceDecimal(part.quantity)}</strong></div>
             </div>)}</div>}
           <p className="shift-report-note">Запись доступна только для просмотра.</p>
+        </div>
+      </Modal> : null}
+      {selectedHistorical ? <Modal title={`Выпуск ${selectedHistorical.customer ?? "за период"}`} onClose={() => setSelectedHistorical(null)}>
+        <div className="shift-report-detail">
+          <div className="shift-report-meta"><span>{selectedHistorical.dateFrom}{selectedHistorical.dateTo !== selectedHistorical.dateFrom ? ` — ${selectedHistorical.dateTo}` : ""}</span><span>{formatNumber(selectedHistorical.volumeM3)} м³</span></div>
+          <div className="shift-report-section-head"><h3>Расход реагентов</h3><span>{selectedHistorical.ingredients.length} поз.</span></div>
+          <div className="shift-report-products">{selectedHistorical.ingredients.map((part) => <div className="shift-report-product" key={part.name}>
+            <div><strong>{part.name}</strong><small>Норма: {formatNumber(part.rate)} на м³</small></div>
+            <div><small>Расход по отчёту</small><strong>{formatNumber(part.consumed)}</strong></div>
+          </div>)}</div>
+          <p className="shift-report-note">{selectedHistorical.fileName} · лист «{selectedHistorical.sourceSheet}», строки {selectedHistorical.sourceRows[0]}–{selectedHistorical.sourceRows.at(-1)}. Единица расхода в файле не подписана; запись не изменяет остатки склада и не прибавляется к сводным оборотам 1С. Совпадение с выпуском 1С требует сверки.</p>
         </div>
       </Modal> : null}
     </>

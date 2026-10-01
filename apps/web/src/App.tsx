@@ -191,7 +191,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
       case "clients":
         return <ClientsPage actorRole={actorRole} />;
       case "reports":
-        return <ReportsPage />;
+        return <ReportsPage actorRole={actorRole} />;
       case "settings":
         return <SettingsPage actorRole={actorRole} />;
       case "one-c-archive":
