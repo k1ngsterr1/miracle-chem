@@ -7,6 +7,7 @@ import {
 import { ApiError } from "../lib/api-error.js";
 import type { FullSnapshotEnvelope } from "./one-c-full-snapshot-service.js";
 import { projectOneCDirectories } from "./one-c-directory-service.js";
+import { mapOneCMaterialUnit } from "./one-c-material-unit.js";
 
 type Snapshot = FullSnapshotEnvelope["snapshot"];
 type Transaction = Prisma.TransactionClient;
@@ -48,23 +49,30 @@ export async function projectFullSnapshot(tx: Transaction, input: FullSnapshotEn
   });
   const materialByExternalId = new Map(materialRefs.map((ref) => [ref.externalId.slice(sourceInstanceId.length + 1), ref.internalId]));
   const sourceMaterials = new Map(snapshot.materials.map((row) => [row.externalId, row]));
-  const requested = new Map<string, Map<string, { quantity: Decimal; amount: Decimal; accountCode: string }>>();
+  const requested = new Map<string, Map<string, { quantity: Decimal; sourceQuantity: Decimal;
+    sourceUnitName: string; quantityFactor: string; amount: Decimal; accountCode: string }>>();
   for (const balance of snapshot.accountingInventory) {
     const materialId = materialByExternalId.get(balance.materialId);
     if (!materialId) throw new ApiError(422, "ONE_C_MATERIAL_UNMAPPED", `Не согласована номенклатура остатка ${balance.materialId}`);
-    const group = sourceMaterials.get(balance.materialId)?.groupName;
+    const sourceMaterial = sourceMaterials.get(balance.materialId);
+    const group = sourceMaterial?.groupName;
+    const unit = sourceMaterial ? mapOneCMaterialUnit(sourceMaterial) : null;
+    if (!unit) throw new ApiError(422, "ONE_C_MATERIAL_UNIT_UNMAPPED", "Единица бухгалтерского остатка 1С не согласована");
     const expectedAccount = group === "Материалы" ? "1310" : group === "Готовая продукция" ? "1320" : group === "Товары" ? "1330" : null;
     // Root-level items have no directory classification. Keep the actual source
     // account (schema permits only 1310/1320/1330), never infer one from OTHER.
     if (group !== null && balance.accountCode !== expectedAccount) throw new ApiError(422, "ONE_C_ACCOUNT_MISMATCH", "Счёт остатка 1С не соответствует группе номенклатуры");
-    const quantity = number(balance.quantityDebit, "quantityDebit").sub(number(balance.quantityCredit, "quantityCredit"));
+    const sourceQuantity = number(balance.quantityDebit, "quantityDebit")
+      .sub(number(balance.quantityCredit, "quantityCredit"));
+    const quantity = sourceQuantity.mul(unit.quantityFactor);
     const amount = number(balance.amountDebit, "amountDebit").sub(number(balance.amountCredit, "amountCredit"));
     if (quantity.isNegative() || amount.isNegative() || quantity.isZero() !== amount.isZero()) {
       throw new ApiError(422, "ONE_C_BALANCE_INVALID", "Количество и сумма бухгалтерского остатка 1С не согласованы");
     }
     const byWarehouse = requested.get(materialId) ?? new Map();
     if (byWarehouse.has(balance.warehouseId)) throw new ApiError(422, "ONE_C_BALANCE_DUPLICATE", "Повторный бухгалтерский остаток материала и склада");
-    byWarehouse.set(balance.warehouseId, { quantity, amount, accountCode: balance.accountCode });
+    byWarehouse.set(balance.warehouseId, { quantity, sourceQuantity, sourceUnitName: sourceMaterial!.unitName,
+      quantityFactor: unit.quantityFactor, amount, accountCode: balance.accountCode });
     requested.set(materialId, byWarehouse);
   }
 
@@ -100,6 +108,23 @@ export async function projectFullSnapshot(tx: Transaction, input: FullSnapshotEn
     const lotStock = material.lots.reduce((total, lot) => total.add(lot.availableQuantity.toString()), new Decimal(0));
     if (!stock.eq(lotStock)) throw new ApiError(409, "ONE_C_STOCK_INCONSISTENT", "Остаток материала и суммы партий CRM расходятся");
     const byWarehouse = requested.get(material.id) ?? new Map();
+    const sourceRow = sourceMaterials.get(ref.externalId.slice(sourceInstanceId.length + 1));
+    if (sourceRow && mapOneCMaterialUnit(sourceRow)?.quantityFactor === "1000") {
+      const incomingStock = [...byWarehouse.values()].reduce((sum, balance) => sum.add(balance.quantity), new Decimal(0));
+      const incomingValue = [...byWarehouse.values()].reduce((sum, balance) => sum.add(balance.amount), new Decimal(0));
+      const currentCost = new Decimal(material.costPerBaseUnit.toString());
+      const incomingCost = incomingStock.gt(0) ? incomingValue.div(incomingStock) : new Decimal(0);
+      const stockRatio = stock.gt(0) ? incomingStock.div(stock) : null;
+      const costRatio = currentCost.gt(0) && incomingStock.gt(0) ? incomingCost.div(currentCost) : null;
+      if (incomingStock.gt(0) && (!costRatio || costRatio.lt("0.1") || costRatio.gt("10") ||
+          (stockRatio !== null && (stockRatio.lt("0.01") || stockRatio.gt("100"))))) {
+        throw new ApiError(409, "ONE_C_UNIT_SCALE_REVIEW_REQUIRED",
+          `Остаток или учётная цена «${material.name}» после перевода тонн в килограммы требуют сверки.`,
+          { materialId: material.id, sourceUnitName: sourceRow.unitName,
+            currentStockKg: stock.toString(), proposedStockKg: incomingStock.toString(),
+            currentCostKztPerKg: currentCost.toString(), proposedCostKztPerKg: incomingCost.toString() });
+      }
+    }
     const warehouses = new Set([...byWarehouse.keys(), ...material.lots
       .filter((lot) => lot.lotNumber.startsWith("1C-OPEN-"))
       .map((lot) => lot.lotNumber.slice("1C-OPEN-".length))]);
@@ -113,7 +138,10 @@ export async function projectFullSnapshot(tx: Transaction, input: FullSnapshotEn
       if (!old && quantity.isZero()) continue;
       const oldQuantity = old ? new Decimal(old.availableQuantity.toString()) : new Decimal(0);
       const metadata = { source: "1C_OPENING_BALANCE", snapshotSha256, sourceWarehouseId: warehouseId,
-        accountCode: balance?.accountCode ?? null, bookValue: amount.toString(), valuation: "1C_ACCOUNTING_BALANCE" };
+        accountCode: balance?.accountCode ?? null, bookValue: amount.toString(), valuation: "1C_ACCOUNTING_BALANCE",
+        sourceUnitName: balance?.sourceUnitName ?? sourceRow?.unitName ?? null,
+        sourceQuantity: balance?.sourceQuantity.toString() ?? "0",
+        quantityFactor: balance?.quantityFactor ?? (sourceRow ? mapOneCMaterialUnit(sourceRow)?.quantityFactor : null) ?? null };
       const lot = old
         ? await tx.materialLot.update({ where: { id: old.id }, data: { availableQuantity: quantity.toString(), unitCost: cost,
           qualitySnapshot: metadata } })
@@ -130,7 +158,8 @@ export async function projectFullSnapshot(tx: Transaction, input: FullSnapshotEn
           stockBefore: stock.toString(), stockAfter: after.toString(), reservedBefore: "0", reservedAfter: "0",
           reason: "Сверка бухгалтерского остатка 1С", occurredAt: new Date(snapshot.generatedAt),
           metadata: { source: "1C", snapshotSha256, warehouseId, signedDifference: difference.toString(),
-            bookValue: amount.toString() } } });
+            bookValue: amount.toString(), sourceUnitName: metadata.sourceUnitName,
+            sourceQuantity: metadata.sourceQuantity, quantityFactor: metadata.quantityFactor } } });
         stock = after;
         inventoryChanges += 1;
       }

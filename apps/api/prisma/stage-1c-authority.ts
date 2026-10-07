@@ -35,6 +35,10 @@ async function main(): Promise<void> {
   const raw = await readFile(path("--snapshot"));
   const source = JSON.parse(raw.toString("utf8")) as Record<string, unknown>;
   const snapshot = parseBkzSnapshot(source);
+  if (snapshot.materials.some((material) => typeof material.unitName === "string" &&
+      material.unitName.trim().toLocaleLowerCase("ru") === "т")) {
+    throw new Error("Bootstrap 1С с номенклатурой в тоннах не поддерживается: бухгалтерский остаток не содержит единицу. Используйте согласованный контур полного обмена.");
+  }
   const mapping = parseBkzMapping(JSON.parse(await readFile(path("--mapping"), "utf8")) as unknown);
   if (source.consistency !== "SEQUENTIAL_READ_ONLY_NOT_ACCOUNTING_CLOSE" ||
       !Array.isArray(source.balances) || !Array.isArray(source.accountingInventory) ||

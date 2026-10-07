@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
-import { MaterialType, OneCSyncEntityType, Unit, type Prisma } from "../generated/prisma/index.js";
+import { MaterialType, OneCSyncEntityType, type Prisma } from "../generated/prisma/index.js";
 import { ApiError } from "../lib/api-error.js";
 import type { FullSnapshotEnvelope } from "./one-c-full-snapshot-service.js";
+import { mapOneCMaterialUnit } from "./one-c-material-unit.js";
 
 /** Extend the approved BKZ mapping by source GUID; never merge records by name or code. */
 export async function projectOneCDirectories(tx: Prisma.TransactionClient, input: FullSnapshotEnvelope) {
@@ -42,10 +43,7 @@ export async function projectOneCDirectories(tx: Prisma.TransactionClient, input
     if (!ref && (row.deleted || row.service)) continue;
     const payloadHash = createHash("sha256").update(JSON.stringify(row)).digest("hex");
     if (ref?.payloadHash === payloadHash) continue;
-    const baseUnit = row.unitName.trim().toLocaleLowerCase("ru") === "кг" ? Unit.KG
-      : row.unitName.trim().toLocaleLowerCase("ru") === "шт" ? Unit.PCS
-      : row.unitName.trim().toLocaleLowerCase("ru") === "м" ? Unit.M
-      : row.unitName.trim().toLocaleLowerCase("ru") === "пар" ? Unit.PAIR : null;
+    const baseUnit = mapOneCMaterialUnit(row)?.baseUnit;
     const type = row.groupName === "Материалы" ? MaterialType.REAGENT
       : row.groupName === "Готовая продукция" ? MaterialType.CHEMICAL_ADDITIVE
       : row.groupName === "Товары" || row.groupName === null ? MaterialType.OTHER : null;

@@ -4,6 +4,7 @@ import { ApiError } from "../lib/api-error.js";
 import { prisma } from "../lib/prisma.js";
 import { fullSnapshotHash, fullSnapshotSchema } from "./one-c-full-snapshot-service.js";
 import { loadOneCFinance } from "./one-c-finance-service.js";
+import { mapOneCMaterialUnit } from "./one-c-material-unit.js";
 
 type Difference = { area: string; sourceId: string; field: string };
 
@@ -107,7 +108,11 @@ export async function reconcileLatestOneCWorkspace(workspaceId: string) {
       const materialId = materialIds.get(row.materialId);
       const actual = materialId ? materialById.get(materialId) : null;
       if (!actual) { addDifference(differences, "stock", row.materialId, "materialMapping"); continue; }
-      const quantity = new Decimal(row.quantityDebit).sub(row.quantityCredit);
+      const sourceMaterial = materialRows.get(row.materialId);
+      const unit = sourceMaterial ? mapOneCMaterialUnit(sourceMaterial) : null;
+      if (!unit) { addDifference(differences, "stock", row.materialId, "sourceUnit"); continue; }
+      const sourceQuantity = new Decimal(row.quantityDebit).sub(row.quantityCredit);
+      const quantity = sourceQuantity.mul(unit.quantityFactor);
       const value = new Decimal(row.amountDebit).sub(row.amountCredit);
       expectedStock.set(materialId!, (expectedStock.get(materialId!) ?? new Decimal(0)).add(quantity));
       const lotKey = `${materialId}:${row.warehouseId}`;
@@ -126,6 +131,10 @@ export async function reconcileLatestOneCWorkspace(workspaceId: string) {
       if (!metadata || metadata.sourceWarehouseId !== row.warehouseId || metadata.accountCode !== row.accountCode ||
           typeof metadata.bookValue !== "string" || !sameDecimal(metadata.bookValue, value)) {
         addDifference(differences, "stock", row.materialId, "bookValueOrWarehouse");
+      }
+      if (unit.quantityFactor !== "1" && (metadata?.sourceUnitName !== sourceMaterial?.unitName ||
+          metadata?.sourceQuantity !== sourceQuantity.toString() || metadata?.quantityFactor !== unit.quantityFactor)) {
+        addDifference(differences, "stock", row.materialId, "sourceUnitConversion");
       }
     }
     for (const [externalId, materialId] of materialIds) {

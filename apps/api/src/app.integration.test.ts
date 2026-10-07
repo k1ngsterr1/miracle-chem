@@ -401,9 +401,10 @@ describe("Miracle Chem NestJS API integration", () => {
     const customerId = "77777777-7777-4777-8777-77777777777a";
     const sourceId = "77777777-7777-4777-8777-777777777771";
     const organizationId = "77777777-7777-4777-8777-777777777772";
-    const materialExternalId = "77777777-7777-4777-8777-777777777773";
+    const materialExternalId = "2bd46f6e-ac26-11f1-b015-00155d320501";
     const customerExternalId = "77777777-7777-4777-8777-777777777774";
     const warehouseId = "77777777-7777-4777-8777-777777777775";
+    const secondWarehouseId = "77777777-7777-4777-8777-77777777777e";
     const documentId = "77777777-7777-4777-8777-777777777776";
     const invoiceId = "77777777-7777-4777-8777-777777777779";
     const materialId = "77777777-7777-4777-8777-777777777777";
@@ -418,7 +419,7 @@ describe("Miracle Chem NestJS API integration", () => {
       organizations: [{ externalId: organizationId, code: "1", name: "Verified 1C organization" }],
       counterparties: [{ externalId: customerExternalId, code: "C1", name: "Verified customer ",
         groupName: "Продажа", taxId: "", deleted: false }],
-      materials: [{ externalId: materialExternalId, code: "M1", name: "Verified reagent ", groupName: "Материалы",
+      materials: [{ externalId: materialExternalId, code: "00000000015", name: "Verified reagent ", groupName: "Материалы",
         unitId: materialExternalId, unitName: "кг", service: false, deleted: false }],
       warehouses: [{ externalId: warehouseId, code: "W1", name: "Source warehouse", deleted: false }],
       contracts: [{ externalId: documentId, code: "C1", name: "Supply contract",
@@ -469,7 +470,7 @@ describe("Miracle Chem NestJS API integration", () => {
         { id: storekeeperUserId, workspaceId, name: "Source storekeeper", email: "source-storekeeper@miracle-chem.test", role: UserRole.STOREKEEPER },
         { id: managerUserId, workspaceId, name: "Source manager", email: "source-manager@miracle-chem.test", role: UserRole.MANAGER },
       ] });
-      await prisma.material.create({ data: { id: materialId, workspaceId, code: "M1",
+      await prisma.material.create({ data: { id: materialId, workspaceId, code: "00000000015",
         name: "Verified reagent", type: MaterialType.REAGENT, baseUnit: Unit.KG, costPerBaseUnit: "10" } });
       await prisma.oneCExternalReference.createMany({ data: [
         { workspaceId, source: "1C", entityType: OneCSyncEntityType.MATERIAL,
@@ -581,14 +582,33 @@ describe("Miracle Chem NestJS API integration", () => {
         headers: { "x-workspace-id": workspaceId, "x-actor-id": managerUserId } });
       expect(managerSalesDenied.statusCode).toBe(403);
 
-      const secondSnapshot = snapshot("2026-09-27T08:15:00Z", "12", "0", "20");
+      const implausibleTonnes = snapshot("2026-09-27T08:14:00Z", "10", "0", "20");
+      implausibleTonnes.materials[0]!.unitName = "т";
+      const blockedUnitScale = await app.inject({ method: "POST", url: "/api/integrations/1c/snapshot", headers,
+        payload: envelope("projected-1c-unit-scale-review", implausibleTonnes) });
+      expect(blockedUnitScale.statusCode).toBe(409);
+      expect(blockedUnitScale.json().error).toMatchObject({ code: "ONE_C_UNIT_SCALE_REVIEW_REQUIRED",
+        details: { currentStockKg: "10", proposedStockKg: "10000" } });
+      expect((await prisma.material.findUniqueOrThrow({ where: { id: materialId } })).currentStock.toString()).toBe("10");
+      const secondSnapshot = snapshot("2026-09-27T08:15:00Z", "0.007", "0", "20");
+      secondSnapshot.materials[0]!.unitName = "т";
+      secondSnapshot.accountingInventory[0]!.amountDebit = "90";
+      secondSnapshot.warehouses.push({ externalId: secondWarehouseId, code: "W2", name: "Second warehouse", deleted: false });
+      secondSnapshot.accountingInventory.push({ ...secondSnapshot.accountingInventory[0]!,
+        warehouseId: secondWarehouseId, quantityDebit: "0.005", amountDebit: "60" });
       const second = await app.inject({ method: "POST", url: "/api/integrations/1c/snapshot", headers,
         payload: envelope("projected-1c-002", secondSnapshot) });
       expect(second.statusCode).toBe(201);
-      expect(second.json()).toMatchObject({ summary: { projection: { inventoryChanges: 1, documentChanges: 1 } } });
+      expect(second.json()).toMatchObject({ summary: { projection: { inventoryChanges: 2, documentChanges: 1 } } });
       expect((await prisma.accountingDocument.findUniqueOrThrow({ where: { id: importedInvoice.id } })).status)
         .toBe(AccountingDocumentStatus.ISSUED);
       expect((await prisma.material.findUniqueOrThrow({ where: { id: materialId } })).currentStock.toString()).toBe("12");
+      expect(await prisma.materialLot.findFirstOrThrow({ where: { workspaceId, materialId,
+        lotNumber: `1C-OPEN-${warehouseId}` } })).toMatchObject({ unit: Unit.KG,
+        qualitySnapshot: { sourceUnitName: "т", sourceQuantity: "0.007", quantityFactor: "1000" } });
+      expect(await prisma.materialLot.findFirstOrThrow({ where: { workspaceId, materialId,
+        lotNumber: `1C-OPEN-${secondWarehouseId}` } })).toMatchObject({ unit: Unit.KG,
+        qualitySnapshot: { sourceUnitName: "т", sourceQuantity: "0.005", quantityFactor: "1000" } });
       const advance = await app.inject({ method: "GET", url: "/api/integrations/1c/finance", headers: financeHeaders });
       expect(advance.json()).toMatchObject({ totalReceivables: "0", totalPrepayments: "20" });
       const repaired = await app.inject({ method: "GET", url: "/api/integrations/1c/reconciliation", headers: financeHeaders });
@@ -625,6 +645,13 @@ describe("Miracle Chem NestJS API integration", () => {
       const renamedInvoice = await prisma.accountingDocument.findUniqueOrThrow({ where: { id: importedInvoice.id }, include: { items: true } });
       expect(renamedInvoice).toMatchObject({ counterparty: "Renamed customer", counterpartyTaxId: "123456789012" });
       expect(renamedInvoice.items[0]?.description).toBe("Renamed reagent");
+      const unapprovedTonnes = { ...newDirectory, generatedAt: "2026-09-27T08:55:00Z",
+        readStartedAt: "2026-09-27T08:55:00Z", materials: newDirectory.materials.map((row, index) => index === 0
+          ? { ...row, unitName: "т", code: "UNAPPROVED" } : row) };
+      const unapproved = await app.inject({ method: "POST", url: "/api/integrations/1c/snapshot", headers,
+        payload: envelope("projected-1c-unapproved-tonnes", unapprovedTonnes) });
+      expect(unapproved.statusCode).toBe(422);
+      expect(unapproved.json().error.code).toBe("ONE_C_DIRECTORY_MAPPING_REQUIRED");
       const invalid = { ...newDirectory, generatedAt: "2026-09-27T09:00:00Z", readStartedAt: "2026-09-27T09:00:00Z",
         materials: newDirectory.materials.map((row) => ({ ...row, unitName: "неизвестная" })) };
       const rejected = await app.inject({ method: "POST", url: "/api/integrations/1c/snapshot", headers,

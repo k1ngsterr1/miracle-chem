@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Decimal } from "decimal.js";
 import { prisma } from "../src/lib/prisma.js";
+import { mapOneCMaterialUnit } from "../src/services/one-c-material-unit.js";
 
 type SourceRow = Record<string, unknown>;
 
@@ -47,10 +48,15 @@ async function main(): Promise<void> {
     assert.ok(internalId, `No CRM material for 1C material ${sourceMaterialId}`);
     const material = actualById.get(internalId);
     assert.ok(material, `Mapped CRM material not found: ${internalId}`);
-    assert.equal(material.code, sourceMaterials.get(sourceMaterialId)?.code, "Material code diverged from 1C");
+    const sourceMaterial = sourceMaterials.get(sourceMaterialId);
+    assert.ok(sourceMaterial, `Source material not found: ${sourceMaterialId}`);
+    assert.equal(material.code, sourceMaterial.code, "Material code diverged from 1C");
+    const unit = mapOneCMaterialUnit({ externalId: sourceMaterialId,
+      code: required(sourceMaterial.code, "material.code"), unitName: required(sourceMaterial.unitName, "material.unitName") });
+    assert.ok(unit, `Accounting unit is not approved for ${sourceMaterialId}`);
     const warehouseId = required(row.warehouseId, "inventory.warehouseId");
     const quantity = new Decimal(required(row.quantityDebit, "quantityDebit"))
-      .sub(required(row.quantityCredit, "quantityCredit"));
+      .sub(required(row.quantityCredit, "quantityCredit")).mul(unit.quantityFactor);
     const value = new Decimal(required(row.amountDebit, "amountDebit"))
       .sub(required(row.amountCredit, "amountCredit"));
     const lot = material.lots.find((item) => {
