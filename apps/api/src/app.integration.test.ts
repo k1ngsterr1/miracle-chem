@@ -630,6 +630,9 @@ describe("Miracle Chem NestJS API integration", () => {
       const rejected = await app.inject({ method: "POST", url: "/api/integrations/1c/snapshot", headers,
         payload: envelope("projected-1c-bad-unit", invalid) });
       expect(rejected.statusCode).toBe(422);
+      expect(rejected.json().error).toMatchObject({ code: "ONE_C_DIRECTORY_MAPPING_REQUIRED",
+        details: { unitName: "неизвестная", groupName: "Материалы",
+          accountingBalances: [{ warehouseId, quantityDebit: "20", quantityCredit: "0" }] } });
       expect((await prisma.material.findUniqueOrThrow({ where: { id: materialId } })).currentStock.toString()).toBe("20");
       // Actual new 1C catalog shapes: hose in meters and gloves in pairs, no parent group.
       const expanded = { ...newDirectory, generatedAt: "2026-09-27T09:15:00Z", readStartedAt: "2026-09-27T09:15:00Z",

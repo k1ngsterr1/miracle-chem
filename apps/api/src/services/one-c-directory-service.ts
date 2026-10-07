@@ -50,9 +50,16 @@ export async function projectOneCDirectories(tx: Prisma.TransactionClient, input
       : row.groupName === "Готовая продукция" ? MaterialType.CHEMICAL_ADDITIVE
       : row.groupName === "Товары" || row.groupName === null ? MaterialType.OTHER : null;
     if (!baseUnit || !type || row.service || !row.name.trim() || !row.code.trim()) {
+      const accountingBalances = snapshot.accountingInventory
+        .filter((balance) => balance.materialId === row.externalId)
+        .map((balance) => ({
+          warehouseId: balance.warehouseId,
+          quantityDebit: balance.quantityDebit,
+          quantityCredit: balance.quantityCredit,
+        }));
       throw new ApiError(422, "ONE_C_DIRECTORY_MAPPING_REQUIRED",
         `Требуется проверка номенклатуры «${row.name}»: группа или единица не входит в согласованное соответствие`,
-        { externalId: row.externalId });
+        { externalId: row.externalId, groupName: row.groupName, unitName: row.unitName, accountingBalances });
     }
     const existing = ref ? await tx.material.findFirst({ where: { workspaceId, id: ref.internalId } }) : null;
     if (ref && !existing) throw new ApiError(409, "ONE_C_MATERIAL_MISSING", "Связанный материал отсутствует в CRM");
