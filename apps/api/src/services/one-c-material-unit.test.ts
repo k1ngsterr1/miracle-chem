@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { Decimal } from "decimal.js";
 import { Unit } from "../generated/prisma/index.js";
-import { mapOneCMaterialUnit } from "./one-c-material-unit.js";
+import { mapOneCMaterialUnit, plausibleTonneBalance } from "./one-c-material-unit.js";
 
 describe("1C accounting unit mapping", () => {
   it("normalizes only the two audited tonne materials to kilograms", () => {
@@ -20,5 +21,14 @@ describe("1C accounting unit mapping", () => {
     expect(mapOneCMaterialUnit({ externalId: "x", code: "x", unitName: "кг" }))
       .toEqual({ baseUnit: Unit.KG, quantityFactor: "1" });
     expect(mapOneCMaterialUnit({ externalId: "x", code: "x", unitName: "усл" })).toBeNull();
+  });
+
+  it("permits real depletion at a consistent KG cost but blocks a 1000x scale error", () => {
+    expect(plausibleTonneBalance(new Decimal("5500"), new Decimal("443.9655"),
+      new Decimal("11"), new Decimal("4883.62"))).toBe(true);
+    expect(plausibleTonneBalance(new Decimal("5500"), new Decimal("443.9655"),
+      new Decimal("5500000"), new Decimal("2441810.25"))).toBe(false);
+    expect(plausibleTonneBalance(new Decimal("0"), new Decimal("0"),
+      new Decimal("11"), new Decimal("4883.62"))).toBe(false);
   });
 });

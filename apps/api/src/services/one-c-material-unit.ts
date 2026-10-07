@@ -1,3 +1,4 @@
+import { Decimal } from "decimal.js";
 import { Unit } from "../generated/prisma/index.js";
 
 // Audited source GUIDs/codes from the bound BKZ database. A catalogue unit alone
@@ -19,4 +20,16 @@ export function mapOneCMaterialUnit(material: { externalId: string; code: string
     case "пар": return { baseUnit: Unit.PAIR, quantityFactor: "1" };
     default: return null;
   }
+}
+
+/** Fail closed if a tonne interpretation contradicts known KG stock or KZT/kg cost. */
+export function plausibleTonneBalance(currentStock: Decimal, currentCost: Decimal,
+  proposedStock: Decimal, proposedValue: Decimal): boolean {
+  if (proposedStock.isZero()) return true;
+  if (currentCost.lte(0) || proposedStock.lte(0) || proposedValue.lte(0)) return false;
+  const costRatio = proposedValue.div(proposedStock).div(currentCost);
+  // A material can be almost fully consumed. Large upward jumps and a 1000x
+  // price shift are the dangerous signatures of a mismatched register unit.
+  return costRatio.gte("0.1") && costRatio.lte("10") &&
+    (currentStock.lte(0) || proposedStock.lte(currentStock.mul(100)));
 }

@@ -7,7 +7,7 @@ import {
 import { ApiError } from "../lib/api-error.js";
 import type { FullSnapshotEnvelope } from "./one-c-full-snapshot-service.js";
 import { projectOneCDirectories } from "./one-c-directory-service.js";
-import { mapOneCMaterialUnit } from "./one-c-material-unit.js";
+import { mapOneCMaterialUnit, plausibleTonneBalance } from "./one-c-material-unit.js";
 
 type Snapshot = FullSnapshotEnvelope["snapshot"];
 type Transaction = Prisma.TransactionClient;
@@ -114,10 +114,7 @@ export async function projectFullSnapshot(tx: Transaction, input: FullSnapshotEn
       const incomingValue = [...byWarehouse.values()].reduce((sum, balance) => sum.add(balance.amount), new Decimal(0));
       const currentCost = new Decimal(material.costPerBaseUnit.toString());
       const incomingCost = incomingStock.gt(0) ? incomingValue.div(incomingStock) : new Decimal(0);
-      const stockRatio = stock.gt(0) ? incomingStock.div(stock) : null;
-      const costRatio = currentCost.gt(0) && incomingStock.gt(0) ? incomingCost.div(currentCost) : null;
-      if (incomingStock.gt(0) && (!costRatio || costRatio.lt("0.1") || costRatio.gt("10") ||
-          (stockRatio !== null && (stockRatio.lt("0.01") || stockRatio.gt("100"))))) {
+      if (!plausibleTonneBalance(stock, currentCost, incomingStock, incomingValue)) {
         throw new ApiError(409, "ONE_C_UNIT_SCALE_REVIEW_REQUIRED",
           `Остаток или учётная цена «${material.name}» после перевода тонн в килограммы требуют сверки.`,
           { materialId: material.id, sourceUnitName: sourceRow.unitName,
