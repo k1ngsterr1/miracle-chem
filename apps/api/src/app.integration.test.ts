@@ -693,6 +693,98 @@ describe("Miracle Chem NestJS API integration", () => {
       expect(await prisma.material.count({ where: { workspaceId } })).toBe(5);
       const checkedInventory = await app.inject({ method: "GET", url: "/api/integrations/1c/reconciliation", headers: financeHeaders });
       expect(checkedInventory.json()).toMatchObject({ discrepancyCount: 0 });
+
+      const valuationOnly = { ...expanded, generatedAt: "2026-09-27T09:30:00Z",
+        readStartedAt: "2026-09-27T09:30:00Z",
+        warehouses: [...expanded.warehouses,
+          { externalId: secondWarehouseId, code: "W2", name: "Second warehouse", deleted: false }],
+        accountingInventory: [...expanded.accountingInventory.map((row) =>
+          row.materialId === "77777777-7777-4777-8777-777777777782"
+            ? { ...row, quantityDebit: "0" } : row),
+          { ...expanded.accountingInventory[1]!, warehouseId: secondWarehouseId,
+            quantityDebit: "2", amountDebit: "200" }] };
+      const valuationResult = await app.inject({ method: "POST", url: "/api/integrations/1c/snapshot", headers,
+        payload: envelope("projected-1c-valuation-only", valuationOnly) });
+      expect(valuationResult.statusCode).toBe(201);
+      expect(valuationResult.json()).toMatchObject({ status: "PARTIAL", summary: { appliedToOperationalTables: true,
+        projection: { accountingExceptionCount: 1 } } });
+      const valueOnlyLot = await prisma.materialLot.findFirstOrThrow({ where: { workspaceId, materialId: hose.id,
+        lotNumber: `1C-OPEN-${warehouseId}` } });
+      expect(valueOnlyLot.availableQuantity.toString()).toBe("0");
+      expect(valueOnlyLot.unitCost.toString()).toBe("0");
+      expect(valueOnlyLot.qualitySnapshot).toMatchObject({ bookValue: "550",
+        valuationComparable: false, valuationIssue: "VALUE_WITHOUT_QUANTITY" });
+      const mixedValuationMaterial = await prisma.material.findUniqueOrThrow({ where: { id: hose.id } });
+      expect(mixedValuationMaterial.currentStock.toString()).toBe("2");
+      expect(mixedValuationMaterial.costPerBaseUnit.toString()).toBe("100");
+      const replayPartial = await app.inject({ method: "POST", url: "/api/integrations/1c/snapshot", headers,
+        payload: envelope("projected-1c-valuation-only", valuationOnly) });
+      expect(replayPartial.json()).toMatchObject({ status: "PARTIAL", replayed: true, runId: valuationResult.json().runId });
+      expect((await app.inject({ method: "GET", url: "/api/integrations/1c/reconciliation", headers: financeHeaders })).json())
+        .toMatchObject({ verdict: "PARTIAL", discrepancyCount: 0,
+          notProjected: { valuationUnavailableRows: 1 } });
+
+      const signed = { ...valuationOnly, generatedAt: "2026-09-27T09:45:00Z",
+        readStartedAt: "2026-09-27T09:45:00Z",
+        receivables: [{ ...valuationOnly.receivables[0]!, amountDebit: "250" }],
+        accountingInventory: valuationOnly.accountingInventory.map((row) =>
+          row.materialId === "77777777-7777-4777-8777-777777777783"
+            ? { ...row, quantityDebit: "0", quantityCredit: "2", amountDebit: "0", amountCredit: "40" }
+            : row.materialId === "77777777-7777-4777-8777-777777777784"
+              ? { ...row, amountDebit: "0", amountCredit: "0" } : row) };
+      const signedResult = await app.inject({ method: "POST", url: "/api/integrations/1c/snapshot", headers,
+        payload: envelope("projected-1c-signed-balance", signed) });
+      expect(signedResult.statusCode).toBe(201);
+      expect(signedResult.json()).toMatchObject({ status: "PARTIAL",
+        summary: { projection: { accountingExceptionCount: 3 } } });
+      const signedLot = await prisma.materialLot.findFirstOrThrow({ where: { workspaceId, materialId: gloves.id,
+        lotNumber: `1C-OPEN-${warehouseId}` } });
+      expect(signedLot.availableQuantity.toString()).toBe("-2");
+      expect(signedLot.unitCost.toString()).toBe("0");
+      expect(signedLot.qualitySnapshot).toMatchObject({ bookValue: "-40",
+        valuationComparable: false, valuationIssue: "NEGATIVE_NET_BALANCE" });
+      expect((await prisma.material.findUniqueOrThrow({ where: { id: gloves.id } })).currentStock.toString()).toBe("-2");
+      expect((await app.inject({ method: "GET", url: "/api/integrations/1c/finance", headers: financeHeaders })).json())
+        .toMatchObject({ snapshotAt: "2026-09-27T09:45:00.000Z", totalReceivables: "250" });
+      expect((await app.inject({ method: "GET", url: "/api/integrations/1c/reconciliation", headers: financeHeaders })).json())
+        .toMatchObject({ verdict: "PARTIAL", discrepancyCount: 0,
+          notProjected: { valuationUnavailableRows: 3 } });
+
+      const valuedAgain = { ...signed, generatedAt: "2026-09-27T10:00:00Z",
+        readStartedAt: "2026-09-27T10:00:00Z", accountingInventory: expanded.accountingInventory };
+      const recovered = await app.inject({ method: "POST", url: "/api/integrations/1c/snapshot", headers,
+        payload: envelope("projected-1c-valued-again", valuedAgain) });
+      expect(recovered.json()).toMatchObject({ status: "COMPLETED",
+        summary: { projection: { accountingExceptionCount: 0 } } });
+      expect((await prisma.material.findUniqueOrThrow({ where: { id: gloves.id } })).currentStock.toString()).toBe("12");
+      expect((await app.inject({ method: "GET", url: "/api/integrations/1c/reconciliation", headers: financeHeaders })).json())
+        .toMatchObject({ discrepancyCount: 0, notProjected: { valuationUnavailableRows: 0 } });
+
+      const kt2ExternalId = "31b148c1-ac26-11f1-b015-00155d320501";
+      const unverifiedTonnes = { ...valuedAgain, generatedAt: "2026-09-27T10:15:00Z",
+        readStartedAt: "2026-09-27T10:15:00Z",
+        materials: [...valuedAgain.materials, { ...valuedAgain.materials[0]!, externalId: kt2ExternalId,
+          code: "00000000016", name: "KT-2", unitName: "т" }],
+        accountingInventory: [...valuedAgain.accountingInventory,
+          { ...valuedAgain.accountingInventory[0]!, materialId: kt2ExternalId,
+            quantityDebit: "2", amountDebit: "0" }] };
+      const unverifiedResult = await app.inject({ method: "POST", url: "/api/integrations/1c/snapshot", headers,
+        payload: envelope("projected-1c-unverified-tonnes", unverifiedTonnes) });
+      expect(unverifiedResult.statusCode).toBe(201);
+      expect(unverifiedResult.json()).toMatchObject({ status: "PARTIAL", summary: { projection: {
+        accountingExceptionCount: 1, unitScaleUnverifiedMaterialIds: [kt2ExternalId] } } });
+      const kt2 = await prisma.material.findUniqueOrThrow({ where: { workspaceId_code: {
+        workspaceId, code: "00000000016" } }, include: { lots: true } });
+      expect(kt2.currentStock.toString()).toBe("0");
+      expect(kt2.lots).toHaveLength(0);
+      expect((await prisma.oneCSourceSnapshot.findFirstOrThrow({ where: { workspaceId,
+        sha256: unverifiedResult.json().sha256 as string } })).payload).toMatchObject({
+        accountingInventory: expect.arrayContaining([expect.objectContaining({ materialId: kt2ExternalId,
+          quantityDebit: "2", amountDebit: "0" })]),
+      });
+      expect((await app.inject({ method: "GET", url: "/api/integrations/1c/reconciliation", headers: financeHeaders })).json())
+        .toMatchObject({ verdict: "PARTIAL", discrepancyCount: 0,
+          notProjected: { valuationUnavailableRows: 1, unitScaleUnverifiedMaterials: 1 } });
     } finally {
       await prisma.accountingDocument.deleteMany({ where: { workspaceId,
         details: { path: ["source"], equals: "1C" } } });

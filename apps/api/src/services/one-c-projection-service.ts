@@ -5,6 +5,8 @@ import {
   OneCSyncEntityType, Prisma, type Unit,
 } from "../generated/prisma/index.js";
 import { ApiError } from "../lib/api-error.js";
+import { accountingBalanceIssue, comparableAccountingUnitCost,
+  type OneCAccountingBalanceIssue } from "./one-c-accounting-balance.js";
 import type { FullSnapshotEnvelope } from "./one-c-full-snapshot-service.js";
 import { projectOneCDirectories } from "./one-c-directory-service.js";
 import { mapOneCMaterialUnit, plausibleTonneBalance } from "./one-c-material-unit.js";
@@ -50,7 +52,11 @@ export async function projectFullSnapshot(tx: Transaction, input: FullSnapshotEn
   const materialByExternalId = new Map(materialRefs.map((ref) => [ref.externalId.slice(sourceInstanceId.length + 1), ref.internalId]));
   const sourceMaterials = new Map(snapshot.materials.map((row) => [row.externalId, row]));
   const requested = new Map<string, Map<string, { quantity: Decimal; sourceQuantity: Decimal;
-    sourceUnitName: string; quantityFactor: string; amount: Decimal; accountCode: string }>>();
+    sourceUnitName: string; quantityFactor: string; amount: Decimal; accountCode: string;
+    issue: OneCAccountingBalanceIssue | null }>>();
+  const accountingExceptions: { materialId: string; materialName: string; warehouseId: string;
+    accountCode: string; issue: OneCAccountingBalanceIssue }[] = [];
+  const unitScaleUnverifiedMaterialIds: string[] = [];
   for (const balance of snapshot.accountingInventory) {
     const materialId = materialByExternalId.get(balance.materialId);
     if (!materialId) throw new ApiError(422, "ONE_C_MATERIAL_UNMAPPED", `Не согласована номенклатура остатка ${balance.materialId}`);
@@ -66,13 +72,17 @@ export async function projectFullSnapshot(tx: Transaction, input: FullSnapshotEn
       .sub(number(balance.quantityCredit, "quantityCredit"));
     const quantity = sourceQuantity.mul(unit.quantityFactor);
     const amount = number(balance.amountDebit, "amountDebit").sub(number(balance.amountCredit, "amountCredit"));
-    if (quantity.isNegative() || amount.isNegative() || quantity.isZero() !== amount.isZero()) {
-      throw new ApiError(422, "ONE_C_BALANCE_INVALID", "Количество и сумма бухгалтерского остатка 1С не согласованы");
-    }
+    // The accounting register is the source of truth. A signed balance or a
+    // valuation-only row is not a usable unit price, but it is not an invalid
+    // 1C snapshot and must not block unrelated documents and payments.
+    const issue = accountingBalanceIssue(quantity, amount);
+    if (issue) accountingExceptions.push({ materialId: balance.materialId,
+      materialName: sourceMaterial!.name.trim(), warehouseId: balance.warehouseId,
+      accountCode: balance.accountCode, issue });
     const byWarehouse = requested.get(materialId) ?? new Map();
     if (byWarehouse.has(balance.warehouseId)) throw new ApiError(422, "ONE_C_BALANCE_DUPLICATE", "Повторный бухгалтерский остаток материала и склада");
     byWarehouse.set(balance.warehouseId, { quantity, sourceQuantity, sourceUnitName: sourceMaterial!.unitName,
-      quantityFactor: unit.quantityFactor, amount, accountCode: balance.accountCode });
+      quantityFactor: unit.quantityFactor, amount, accountCode: balance.accountCode, issue });
     requested.set(materialId, byWarehouse);
   }
 
@@ -114,7 +124,16 @@ export async function projectFullSnapshot(tx: Transaction, input: FullSnapshotEn
       const incomingValue = [...byWarehouse.values()].reduce((sum, balance) => sum.add(balance.amount), new Decimal(0));
       const currentCost = new Decimal(material.costPerBaseUnit.toString());
       const incomingCost = incomingStock.gt(0) ? incomingValue.div(incomingStock) : new Decimal(0);
-      if (!plausibleTonneBalance(stock, currentCost, incomingStock, incomingValue)) {
+      const hasAccountingIssue = [...byWarehouse.values()].some((balance) => balance.issue !== null);
+      const unverifiedWarehouseScale = hasAccountingIssue && [...byWarehouse.values()].some((balance) =>
+        !balance.quantity.isZero() && (stock.lte(0) || balance.quantity.abs().gt(stock.mul(100))));
+      if (unverifiedWarehouseScale || !plausibleTonneBalance(stock, currentCost, incomingStock, incomingValue)) {
+        if (hasAccountingIssue) {
+          // Keep the raw 1C balance and the rest of this snapshot. Without a
+          // verified KG baseline, its physical conversion is unsafe.
+          unitScaleUnverifiedMaterialIds.push(ref.externalId.slice(sourceInstanceId.length + 1));
+          continue;
+        }
         throw new ApiError(409, "ONE_C_UNIT_SCALE_REVIEW_REQUIRED",
           `Остаток или учётная цена «${material.name}» после перевода тонн в килограммы требуют сверки.`,
           { materialId: material.id, sourceUnitName: sourceRow.unitName,
@@ -129,13 +148,15 @@ export async function projectFullSnapshot(tx: Transaction, input: FullSnapshotEn
       const balance = byWarehouse.get(warehouseId);
       const quantity = balance?.quantity ?? new Decimal(0);
       const amount = balance?.amount ?? new Decimal(0);
-      const cost = quantity.isZero() ? "0" : amount.div(quantity).toDecimalPlaces(4, Decimal.ROUND_HALF_UP).toString();
+      const comparable = comparableAccountingUnitCost(quantity, amount);
+      const cost = comparable ? amount.div(quantity).toDecimalPlaces(4, Decimal.ROUND_HALF_UP).toString() : "0";
       const lotNumber = `1C-OPEN-${warehouseId}`;
       const old = material.lots.find((lot) => lot.lotNumber === lotNumber);
-      if (!old && quantity.isZero()) continue;
+      if (!old && quantity.isZero() && amount.isZero()) continue;
       const oldQuantity = old ? new Decimal(old.availableQuantity.toString()) : new Decimal(0);
       const metadata = { source: "1C_OPENING_BALANCE", snapshotSha256, sourceWarehouseId: warehouseId,
         accountCode: balance?.accountCode ?? null, bookValue: amount.toString(), valuation: "1C_ACCOUNTING_BALANCE",
+        valuationComparable: comparable, valuationIssue: balance?.issue ?? null,
         sourceUnitName: balance?.sourceUnitName ?? sourceRow?.unitName ?? null,
         sourceQuantity: balance?.sourceQuantity.toString() ?? "0",
         quantityFactor: balance?.quantityFactor ?? (sourceRow ? mapOneCMaterialUnit(sourceRow)?.quantityFactor : null) ?? null };
@@ -162,7 +183,11 @@ export async function projectFullSnapshot(tx: Transaction, input: FullSnapshotEn
       }
     }
     const bookValue = [...byWarehouse.values()].reduce((sum, balance) => sum.add(balance.amount), new Decimal(0));
-    const currentCost = stock.gt(0) ? bookValue.div(stock).toDecimalPlaces(4, Decimal.ROUND_HALF_UP).toString() : null;
+    // A valuation-only or signed warehouse row makes the aggregate unit cost
+    // incomparable too, even if the summed quantity and value are positive.
+    const currentCost = stock.gt(0) && bookValue.gt(0) &&
+      [...byWarehouse.values()].every((balance) => balance.issue === null)
+      ? bookValue.div(stock).toDecimalPlaces(4, Decimal.ROUND_HALF_UP).toString() : null;
     if (currentCost !== null && !material.costPerBaseUnit.eq(currentCost)) {
       await tx.materialPriceHistory.create({ data: { workspaceId, materialId: material.id,
         pricePerBaseUnit: currentCost, currency: "KZT", effectiveAt: new Date(snapshot.generatedAt),
@@ -245,5 +270,7 @@ export async function projectFullSnapshot(tx: Transaction, input: FullSnapshotEn
       documentChanges += 1;
     }
   }
-  return { directoryChanges, inventoryChanges, documentChanges, financialReadModel: true };
+  return { directoryChanges, inventoryChanges, documentChanges, financialReadModel: true,
+    accountingExceptionCount: accountingExceptions.length, accountingExceptions: accountingExceptions.slice(0, 25),
+    unitScaleUnverifiedMaterialIds };
 }

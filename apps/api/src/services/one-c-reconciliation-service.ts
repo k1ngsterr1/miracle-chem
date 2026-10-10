@@ -4,6 +4,7 @@ import { ApiError } from "../lib/api-error.js";
 import { prisma } from "../lib/prisma.js";
 import { fullSnapshotHash, fullSnapshotSchema } from "./one-c-full-snapshot-service.js";
 import { loadOneCFinance } from "./one-c-finance-service.js";
+import { accountingBalanceIssue, comparableAccountingUnitCost } from "./one-c-accounting-balance.js";
 import { mapOneCMaterialUnit } from "./one-c-material-unit.js";
 
 type Difference = { area: string; sourceId: string; field: string };
@@ -24,6 +25,10 @@ export async function reconcileLatestOneCWorkspace(workspaceId: string) {
     orderBy: [{ generatedAt: "desc" }, { completedAt: "desc" }], select: { generatedAt: true, summary: true } });
     const summary = run?.summary && typeof run.summary === "object" && !Array.isArray(run.summary)
       ? run.summary as Record<string, unknown> : null;
+    const projection = summary?.projection && typeof summary.projection === "object" && !Array.isArray(summary.projection)
+      ? summary.projection as Record<string, unknown> : null;
+    const unitScaleUnverifiedMaterialIds = new Set(Array.isArray(projection?.unitScaleUnverifiedMaterialIds)
+      ? projection.unitScaleUnverifiedMaterialIds.filter((id): id is string => typeof id === "string") : []);
     if (typeof summary?.snapshotId !== "string" || typeof summary.sha256 !== "string") {
       throw new ApiError(404, "ONE_C_RECONCILIATION_UNAVAILABLE", "Нет применённого полного снимка 1С для сверки");
     }
@@ -103,6 +108,7 @@ export async function reconcileLatestOneCWorkspace(workspaceId: string) {
 
     const expectedStock = new Map<string, Decimal>();
     const expectedLotKeys = new Set<string>();
+    let valuationUnavailableRows = 0;
     for (const row of snapshot.accountingInventory) {
       if (row.organizationId !== saved.organizationExternalId) continue;
       const materialId = materialIds.get(row.materialId);
@@ -114,15 +120,23 @@ export async function reconcileLatestOneCWorkspace(workspaceId: string) {
       const sourceQuantity = new Decimal(row.quantityDebit).sub(row.quantityCredit);
       const quantity = sourceQuantity.mul(unit.quantityFactor);
       const value = new Decimal(row.amountDebit).sub(row.amountCredit);
+      const issue = accountingBalanceIssue(quantity, value);
+      if (issue) valuationUnavailableRows += 1;
+      // These raw 1C rows are retained, but their tonne-to-KG conversion was
+      // deliberately not projected without a trustworthy physical baseline.
+      if (unitScaleUnverifiedMaterialIds.has(row.materialId)) continue;
       expectedStock.set(materialId!, (expectedStock.get(materialId!) ?? new Decimal(0)).add(quantity));
       const lotKey = `${materialId}:${row.warehouseId}`;
       if (expectedLotKeys.has(lotKey)) addDifference(differences, "stock", row.materialId, "duplicateWarehouse");
       expectedLotKeys.add(lotKey);
       const lot = actual.lots.find((item) => item.lotNumber === `1C-OPEN-${row.warehouseId}`);
-      if (!lot && !quantity.isZero()) { addDifference(differences, "stock", row.materialId, "missingLot"); continue; }
+      if (!lot && (!quantity.isZero() || !value.isZero())) {
+        addDifference(differences, "stock", row.materialId, "missingLot"); continue;
+      }
       if (!lot) continue;
       if (!sameDecimal(lot.availableQuantity, quantity)) addDifference(differences, "stock", row.materialId, "quantity");
-      const expectedUnitCost = quantity.isZero() ? new Decimal(0) : value.div(quantity).toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
+      const expectedUnitCost = comparableAccountingUnitCost(quantity, value)
+        ? value.div(quantity).toDecimalPlaces(4, Decimal.ROUND_HALF_UP) : new Decimal(0);
       if (!sameDecimal(lot.unitCost, expectedUnitCost) || lot.currency !== "KZT") {
         addDifference(differences, "stock", row.materialId, "unitCostOrCurrency");
       }
@@ -132,12 +146,17 @@ export async function reconcileLatestOneCWorkspace(workspaceId: string) {
           typeof metadata.bookValue !== "string" || !sameDecimal(metadata.bookValue, value)) {
         addDifference(differences, "stock", row.materialId, "bookValueOrWarehouse");
       }
+      if (issue ? metadata?.valuationIssue !== issue || metadata?.valuationComparable !== false
+        : metadata?.valuationIssue != null || metadata?.valuationComparable === false) {
+        addDifference(differences, "stock", row.materialId, "valuationState");
+      }
       if (unit.quantityFactor !== "1" && (metadata?.sourceUnitName !== sourceMaterial?.unitName ||
           metadata?.sourceQuantity !== sourceQuantity.toString() || metadata?.quantityFactor !== unit.quantityFactor)) {
         addDifference(differences, "stock", row.materialId, "sourceUnitConversion");
       }
     }
     for (const [externalId, materialId] of materialIds) {
+      if (unitScaleUnverifiedMaterialIds.has(externalId)) continue;
       const actual = materialById.get(materialId);
       if (!actual) continue;
       if (!sameDecimal(actual.currentStock, expectedStock.get(materialId) ?? new Decimal(0))) {
@@ -227,7 +246,8 @@ export async function reconcileLatestOneCWorkspace(workspaceId: string) {
         contracts: snapshot.contracts?.length ?? 0, specifications: snapshot.specifications?.length ?? 0,
         specificationComponents: snapshot.specificationComponents?.length ?? 0,
         productionReports: snapshot.productionReports?.length ?? 0, productionProducts: snapshot.productionProducts?.length ?? 0,
-        paymentsAreReadModelOnly: true, receivablesAreReadModelOnly: true },
+        paymentsAreReadModelOnly: true, receivablesAreReadModelOnly: true,
+        valuationUnavailableRows, unitScaleUnverifiedMaterials: unitScaleUnverifiedMaterialIds.size },
       differences, countsByArea, snapshot, customerIdByExternalId: customerIds,
     };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, maxWait: 10_000, timeout: 60_000 });

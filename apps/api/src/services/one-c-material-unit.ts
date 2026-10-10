@@ -25,11 +25,17 @@ export function mapOneCMaterialUnit(material: { externalId: string; code: string
 /** Fail closed if a tonne interpretation contradicts known KG stock or KZT/kg cost. */
 export function plausibleTonneBalance(currentStock: Decimal, currentCost: Decimal,
   proposedStock: Decimal, proposedValue: Decimal): boolean {
+  // A zero physical balance needs no unit conversion evidence. Other
+  // non-comparable balances need a prior positive KG baseline to rule out a
+  // 1000x error; callers retain an unverified source row without projecting it.
   if (proposedStock.isZero()) return true;
-  if (currentCost.lte(0) || proposedStock.lte(0) || proposedValue.lte(0)) return false;
+  if (proposedValue.lte(0) || proposedStock.lt(0)) {
+    return currentStock.gt(0) && proposedStock.abs().lte(currentStock.mul(100));
+  }
+  const implausibleQuantityJump = currentStock.gt(0) && proposedStock.gt(currentStock.mul(100));
+  if (currentCost.lte(0)) return false;
   const costRatio = proposedValue.div(proposedStock).div(currentCost);
   // A material can be almost fully consumed. Large upward jumps and a 1000x
   // price shift are the dangerous signatures of a mismatched register unit.
-  return costRatio.gte("0.1") && costRatio.lte("10") &&
-    (currentStock.lte(0) || proposedStock.lte(currentStock.mul(100)));
+  return costRatio.gte("0.1") && costRatio.lte("10") && !implausibleQuantityJump;
 }

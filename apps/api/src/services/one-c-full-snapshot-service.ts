@@ -116,8 +116,8 @@ export async function receiveFullSnapshot(input: FullSnapshotEnvelope) {
     if (existing !== null) {
       const previousHash = (existing.summary as Record<string, unknown> | null)?.sha256;
       if (previousHash !== sha256) throw new ApiError(409, "ONE_C_BATCH_CHANGED", "Повторный batchId содержит другой снимок 1С");
-      if (existing.status === OneCSyncRunStatus.COMPLETED) {
-        return { status: "COMPLETED" as const, replayed: true, runId: existing.id, sha256 };
+      if (existing.status === OneCSyncRunStatus.COMPLETED || existing.status === OneCSyncRunStatus.PARTIAL) {
+        return { status: existing.status, replayed: true, runId: existing.id, sha256 };
       }
     }
     const newest = await tx.oneCSourceSnapshot.findFirst({
@@ -144,9 +144,12 @@ export async function receiveFullSnapshot(input: FullSnapshotEnvelope) {
     const staged = baseline.payload !== null && typeof baseline.payload === "object" &&
       !Array.isArray(baseline.payload) && (baseline.payload as Record<string, unknown>).schemaVersion === 1;
     const projection = staged ? await projectFullSnapshot(tx, input, sha256) : null;
+    const status = projection && (projection.accountingExceptionCount > 0 ||
+      projection.unitScaleUnverifiedMaterialIds.length > 0)
+      ? OneCSyncRunStatus.PARTIAL : OneCSyncRunStatus.COMPLETED;
     const summary = { sha256, snapshotId: saved.id, counts, appliedToOperationalTables: projection !== null, projection };
     const runData = { workspaceId: input.workspaceId, source, batchId: input.batchId,
-      generatedAt: new Date(input.generatedAt), status: OneCSyncRunStatus.COMPLETED,
+      generatedAt: new Date(input.generatedAt), status,
       completedAt: new Date(), summary, error: Prisma.DbNull };
     const run = await tx.oneCSyncRun.upsert({
       where: { workspaceId_source_batchId: { workspaceId: input.workspaceId, source, batchId: input.batchId } },
@@ -155,7 +158,7 @@ export async function receiveFullSnapshot(input: FullSnapshotEnvelope) {
     await tx.auditLog.create({ data: { workspaceId: input.workspaceId,
       action: "ONE_C_FULL_SNAPSHOT_RECEIVED", entityType: AuditEntityType.ONE_C_SYNC,
       entityId: run.id, after: summary } });
-    return { status: "COMPLETED" as const, replayed: false, runId: run.id, sha256, summary };
+    return { status, replayed: false, runId: run.id, sha256, summary };
     }, { maxWait: 10_000, timeout: 120_000, isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   } catch (error) {
     // Two identical deliveries can race before either transaction sees the run.
@@ -163,8 +166,9 @@ export async function receiveFullSnapshot(input: FullSnapshotEnvelope) {
       const run = await prisma.oneCSyncRun.findUnique({
         where: { workspaceId_source_batchId: { workspaceId: input.workspaceId, source, batchId: input.batchId } },
       });
-      if (run?.status === OneCSyncRunStatus.COMPLETED && (run.summary as Record<string, unknown> | null)?.sha256 === sha256) {
-        return { status: "COMPLETED" as const, replayed: true, runId: run.id, sha256 };
+      if ((run?.status === OneCSyncRunStatus.COMPLETED || run?.status === OneCSyncRunStatus.PARTIAL) &&
+          (run.summary as Record<string, unknown> | null)?.sha256 === sha256) {
+        return { status: run.status, replayed: true, runId: run.id, sha256 };
       }
     }
     // The projection transaction rolls back entirely. Record the failed attempt separately,

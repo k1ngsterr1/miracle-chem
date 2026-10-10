@@ -24,4 +24,14 @@ describe("SyncStatus", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Соединение недоступно");
     expect(screen.queryByText("Данные обновлены")).not.toBeInTheDocument();
   });
+
+  it("shows the fresh 1C snapshot and its accounting valuation warning", async () => {
+    fetchMock.mockResolvedValue({ configured: true, state: "PARTIAL", snapshotAt: "2026-10-10T08:00:00Z",
+      accountingExceptionCount: 2, unitScaleUnverifiedMaterialCount: 1, error: null });
+    render(<SyncStatus />);
+    fireEvent.click(await screen.findByRole("button", { name: "Нужна сверка остатков" }));
+    expect(screen.getByText(/Данные 1С приняты/u)).toBeInTheDocument();
+    expect(screen.getByText(/исходные количество и сумма сохранены/u)).toBeInTheDocument();
+    expect(screen.getByText(/остаток склада CRM пока не обновлён/u)).toBeInTheDocument();
+  });
 });

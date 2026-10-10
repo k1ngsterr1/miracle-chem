@@ -31,4 +31,17 @@ describe("1C accounting unit mapping", () => {
     expect(plausibleTonneBalance(new Decimal("0"), new Decimal("0"),
       new Decimal("11"), new Decimal("4883.62"))).toBe(false);
   });
+
+  it("accepts signed 1C balances without treating their book value as a unit price", () => {
+    expect(plausibleTonneBalance(new Decimal("5500"), new Decimal("440"),
+      new Decimal("-11"), new Decimal("-4883.62"))).toBe(true);
+    expect(plausibleTonneBalance(new Decimal("5500"), new Decimal("440"),
+      new Decimal("11"), new Decimal("0"))).toBe(true);
+    expect(plausibleTonneBalance(new Decimal("5500"), new Decimal("440"),
+      new Decimal("5500000"), new Decimal("0"))).toBe(false);
+    expect(plausibleTonneBalance(new Decimal("0"), new Decimal("0"),
+      new Decimal("2000"), new Decimal("0"))).toBe(false);
+    expect(plausibleTonneBalance(new Decimal("0"), new Decimal("0"),
+      new Decimal("-2000"), new Decimal("-100"))).toBe(false);
+  });
 });

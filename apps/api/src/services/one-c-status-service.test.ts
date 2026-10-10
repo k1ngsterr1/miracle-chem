@@ -27,4 +27,17 @@ describe("1C data freshness", () => {
     expect(mocks.run.mock.calls[2]?.[0].where).toMatchObject({ status: "FAILED",
       generatedAt: { gte: new Date("2026-09-30T08:00:00Z") }, completedAt: { gt: new Date("2026-09-30T08:05:00Z") } });
   });
+  it("treats a partially valued full snapshot as the latest accepted 1C data", async () => {
+    mocks.run.mockResolvedValueOnce({ status: "PARTIAL" })
+      .mockResolvedValueOnce({ generatedAt: new Date("2026-09-30T08:00:00Z"),
+        completedAt: new Date("2026-09-30T08:00:05Z"), status: "PARTIAL",
+        summary: { projection: { accountingExceptionCount: 2,
+          unitScaleUnverifiedMaterialIds: ["source-kt2"] } } })
+      .mockResolvedValueOnce(null);
+    expect(await getOneCSyncStatus("workspace", new Date("2026-09-30T08:10:00Z"))).toMatchObject({
+      state: "PARTIAL", snapshotAt: "2026-09-30T08:00:00.000Z", accountingExceptionCount: 2,
+      unitScaleUnverifiedMaterialCount: 1,
+    });
+    expect(mocks.run.mock.calls[1]?.[0].where.status.in).toEqual(["COMPLETED", "PARTIAL"]);
+  });
 });
